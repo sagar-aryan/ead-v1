@@ -1,0 +1,29 @@
+# EAD V1 ignores — build outputs, local env, research data
+# Firmware (PlatformIO)
+firmware/.pio/
+firmware/.pioenvs/
+firmware/.piolibdeps/
+.pio/
+.pioenvs/
+
+# Dashboard (Node + Tauri/Rust)
+dashboard/node_modules/
+dashboard/src-tauri/target/
+dashboard/dist/
+dashboard/src-tauri/WixTools/
+
+# Research session exports (raw/derived data stays out of git)
+*.ead
+
+# Generic build output
+dist/
+build/
+out/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
