@@ -58,7 +58,29 @@ Completed (docs + ignore scaffolding). Implementation remains at Phase 1
 skeleton; dashboard skeleton and all Phase 2+ code outstanding.
 
 ### Next Steps
-1. Main agent runs `git init` + initial commit.
-2. Verify `pio run` for `firmware/` (Phase 1 build check).
-3. Scaffold Tauri 2 dashboard project per doc 14 Phase 9.
+1. ~~Main agent runs `git init` + initial commit.~~ DONE 2026-09-17: repo at https://github.com/sagar-aryan/ead-v1, branch main.
+2. ~~Verify `pio run` for `firmware/` (Phase 1 build check).~~ DONE: SUCCESS (309s, RAM 5.7%, Flash 8.0%).
+3. ~~Scaffold Tauri 2 dashboard project per doc 14 Phase 9.~~ DONE: `npm run build` PASS (tsc + vite, 30 modules).
 4. Begin Phase 2 sensor layer with replay fixtures.
+
+## 2026-09-17 — Phase 1 skeletons verified + repo live
+
+### Objective
+Parallel-scaffold firmware + dashboard + docs, verify builds, push private repo.
+
+### Investigation
+pio missing (installed 6.2.0 via pip --break-system-packages); node 24, rustc 1.95, gh authed as sagar-aryan.
+
+### Approach
+3 parallel subagents scaffolded firmware / dashboard / docs; main installed pio, built, init git, pushed private repo, npm-built dashboard.
+
+### Changes
+Added firmware/, dashboard/, docs/, .gitignore. Verified, committed 378469c.
+
+### Verification
+- `pio run -d firmware`: SUCCESS, elf->bin, RAM 18740/327680, Flash 266301/3342336.
+- `npm run build` in dashboard: tsc + vite SUCCESS.
+- Remote: https://github.com/sagar-aryan/ead-v1 (private, main).
+
+### Current Status
+Phase 1 complete. Next: Phase 2 sensor layer (MPU6050 drivers, INT, 100Hz sync, cal).
