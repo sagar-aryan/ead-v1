@@ -362,6 +362,23 @@ td {
   border-bottom: 1px solid var(--rule);
 }
 
+/* The reference version whose features are shown below the table. */
+tr[aria-selected="true"] td {
+  background: #f2f3f4;
+  font-weight: 500;
+}
+
+/* Why a session may not start: a list, not a paragraph, because each line is
+   one thing the researcher has to go and fix. */
+ul.hint {
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
+ul.hint li {
+  margin: 2px 0;
+}
+
 tr.selectable {
   cursor: pointer;
 }

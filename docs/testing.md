@@ -863,3 +863,69 @@ captured from a person, because that needs thirty valid cycles and the longest
 walk recorded so far is six. The four values doc 06 leaves undefined are recorded
 in DEC-013 and need review against real captures before any claim is made from
 this output.
+
+## TEST-032 — Segment rollover and the error rule
+
+### Objective
+That a segment closes on whichever researcher-entered limit is reached first
+(doc 12 §5), that the cycle which trips a limit belongs to the segment it
+closed, and that a classification the engine would not display does not count
+as an error (DEC-014).
+
+### Environment
+Host, `cargo test`, an in-memory-equivalent temporary SQLite store. No device.
+
+### Procedure
+`segments_close_on_whichever_limit_comes_first` in
+`dashboard/src-tauri/src/store/tests.rs` opens an evaluation with limits of 3
+valid cycles and 2 errors, then records, in order: three valid clean cycles;
+one cycle classified with confidence 0.9; one invalid cycle; a second cycle
+classified with confidence 0.9; and one classified cycle with confidence 0.2.
+`a_recording_has_no_segments` records a classified cycle into a plain recording.
+
+### Expected
+Segment 0 closes by `cycle_limit` with 3 valid cycles. Segment 1 closes by
+`error_limit` with 2 errors and 2 valid cycles — the invalid cycle counts toward
+neither. Segment 2 stays open with 0 errors, because confidence 0.2 is below the
+0.50 display gate. Cycle segment indices are `0,0,0,1,1,1,2`. Stopping the
+session closes segment 2 by `session_stopped`. A plain recording produces no
+segment rows and every cycle reads segment 0.
+
+### Actual
+As expected, on the first run.
+
+### Result
+PASS
+
+### Notes
+The rule is a pure function of the stored cycle stream, so re-running it over
+the same `cycles` rows reproduces the same segmentation with no device present.
+That is the property DEC-014 traded the protocol change for, and this test is
+what holds it.
+
+## TEST-033 — Zero-velocity window pairing in the events view
+
+### Objective
+That the EVENTS view's zero-velocity lane is drawn from correctly paired
+`zupt_start` / `zupt_end` events, including the malformed cases.
+
+### Environment
+Host, `node --test dashboard/src/*.test.ts`. No device.
+
+### Procedure
+`dashboard/src/events.test.ts`, five cases: ordinary pairs; unrelated event
+kinds interleaved; a repeated start; an end with nothing open; a window still
+open when the session ended.
+
+### Expected
+Ordinary pairs come back as spans. Other kinds are ignored. A repeated start
+does not open a nested window. An unmatched end is dropped. An open window is
+drawn to the end of the session rather than discarded.
+
+### Result
+PASS — 5 cases. Frontend total 28.
+
+### Notes
+The last case is the one that matters for honesty: a zero-velocity window that
+never closed is a detector fault worth seeing, and silently dropping it would
+make the lane look tidier than the data.

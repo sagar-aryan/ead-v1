@@ -7,7 +7,7 @@ use rusqlite::{Connection, Result};
 
 use crate::protocol::RawFrame;
 
-pub const SCHEMA_VERSION: i32 = 4;
+pub const SCHEMA_VERSION: i32 = 5;
 
 pub fn migrate(connection: &mut Connection) -> Result<()> {
     // WAL keeps readers (UI queries) from blocking the writer thread.
@@ -39,6 +39,7 @@ pub fn migrate(connection: &mut Connection) -> Result<()> {
             1 => transaction.execute_batch(MIGRATE_1_TO_2)?,
             2 => transaction.execute_batch(MIGRATE_2_TO_3)?,
             3 => transaction.execute_batch(MIGRATE_3_TO_4)?,
+            4 => transaction.execute_batch(MIGRATE_4_TO_5)?,
             other => unreachable!("no migration from schema {other}"),
         }
         version += 1;
@@ -162,6 +163,54 @@ WHEN old.locked = 1 AND (new.payload IS NOT old.payload OR new.cycles IS NOT old
 BEGIN
   SELECT RAISE(ABORT, 'a locked reference profile cannot be modified');
 END;
+
+-- Segments (doc 12 §5), added in schema 5. The researcher enters both limits
+-- before an evaluation may start and the segment closes on whichever is reached
+-- first. Segmentation is host-side (DEC-014): nothing on the device changes
+-- behaviour at a segment boundary in V1, so the counter lives where the limits
+-- were entered and a replay of the stored cycles reproduces it exactly.
+ALTER TABLE sessions ADD COLUMN reference_id TEXT REFERENCES reference_profiles(reference_id);
+ALTER TABLE sessions ADD COLUMN max_cycles_per_segment INTEGER;
+ALTER TABLE sessions ADD COLUMN max_errors_per_segment INTEGER;
+
+ALTER TABLE cycles ADD COLUMN segment_index INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE segments (
+  session_id    TEXT NOT NULL REFERENCES sessions(session_id),
+  segment_index INTEGER NOT NULL,
+  started_at    TEXT NOT NULL,
+  closed_at     TEXT,
+  -- 'cycle_limit', 'error_limit' or 'session_stopped'; null while open.
+  closed_by     TEXT,
+  valid_cycles  INTEGER NOT NULL DEFAULT 0,
+  errors        INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (session_id, segment_index)
+) WITHOUT ROWID;
+"#;
+
+const MIGRATE_4_TO_5: &str = r#"
+-- Segments (doc 12 §5), added in schema 5. The researcher enters both limits
+-- before an evaluation may start and the segment closes on whichever is reached
+-- first. Segmentation is host-side (DEC-014): nothing on the device changes
+-- behaviour at a segment boundary in V1, so the counter lives where the limits
+-- were entered and a replay of the stored cycles reproduces it exactly.
+ALTER TABLE sessions ADD COLUMN reference_id TEXT REFERENCES reference_profiles(reference_id);
+ALTER TABLE sessions ADD COLUMN max_cycles_per_segment INTEGER;
+ALTER TABLE sessions ADD COLUMN max_errors_per_segment INTEGER;
+
+ALTER TABLE cycles ADD COLUMN segment_index INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE segments (
+  session_id    TEXT NOT NULL REFERENCES sessions(session_id),
+  segment_index INTEGER NOT NULL,
+  started_at    TEXT NOT NULL,
+  closed_at     TEXT,
+  -- 'cycle_limit', 'error_limit' or 'session_stopped'; null while open.
+  closed_by     TEXT,
+  valid_cycles  INTEGER NOT NULL DEFAULT 0,
+  errors        INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (session_id, segment_index)
+) WITHOUT ROWID;
 "#;
 
 const MIGRATE_1_TO_2: &str = r#"
@@ -282,9 +331,9 @@ INSERT OR REPLACE INTO cycles
    peak_shank_dps, peak_dorsi_deg, contact_sag_deg, peak_inv_deg,
    distance_m, speed_mps, zupt_quality, valid,
    error_score, confidence, active_classes, primary_class,
-   confidence_subscores, deviations)
+   confidence_subscores, deviations, segment_index)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-        ?19, ?20, ?21, ?22, ?23, ?24)
+        ?19, ?20, ?21, ?22, ?23, ?24, ?25)
 "#;
 
 pub const INSERT_EVENT: &str = r#"

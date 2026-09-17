@@ -63,6 +63,10 @@ pub struct Snapshot {
     pub calibration: Option<protocol::Calibration>,
     /// Why that record was rejected, in words; empty when it is usable.
     pub calibration_rejections: Vec<&'static str>,
+    /// The session kind this host last started, by name; null when none.
+    pub session_kind: Option<&'static str>,
+    /// Valid cycles since that session started.
+    pub session_valid_cycles: u32,
 }
 
 #[derive(Default)]
@@ -76,6 +80,14 @@ struct State {
     calibration: Option<protocol::Calibration>,
     /// The profile from the last completed capture, until it is saved.
     reference: Option<protocol::ReferenceProfile>,
+    /// The session this host started, as the host understands it. The device
+    /// does not report its session kind in STATUS, so this is the command that
+    /// was sent, not an echo: it goes stale if the device faults out of it.
+    session_kind: Option<u8>,
+    /// Valid cycles seen since the session started. During a capture this is
+    /// the same rule the device's builder applies, so it tracks the count the
+    /// thirty-cycle gate will use — up to the builder's sixty-four cycle ring.
+    session_valid_cycles: u32,
     frames_received: u64,
     missing_messages: u32,
     rejected_frames: u64,
@@ -139,6 +151,12 @@ impl Device {
                 }
                 _ => Vec::new(),
             },
+            session_kind: if connected {
+                state.session_kind.and_then(|k| protocol::SESSION_KINDS.get(k as usize).copied())
+            } else {
+                None
+            },
+            session_valid_cycles: state.session_valid_cycles,
         }
     }
 
@@ -158,7 +176,16 @@ impl Device {
     /// Starts collecting valid cycles for a new reference profile.
     pub fn start_reference_capture(&self) -> Result<(), String> {
         let payload = protocol::session_start(protocol::SESSION_KIND_REFERENCE_CAPTURE, 0);
-        self.send_now(MsgType::SessionStart, &payload)
+        self.send_now(MsgType::SessionStart, &payload)?;
+        self.note_session(Some(protocol::SESSION_KIND_REFERENCE_CAPTURE));
+        Ok(())
+    }
+
+    /// Records which session the host started, and restarts the cycle count.
+    fn note_session(&self, kind: Option<u8>) {
+        let mut state = self.state.lock().expect("device state");
+        state.session_kind = kind;
+        state.session_valid_cycles = 0;
     }
 
     /// Starts a check or an evaluation against a locked profile. The profile
@@ -175,13 +202,17 @@ impl Device {
             protocol::SESSION_KIND_EVALUATION
         };
         let payload = protocol::session_start_with_reference(kind, profile);
-        self.send_now(MsgType::SessionStart, &payload)
+        self.send_now(MsgType::SessionStart, &payload)?;
+        self.note_session(Some(kind));
+        Ok(())
     }
 
     /// Ends the running session. A capture answers with its profile, which
     /// arrives later and is collected with `take_reference`.
     pub fn stop_session(&self) -> Result<(), String> {
-        self.send_now(MsgType::SessionStop, &[])
+        self.send_now(MsgType::SessionStop, &[])?;
+        self.note_session(None);
+        Ok(())
     }
 
     /// Takes the profile from the last completed capture, clearing it.
@@ -383,7 +414,16 @@ impl Tracker {
                 Err(e) => self.note_error(format!("EVENT_BATCH: {e}")),
             },
             MsgType::StepBatch => match protocol::parse_step_batch(payload) {
-                Ok(cycles) => self.sink.gait(&cycles, &[]),
+                Ok(cycles) => {
+                    let valid = cycles.iter().filter(|c| c.valid).count() as u32;
+                    if valid > 0 {
+                        let mut state = self.state.lock().expect("device state");
+                        if state.session_kind.is_some() {
+                            state.session_valid_cycles += valid;
+                        }
+                    }
+                    self.sink.gait(&cycles, &[]);
+                }
                 Err(e) => self.note_error(format!("STEP_BATCH: {e}")),
             },
             MsgType::ConfigGet => self.on_config(payload),

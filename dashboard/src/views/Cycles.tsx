@@ -15,7 +15,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
 
-import { api, type Cycle, type Session } from "../api";
+import { api, type Cycle, type Segment, type Session } from "../api";
+import { className } from "./References";
+import type { DeviceApi } from "../useDevice";
 
 /** Below this, doc 05 §8 says to report distance and speed as low-confidence. */
 const ZUPT_ADEQUATE = 0.15;
@@ -29,7 +31,15 @@ const TRENDS: { key: keyof Cycle; label: string; unit: string; digits: number }[
   { key: "peak_dorsiflexion_deg", label: "Peak dorsiflexion", unit: "°", digits: 1 },
   { key: "peak_shank_rate_dps", label: "Peak shank rate", unit: "°/s", digits: 0 },
   { key: "zupt_quality", label: "ZUPT quality", unit: "", digits: 2 },
+  { key: "error_score", label: "Error score", unit: "", digits: 2 },
+  { key: "confidence", label: "Confidence", unit: "", digits: 2 },
 ];
+
+/**
+ * Doc 06 §7. Below this the engine says its own classification should not be
+ * shown, so the class is reported as undecided rather than as a finding.
+ */
+const CONFIDENCE_FOR_DISPLAY = 0.5;
 
 const INK = "#15181c";
 const AXIS = {
@@ -99,10 +109,11 @@ function summary(values: number[]) {
   return { median, mad };
 }
 
-export function Cycles() {
+export function Cycles({ device }: { device: DeviceApi }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selected, setSelected] = useState("");
   const [cycles, setCycles] = useState<Cycle[]>([]);
+  const [segments, setSegments] = useState<Segment[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -112,10 +123,13 @@ export function Cycles() {
   const load = useCallback(async (sessionId: string) => {
     if (!sessionId) {
       setCycles([]);
+      setSegments([]);
       return;
     }
     try {
-      setCycles(await api.cycles(sessionId));
+      const [c, g] = await Promise.all([api.cycles(sessionId), api.segments(sessionId)]);
+      setCycles(c);
+      setSegments(g);
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -126,11 +140,33 @@ export function Cycles() {
     load(selected);
   }, [selected, load]);
 
+  const session = sessions.find((s) => s.session_id === selected);
+  // A session was scored when it was started against a reference. Reading it
+  // from the session, not from the numbers, is what keeps an unscored cycle's
+  // all-zero row from being drawn as perfect agreement.
+  const isScored = session?.reference_id != null;
+  const vocabulary = device.vocabulary;
+
   const valid = useMemo(() => cycles.filter((c) => c.valid), [cycles]);
   const measured = useMemo(
     () => valid.filter((c) => c.zupt_quality >= ZUPT_ADEQUATE),
     [valid],
   );
+  const scored = useMemo(
+    () => (isScored ? valid.filter((c) => c.confidence > 0) : []),
+    [valid, isScored],
+  );
+  const errorScore = summary(scored.map((c) => c.error_score));
+  const confidence = summary(scored.map((c) => c.confidence));
+  // Only classifications the engine says may be shown are counted.
+  const classCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const c of scored) {
+      if (c.confidence < CONFIDENCE_FOR_DISPLAY) continue;
+      counts.set(c.primary_class, (counts.get(c.primary_class) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [scored]);
   const cadence = summary(valid.map((c) => c.cadence_steps_per_min));
   const distance = measured.reduce((total, c) => total + c.distance_m, 0);
   const walkingTime = measured.reduce((total, c) => total + c.cycle_time_s, 0);
@@ -213,6 +249,102 @@ export function Cycles() {
             </p>
           </div>
 
+          {isScored && (
+            <div className="panel">
+              <h2>Against the reference</h2>
+              <div className="readouts">
+                <div className="readout">
+                  <span className="label">Scored cycles</span>
+                  <span className="value num">{scored.length}</span>
+                </div>
+                <div className="readout">
+                  <span className="label">Error score median</span>
+                  <span className="value num">
+                    {errorScore ? errorScore.median.toFixed(2) : <span className="absent">—</span>}
+                  </span>
+                </div>
+                <div className="readout">
+                  <span className="label">Error score MAD</span>
+                  <span className="value num">
+                    {errorScore ? errorScore.mad.toFixed(2) : <span className="absent">—</span>}
+                  </span>
+                </div>
+                <div className="readout">
+                  <span className="label">Confidence median</span>
+                  <span className="value num">
+                    {confidence ? confidence.median.toFixed(2) : <span className="absent">—</span>}
+                  </span>
+                </div>
+              </div>
+              <p className="hint" style={{ marginTop: 10 }}>
+                Scored against reference <span className="num">{session?.reference_id}</span>. An
+                error score is a weighted distance from that patient's own medians, not a
+                measure of health; doc 06 defines no threshold that separates a good cycle
+                from a bad one, so none is drawn here.
+              </p>
+              {classCounts.length > 0 && (
+                <table style={{ marginTop: 12 }}>
+                  <thead>
+                    <tr>
+                      <th>Primary class</th>
+                      <th>Cycles</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {classCounts.map(([index, count]) => (
+                      <tr key={index}>
+                        <td>{className(vocabulary, index)}</td>
+                        <td className="num">{count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              <p className="hint">
+                Counted only where confidence reaches {CONFIDENCE_FOR_DISPLAY.toFixed(2)}, the
+                level below which doc 06 §7 says the classification should not be shown at all.
+              </p>
+            </div>
+          )}
+
+          {segments.length > 0 && (
+            <div className="panel">
+              <h2>Segments</h2>
+              <p className="hint">
+                Limits entered for this session: {session?.max_cycles_per_segment} valid cycles
+                or {session?.max_errors_per_segment} errors, whichever came first (doc 12 §5).
+              </p>
+              <table>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Started</th>
+                    <th>Valid cycles</th>
+                    <th>Errors</th>
+                    <th>Closed by</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {segments.map((g) => (
+                    <tr key={g.segment_index}>
+                      <td className="num">{g.segment_index}</td>
+                      <td className="num">{g.started_at.slice(11, 19)}</td>
+                      <td className="num">{g.valid_cycles}</td>
+                      <td className="num">{g.errors}</td>
+                      <td>
+                        {g.closed_by ? (
+                          g.closed_by.replace(/_/g, " ")
+                        ) : (
+                          <span className="absent">open</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           <div className="panel">
             <h2>Per cycle</h2>
             <p className="hint">
@@ -234,6 +366,14 @@ export function Cycles() {
                     <th>Dorsi (°)</th>
                     <th>Contact (°)</th>
                     <th>Shank (°/s)</th>
+                    {isScored && (
+                      <>
+                        <th>Segment</th>
+                        <th>Score</th>
+                        <th>Conf.</th>
+                        <th>Class</th>
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -260,6 +400,34 @@ export function Cycles() {
                       <td className="num">{c.peak_dorsiflexion_deg.toFixed(1)}</td>
                       <td className="num">{c.contact_sagittal_deg.toFixed(1)}</td>
                       <td className="num">{c.peak_shank_rate_dps.toFixed(0)}</td>
+                      {isScored && (
+                        <>
+                          <td className="num">{c.segment_index}</td>
+                          <td className="num">
+                            {c.confidence > 0 ? (
+                              c.error_score.toFixed(2)
+                            ) : (
+                              <span className="absent">not scored</span>
+                            )}
+                          </td>
+                          <td className="num">
+                            {c.confidence > 0 ? (
+                              c.confidence.toFixed(2)
+                            ) : (
+                              <span className="absent">—</span>
+                            )}
+                          </td>
+                          <td style={{ fontSize: 13 }}>
+                            {c.confidence >= CONFIDENCE_FOR_DISPLAY ? (
+                              className(vocabulary, c.primary_class)
+                            ) : (
+                              <span className="absent">
+                                {c.confidence > 0 ? "low confidence" : "—"}
+                              </span>
+                            )}
+                          </td>
+                        </>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -275,9 +443,13 @@ export function Cycles() {
               view is where that gets settled.
             </p>
             <div className="trend-grid">
-              {TRENDS.map((trend, index) => (
-                <Trend key={trend.key} cycles={cycles} index={index} />
-              ))}
+              {TRENDS.map((trend, index) =>
+                // The error trends belong to a scored session; for any other
+                // session the column is absent, not flat at zero.
+                !isScored && (trend.key === "error_score" || trend.key === "confidence") ? null : (
+                  <Trend key={trend.key} cycles={cycles} index={index} />
+                ),
+              )}
             </div>
           </div>
         </>

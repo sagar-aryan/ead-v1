@@ -6,12 +6,22 @@ import { useDevice } from "./useDevice";
 import { Device } from "./views/Device";
 import { Live } from "./views/Live";
 import { Cycles } from "./views/Cycles";
+import { Events } from "./views/Events";
+import { References } from "./views/References";
 import { Raw } from "./views/Raw";
 import { Sessions } from "./views/Sessions";
 
-/** Views that exist today. The remaining doc 11 areas arrive with the
- *  measurements they display (gait events M4, error engine M5, export M6). */
-const VIEWS = ["Live", "Cycles", "Raw data", "Sessions", "Device"] as const;
+/** Doc 11 order. HAPTICS is absent because no drivers are fitted (DEC-006);
+ *  EXPORT arrives with M6. */
+const VIEWS = [
+  "Live",
+  "Cycles",
+  "Events",
+  "Raw data",
+  "References",
+  "Sessions",
+  "Device",
+] as const;
 type View = (typeof VIEWS)[number];
 
 export default function App() {
@@ -51,7 +61,9 @@ export default function App() {
         </nav>
         <main>
           {view === "Live" && <Live device={device} />}
-          {view === "Cycles" && <Cycles />}
+          {view === "Cycles" && <Cycles device={device} />}
+          {view === "Events" && <Events />}
+          {view === "References" && <References device={device} />}
           {view === "Raw data" && <Raw />}
           {view === "Sessions" && <Sessions device={device} />}
           {view === "Device" && <Device device={device} />}

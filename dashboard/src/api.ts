@@ -63,6 +63,10 @@ export interface Snapshot {
   calibration: Calibration | null;
   /** Why the record was rejected, in words; empty when it is usable. */
   calibration_rejections: string[];
+  /** The session this dashboard started, by name; null when none is running. */
+  session_kind: string | null;
+  /** Valid cycles since that session started. */
+  session_valid_cycles: number;
 }
 
 export interface MountMap extends Array<[number, number, number]> {}
@@ -106,6 +110,9 @@ export interface Vocabulary {
   fault_names: string[];
   raw_status_names: string[];
   gait_states: string[];
+  /** Feature order doc 06 §3 weighs; deviations arrive in this order. */
+  feature_names: string[];
+  error_classes: string[];
   default_wifi_url: string;
 }
 
@@ -148,6 +155,28 @@ export interface Session {
   last_frame_index: number | null;
   frames_stored: number;
   frames_missing: number;
+  /** The profile this session was scored against, for a check or evaluation. */
+  reference_id: string | null;
+  /** Segment limits as entered; both null unless this is an evaluation. */
+  max_cycles_per_segment: number | null;
+  max_errors_per_segment: number | null;
+}
+
+/** Doc 12 §5. Both are required before an evaluation may start. */
+export interface SegmentLimits {
+  max_cycles: number;
+  max_errors: number;
+}
+
+/** One segment of an evaluation, as closed or still open. */
+export interface Segment {
+  segment_index: number;
+  started_at: string;
+  closed_at: string | null;
+  /** `cycle_limit`, `error_limit` or `session_stopped`; null while open. */
+  closed_by: string | null;
+  valid_cycles: number;
+  errors: number;
 }
 
 export interface AnkleAngles {
@@ -208,6 +237,50 @@ export interface Cycle {
   zupt_quality: number;
   /** False when a temporal guard rejected it (doc 05 §4). */
   valid: boolean;
+  /**
+   * All zero when the cycle was not scored — no reference was loaded. That is
+   * not agreement with a reference, and must never be drawn as a good cycle.
+   * `primary_class` 0 ("none") with a nonzero confidence is a scored cycle that
+   * deviated from nothing.
+   */
+  error_score: number;
+  confidence: number;
+  /** Doc 06 §5, in weight order: sensor, event, features, reference, ZUPT. */
+  confidence_subscores: number[];
+  /** One per `Vocabulary.feature_names`, clamped 0–1. */
+  deviations: number[];
+  /** Bitmask over `Vocabulary.error_classes`. */
+  active_classes: number;
+  /** Index into `Vocabulary.error_classes`. */
+  primary_class: number;
+  /** Which segment of the session it fell in; 0 when the session has none. */
+  segment_index: number;
+}
+
+/** One feature of a reference profile: the patient's own median and spread. */
+export interface ReferenceFeature {
+  median: number;
+  /** 1.4826 × MAD with a per-feature floor; never zero (doc 06 §2). */
+  spread: number;
+}
+
+export interface ReferenceProfile {
+  cycles: number;
+  version: number;
+  features: ReferenceFeature[];
+}
+
+/** A stored, versioned reference profile (doc 12 §2–§3). */
+export interface StoredReference {
+  reference_id: string;
+  patient_id: string;
+  version: number;
+  created_at: string;
+  session_id: string | null;
+  cycles: number;
+  /** Locked profiles are immutable: they have judged a session. */
+  locked: boolean;
+  profile: ReferenceProfile;
 }
 
 export interface GaitEvent {
@@ -268,6 +341,27 @@ export const api = {
   sessions: () => invoke<Session[]>("sessions"),
   session: (sessionId: string) => invoke<Session>("session", { sessionId }),
   cycles: (sessionId: string) => invoke<Cycle[]>("cycles", { sessionId }),
+  references: (patientId: string) => invoke<StoredReference[]>("references", { patientId }),
+  segments: (sessionId: string) => invoke<Segment[]>("segments", { sessionId }),
+  /** Why a session may not start, in words. Empty means it may. */
+  sessionBlockers: (
+    patientId: string,
+    referenceId: string,
+    limits: SegmentLimits | null,
+    kind: "reference_capture" | "reference_check" | "evaluation",
+  ) => invoke<string[]>("session_blockers", { patientId, referenceId, limits, kind }),
+  startReferenceCapture: (patientId: string) =>
+    invoke<Session>("start_reference_capture", { patientId }),
+  /** Null when the device refused to build a profile: too few valid cycles. */
+  finishReferenceCapture: (patientId: string) =>
+    invoke<StoredReference | null>("finish_reference_capture", { patientId }),
+  startScoredSession: (
+    patientId: string,
+    referenceId: string,
+    check: boolean,
+    limits: SegmentLimits | null,
+  ) => invoke<Session>("start_scored_session", { patientId, referenceId, check, limits }),
+  stopScoredSession: () => invoke<Session | null>("stop_scored_session"),
   events: (sessionId: string) => invoke<GaitEvent[]>("events", { sessionId }),
   startCalibration: (durationMs: number) =>
     invoke<void>("start_calibration", { durationMs }),

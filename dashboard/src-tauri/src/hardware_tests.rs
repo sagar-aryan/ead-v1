@@ -108,7 +108,7 @@ fn records_a_session_from_a_real_device() {
         config_section: device.config_section(),
     };
     let session = store
-        .start_session("HW-TEST", SessionKind::Recording, &identity)
+        .start_session("HW-TEST", SessionKind::Recording, &identity, None, None)
         .expect("start session");
 
     let seconds = 5;

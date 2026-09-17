@@ -8,7 +8,9 @@ use crate::device::{self, Device, Sink, Snapshot};
 use crate::link::{usb::UsbPortInfo, LinkTarget};
 use crate::live::{LiveHub, LiveTick};
 use crate::protocol::{config::DeviceConfigSection, RawFrame, Status};
-use crate::store::{DeviceIdentity, Patient, RawWindow, Session, SessionKind, SignalGroup, Store};
+use crate::store::{
+    DeviceIdentity, Patient, RawWindow, SegmentLimits, Session, SessionKind, SignalGroup, Store,
+};
 
 /// Routes decoded telemetry to the store and the live view.
 struct Telemetry {
@@ -199,7 +201,9 @@ pub fn start_recording(
         return Err("device is not connected".into());
     }
     let identity = app.device_identity();
-    app.store.start_session(&patient_id, SessionKind::Recording, &identity).map_err(failed)
+    app.store
+        .start_session(&patient_id, SessionKind::Recording, &identity, None, None)
+        .map_err(failed)
 }
 
 #[tauri::command]
@@ -237,47 +241,167 @@ pub fn raw_window(
         .map_err(failed)
 }
 
-/// Starts collecting cycles for a new reference profile (doc 12 §2).
+/// Why a session may not start, in the researcher's words. Empty means it may.
+///
+/// Doc 12 §4 requires patient, locked reference, both segment limits and healthy
+/// sensors before RUNNING. The gate is computed here rather than in the UI so
+/// that a command cannot be issued past it.
 #[tauri::command]
-pub fn start_reference_capture(app: tauri::State<'_, Arc<App>>) -> CommandResult<()> {
-    app.device.start_reference_capture().map_err(failed)
-}
-
-/// Ends the running session. A capture's profile arrives shortly after and is
-/// saved with `save_reference`.
-#[tauri::command]
-pub fn stop_device_session(app: tauri::State<'_, Arc<App>>) -> CommandResult<()> {
-    app.device.stop_session().map_err(failed)
-}
-
-/// Stores the profile the device just captured as the patient's next version.
-/// Returns null when the device has not sent one: the capture may have been
-/// refused for having fewer than thirty valid cycles, in which case the device
-/// replied with an error rather than a profile.
-#[tauri::command]
-pub fn save_reference(
+pub fn session_blockers(
     app: tauri::State<'_, Arc<App>>,
     patient_id: String,
-    session_id: Option<String>,
+    reference_id: String,
+    limits: Option<SegmentLimits>,
+    kind: SessionKind,
+) -> Vec<String> {
+    let mut blockers = Vec::new();
+    let snapshot = app.device.snapshot();
+    if snapshot.link_state != crate::device::LinkState::Connected {
+        blockers.push("the device is not connected".into());
+    }
+    if patient_id.is_empty() {
+        blockers.push("no patient is selected".into());
+    }
+    let scored = kind == SessionKind::ReferenceCheck || kind == SessionKind::Evaluation;
+    if scored && reference_id.is_empty() {
+        blockers.push("no reference profile is selected".into());
+    }
+    match snapshot.calibration {
+        Some(record) if record.usable() => {}
+        Some(_) => blockers.push("the last calibration was rejected".into()),
+        None => blockers.push("the device has not been calibrated since it started".into()),
+    }
+    for fault in &snapshot.faults {
+        blockers.push(format!("the device reports a fault: {fault}"));
+    }
+    if app.store.recording_session().is_some() {
+        blockers.push("another session is already recording".into());
+    }
+    if kind == SessionKind::Evaluation {
+        // Doc 12 §5: no default is invented when the researcher leaves these
+        // blank, so a missing or zero limit blocks the start.
+        match limits {
+            Some(l) if l.max_cycles > 0 && l.max_errors > 0 => {}
+            Some(_) => blockers.push("both segment limits must be greater than zero".into()),
+            None => blockers.push("the segment limits have not been entered".into()),
+        }
+    }
+    blockers
+}
+
+/// Starts a reference capture (doc 12 §2): a recording session, and the device
+/// session that collects the patient's own cycles into a profile. Either both
+/// start or neither does.
+#[tauri::command]
+pub fn start_reference_capture(
+    app: tauri::State<'_, Arc<App>>,
+    patient_id: String,
+) -> CommandResult<Session> {
+    let blockers = session_blockers(
+        app.clone(),
+        patient_id.clone(),
+        String::new(),
+        None,
+        SessionKind::ReferenceCapture,
+    );
+    if let Some(first) = blockers.first() {
+        return Err(first.clone());
+    }
+    let identity = app.device_identity();
+    let session = app
+        .store
+        .start_session(&patient_id, SessionKind::ReferenceCapture, &identity, None, None)
+        .map_err(failed)?;
+    if let Err(e) = app.device.start_reference_capture() {
+        let _ = app.store.stop_session();
+        return Err(e);
+    }
+    Ok(session)
+}
+
+/// Ends a capture and stores what the device built as the patient's next
+/// version. Returns null when the device sent no profile — it refuses to build
+/// one from fewer than thirty valid cycles (doc 12 §2), and replies with an
+/// error instead. The recording is stopped either way: the walk is still data.
+#[tauri::command]
+pub async fn finish_reference_capture(
+    app: tauri::State<'_, Arc<App>>,
+    patient_id: String,
 ) -> CommandResult<Option<crate::store::StoredReference>> {
-    let Some(profile) = app.device.take_reference() else { return Ok(None) };
+    let session_id = app.store.recording_session();
+    let stop = app.device.stop_session();
+    // The profile arrives as a SESSION_STOP reply, a link round trip later.
+    let mut profile = None;
+    for _ in 0..20 {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        profile = app.device.take_reference();
+        if profile.is_some() {
+            break;
+        }
+    }
+    let _ = app.store.stop_session();
+    stop?;
+    let Some(profile) = profile else { return Ok(None) };
     app.store
         .add_reference(&patient_id, session_id.as_deref(), &profile)
         .map(Some)
         .map_err(failed)
 }
 
-/// Starts a check (ten cycles to read) or an evaluation against a stored
-/// profile, locking it: once a profile has judged a session it is immutable.
+/// Starts a check (a short walk read against a stored profile, doc 12 §3) or an
+/// evaluation (scored and segmented, doc 12 §4). Both lock the profile: once it
+/// has judged a session it is immutable.
 #[tauri::command]
 pub fn start_scored_session(
     app: tauri::State<'_, Arc<App>>,
+    patient_id: String,
     reference_id: String,
     check: bool,
-) -> CommandResult<()> {
+    limits: Option<SegmentLimits>,
+) -> CommandResult<Session> {
+    let kind = if check { SessionKind::ReferenceCheck } else { SessionKind::Evaluation };
+    let blockers =
+        session_blockers(app.clone(), patient_id.clone(), reference_id.clone(), limits, kind);
+    if let Some(first) = blockers.first() {
+        return Err(first.clone());
+    }
     let reference = app.store.reference(&reference_id).map_err(failed)?;
-    app.device.start_scored_session(check, &reference.profile).map_err(failed)?;
-    app.store.lock_reference(&reference_id).map_err(failed)
+    let identity = app.device_identity();
+    let session = app
+        .store
+        .start_session(
+            &patient_id,
+            kind,
+            &identity,
+            Some(&reference_id),
+            if check { None } else { limits },
+        )
+        .map_err(failed)?;
+    if let Err(e) = app.device.start_scored_session(check, &reference.profile) {
+        let _ = app.store.stop_session();
+        return Err(e);
+    }
+    app.store.lock_reference(&reference_id).map_err(failed)?;
+    Ok(session)
+}
+
+/// Ends a check or an evaluation: the device stops scoring and the recording
+/// closes, which closes the open segment.
+#[tauri::command]
+pub fn stop_scored_session(app: tauri::State<'_, Arc<App>>) -> CommandResult<Option<Session>> {
+    let stop = app.device.stop_session();
+    let session = app.store.stop_session().map_err(failed)?;
+    stop?;
+    Ok(session)
+}
+
+/// Every segment of a session, in order; empty unless it was an evaluation.
+#[tauri::command]
+pub fn segments(
+    app: tauri::State<'_, Arc<App>>,
+    session_id: String,
+) -> CommandResult<Vec<crate::store::StoredSegment>> {
+    app.store.segments(&session_id).map_err(failed)
 }
 
 #[tauri::command]

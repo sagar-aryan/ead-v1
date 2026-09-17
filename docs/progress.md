@@ -680,3 +680,91 @@ REFERENCES view.
 ### Next Steps
 Schema 4 (session kinds carrying a reference, error fields in STEP_BATCH), then
 the dashboard side.
+
+## 2026-09-18 — M5 user interface: references, errors, events, segments
+
+### Objective
+Finish M5: the dashboard side of the reference workflow, the error engine's
+output where a reader can see it, and the doc 12 session gate and segmentation.
+The core and the protocol were done the same day (schema 4, commit `adc059d`);
+none of it was visible in the UI.
+
+### Investigation
+The backend already had everything the views needed: `references`,
+`add_reference`, `lock_reference`, `parse_reference`, the error columns on
+`cycles`, and `FEATURE_NAMES` / `ERROR_CLASSES` in the vocabulary. Two things
+were missing.
+
+First, a capture's progress. The device does not report its session kind or its
+builder's cycle count in STATUS, so the UI had no way to show progress toward
+the thirty-cycle gate. Rather than a fifth protocol schema for a counter, the
+host now records which session it started and counts valid cycles out of the
+STEP_BATCH stream it is already decoding. The snapshot says so in its field
+comment: it is what this host started, not an echo from the device.
+
+Second, segments did not exist at all — no table, no limits on the session, no
+rollover. DEC-004 had planned firmware enforcement.
+
+### Approach
+Segmentation moved to the host (DEC-014). What made the decision was asking what
+the device does differently at a segment boundary in V1: nothing. No haptics, no
+flash storage, no state change. Firmware enforcement would have cost protocol
+schema 5 — two fields in SESSION_START, a segment index in every cycle record,
+regenerated vectors, four codebases — for a counter. The host applies the rule to
+the stored cycle stream instead, which is also more reproducible.
+
+Capture and check now run inside a recording session, so the walk that built a
+profile is still on disk and can be replayed against a corrected detector. That
+also gave the check its readout for free: it reads back the cycles the store
+already has.
+
+The session gate is computed in the backend (`session_blockers`) and only
+displayed by the UI, so the button and the command cannot disagree about whether
+a session may start.
+
+### Changes
+Added:
+- `dashboard/src/views/References.tsx` — capture with progress against the
+  thirty-cycle gate, version list with lock state, per-feature median and
+  spread, and the ten-cycle check with median error and per-feature deviation.
+- `dashboard/src/views/Events.tsx` — Canvas2D lanes for initial contact, toe
+  off, foot flat, zero-velocity bands and cycle bars, with drag to zoom.
+- `dashboard/src/events.ts`, `dashboard/src/events.test.ts` — ZUPT pairing,
+  5 tests (TEST-033).
+
+Modified:
+- `dashboard/src-tauri/src/store/schema.rs` — schema 5: `segments`,
+  `cycles.segment_index`, and `reference_id` plus both limits on `sessions`.
+- `dashboard/src-tauri/src/store/mod.rs` — `SessionKind` gains
+  `ReferenceCapture`, `ReferenceCheck`, `Evaluation`; `SegmentLimits`,
+  `StoredSegment`, `counts_as_error`, `roll_segment`, `segments()`.
+- `dashboard/src-tauri/src/app.rs` — `session_blockers`,
+  `start_reference_capture`, `finish_reference_capture`, `start_scored_session`,
+  `stop_scored_session`, `segments`.
+- `dashboard/src-tauri/src/device.rs` — records the session this host started
+  and counts valid cycles in it.
+- `dashboard/src/views/Cycles.tsx` — score, confidence, class and segment
+  columns; a class distribution; the segments table; error trends.
+- `dashboard/src/views/Sessions.tsx` — the doc 12 §4 evaluation gate.
+- `dashboard/src/App.tsx`, `api.ts`, `styles.css`.
+
+### Problems
+The migration test simulates a v2 store by dropping what later schemas added;
+schema 5 added columns to `sessions`, so the test failed with `duplicate column
+name: reference_id` until it dropped those too. Nothing else failed.
+
+### Verification
+51 Rust tests (2 new, TEST-032), 28 frontend tests (5 new, TEST-033), zero
+clippy warnings, `npm run build` clean. None of it has been exercised against
+the device yet: nobody has walked thirty cycles, so no real reference profile
+exists and the check, the evaluation gate and the segment rollover have been
+run against synthetic cycles only.
+
+### Current Status
+M5 complete in code. Unverified on hardware.
+
+### Next Steps
+`eadprobe` commands for capture, check and evaluation so the workflow can be
+driven without the GUI; then M6, the export package. The hardware verification
+needs one walk of about a minute — thirty valid cycles — recorded through the
+dashboard.

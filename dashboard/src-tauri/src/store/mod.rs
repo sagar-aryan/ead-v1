@@ -15,7 +15,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::protocol::{GaitCycle, GaitEvent, RawFrame};
 
@@ -39,15 +39,56 @@ type Result<T> = std::result::Result<T, StoreError>;
 pub enum SessionKind {
     /// Raw capture with no analysis; builds replay datasets (M3).
     Recording,
+    /// Collects the patient's own cycles into a new reference profile.
+    ReferenceCapture,
+    /// A short walk read against a stored profile, with no haptics (doc 12 §3).
+    ReferenceCheck,
+    /// A scored, segmented session against a locked profile (doc 12 §4).
+    Evaluation,
 }
 
 impl SessionKind {
     fn as_str(self) -> &'static str {
         match self {
             SessionKind::Recording => "recording",
+            SessionKind::ReferenceCapture => "reference_capture",
+            SessionKind::ReferenceCheck => "reference_check",
+            SessionKind::Evaluation => "evaluation",
         }
     }
 }
+
+/// Doc 12 §5. Both are required before an evaluation may start; the segment
+/// closes when either is reached first. There is no default: the spec forbids
+/// inventing one.
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+pub struct SegmentLimits {
+    pub max_cycles: u32,
+    pub max_errors: u32,
+}
+
+/// One segment of an evaluation, as closed or still open.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct StoredSegment {
+    pub segment_index: i64,
+    pub started_at: String,
+    pub closed_at: Option<String>,
+    /// `cycle_limit`, `error_limit` or `session_stopped`; null while open.
+    pub closed_by: Option<String>,
+    pub valid_cycles: i64,
+    pub errors: i64,
+}
+
+/// What counts as an error against `max_errors_per_segment` (DEC-014): a scored
+/// cycle the engine named a class for, confident enough that doc 06 §7 would
+/// let it be displayed. Below that confidence the engine says not to show the
+/// classification at all, so counting it toward a limit would be worse.
+pub fn counts_as_error(cycle: &GaitCycle) -> bool {
+    cycle.primary_class != 0 && cycle.confidence >= CONFIDENCE_FOR_DISPLAY
+}
+
+/// Doc 06 §7, mirrored from `ead::kConfidenceForDisplay`.
+const CONFIDENCE_FOR_DISPLAY: f32 = 0.50;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Patient {
@@ -74,6 +115,11 @@ pub struct Session {
     pub frames_stored: i64,
     /// Frames the device produced in this range but that never arrived.
     pub frames_missing: i64,
+    /// The profile this session was scored against, for a check or evaluation.
+    pub reference_id: Option<String>,
+    /// Segment limits as entered; both null unless this is an evaluation.
+    pub max_cycles_per_segment: Option<i64>,
+    pub max_errors_per_segment: Option<i64>,
 }
 
 /// Device identity recorded with a session, so every dataset carries the
@@ -118,6 +164,8 @@ pub struct StoredCycle {
     pub deviations: Vec<f32>,
     pub active_classes: u16,
     pub primary_class: u8,
+    /// Which segment of the session it fell in; 0 when the session has none.
+    pub segment_index: i64,
 }
 
 /// A versioned reference profile (doc 12 §2–§3).
@@ -237,11 +285,15 @@ impl Store {
 
     // ---- sessions ----------------------------------------------------------
 
+    /// Opens a recording. `reference_id` and `limits` are what a check or an
+    /// evaluation was started against; a plain recording passes neither.
     pub fn start_session(
         &self,
         patient_id: &str,
         kind: SessionKind,
         identity: &DeviceIdentity,
+        reference_id: Option<&str>,
+        limits: Option<SegmentLimits>,
     ) -> Result<Session> {
         let mut recording = self.recording.lock().expect("recording");
         if let Some(open) = recording.as_ref() {
@@ -252,8 +304,9 @@ impl Store {
         connection.execute(
             "INSERT INTO sessions
                (session_id, patient_id, kind, started_at, firmware, config_sha256, device_mac,
-                boot_id, config_section)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                boot_id, config_section, reference_id, max_cycles_per_segment,
+                max_errors_per_segment)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             rusqlite::params![
                 &session_id,
                 patient_id,
@@ -264,8 +317,20 @@ impl Store {
                 &identity.mac,
                 identity.boot_id.map(i64::from),
                 &identity.config_section,
+                reference_id,
+                limits.map(|l| i64::from(l.max_cycles)),
+                limits.map(|l| i64::from(l.max_errors)),
             ],
         )?;
+        // A segmented session always has a first segment open, so the UI has
+        // something to count into before the first cycle arrives.
+        if limits.is_some() {
+            connection.execute(
+                "INSERT INTO segments (session_id, segment_index, started_at)
+                 VALUES (?1, 0, ?2)",
+                (&session_id, now_utc()),
+            )?;
+        }
         *recording = Some(session_id.clone());
         drop(recording);
         self.session(&session_id)
@@ -282,6 +347,11 @@ impl Store {
             "UPDATE sessions SET stopped_at = ?2 WHERE session_id = ?1",
             (&session_id, now_utc()),
         )?;
+        connection.execute(
+            "UPDATE segments SET closed_at = ?2, closed_by = 'session_stopped'
+             WHERE session_id = ?1 AND closed_at IS NULL",
+            (&session_id, now_utc()),
+        )?;
         self.session(&session_id).map(Some)
     }
 
@@ -294,7 +364,8 @@ impl Store {
         Ok(connection.query_row(
             "SELECT s.session_id, s.patient_id, COALESCE(p.name, ''), s.kind, s.started_at,
                     s.stopped_at, s.firmware, s.config_sha256, s.device_mac, s.boot_id,
-                    MIN(f.frame_index), MAX(f.frame_index), COUNT(f.frame_index)
+                    MIN(f.frame_index), MAX(f.frame_index), COUNT(f.frame_index),
+                    s.reference_id, s.max_cycles_per_segment, s.max_errors_per_segment
              FROM sessions s
              LEFT JOIN patients p ON p.patient_id = s.patient_id
              LEFT JOIN raw_frames f ON f.session_id = s.session_id
@@ -310,7 +381,8 @@ impl Store {
         let mut statement = connection.prepare(
             "SELECT s.session_id, s.patient_id, COALESCE(p.name, ''), s.kind, s.started_at,
                     s.stopped_at, s.firmware, s.config_sha256, s.device_mac, s.boot_id,
-                    MIN(f.frame_index), MAX(f.frame_index), COUNT(f.frame_index)
+                    MIN(f.frame_index), MAX(f.frame_index), COUNT(f.frame_index),
+                    s.reference_id, s.max_cycles_per_segment, s.max_errors_per_segment
              FROM sessions s
              LEFT JOIN patients p ON p.patient_id = s.patient_id
              LEFT JOIN raw_frames f ON f.session_id = s.session_id
@@ -356,7 +428,7 @@ impl Store {
                     stance_ratio, swing_ratio, cadence, peak_shank_dps, peak_dorsi_deg,
                     contact_sag_deg, peak_inv_deg, distance_m, speed_mps, zupt_quality, valid,
                     confidence_subscores, deviations, error_score, confidence,
-                    active_classes, primary_class
+                    active_classes, primary_class, segment_index
              FROM cycles WHERE session_id = ?1 ORDER BY start_frame",
         )?;
         let rows = statement.query_map([session_id], |row| {
@@ -386,6 +458,27 @@ impl Store {
                 confidence: row.get(20)?,
                 active_classes: row.get::<_, i64>(21)? as u16,
                 primary_class: row.get::<_, i64>(22)? as u8,
+                segment_index: row.get(23)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Every segment of a session, in order. Empty unless it was segmented.
+    pub fn segments(&self, session_id: &str) -> Result<Vec<StoredSegment>> {
+        let connection = self.reader()?;
+        let mut statement = connection.prepare(
+            "SELECT segment_index, started_at, closed_at, closed_by, valid_cycles, errors
+             FROM segments WHERE session_id = ?1 ORDER BY segment_index",
+        )?;
+        let rows = statement.query_map([session_id], |row| {
+            Ok(StoredSegment {
+                segment_index: row.get(0)?,
+                started_at: row.get(1)?,
+                closed_at: row.get(2)?,
+                closed_by: row.get(3)?,
+                valid_cycles: row.get(4)?,
+                errors: row.get(5)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -603,6 +696,9 @@ fn session_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
         last_frame_index: last,
         frames_stored: stored,
         frames_missing: missing,
+        reference_id: row.get(13)?,
+        max_cycles_per_segment: row.get(14)?,
+        max_errors_per_segment: row.get(15)?,
     })
 }
 
@@ -671,6 +767,7 @@ fn commit(
             let mut event = transaction.prepare_cached(schema::INSERT_EVENT)?;
             for (session_id, cycles, events) in pending_gait.iter() {
                 for c in cycles {
+                    let segment = roll_segment(&transaction, session_id, c)?;
                     // OR REPLACE: a backfilled cycle is the same measurement.
                     cycle.execute(rusqlite::params![
                         session_id, c.start_frame, c.end_frame, c.start_us as i64,
@@ -682,6 +779,7 @@ fn commit(
                         c.primary_class as i64,
                         serde_json::to_string(&c.confidence_subscores).unwrap_or_default(),
                         serde_json::to_string(&c.deviations).unwrap_or_default(),
+                        segment,
                     ])?;
                 }
                 for e in events {
@@ -699,6 +797,83 @@ fn commit(
     }
     pending.clear();
     pending_gait.clear();
+}
+
+/// Counts a cycle into the session's open segment and closes that segment when
+/// either researcher-entered limit is reached (doc 12 §5, DEC-014). Returns the
+/// segment the cycle belongs to — the one that was open when it arrived, so the
+/// cycle that trips a limit belongs to the segment it closed.
+///
+/// Returns 0 without touching the table for an unsegmented session, which is
+/// every recording, capture and check.
+///
+/// ponytail: four small statements per cycle rather than a cached counter.
+/// Cycles arrive at roughly 1 Hz, and reading the row back each time means a
+/// backfilled batch cannot double-count against a stale in-memory total.
+fn roll_segment(
+    transaction: &rusqlite::Transaction<'_>,
+    session_id: &str,
+    cycle: &GaitCycle,
+) -> rusqlite::Result<i64> {
+    let limits: Option<(i64, i64)> = transaction
+        .query_row(
+            "SELECT max_cycles_per_segment, max_errors_per_segment
+             FROM sessions WHERE session_id = ?1",
+            [session_id],
+            |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<i64>>(1)?)),
+        )
+        .map(|(cycles, errors)| cycles.zip(errors))?;
+    let Some((max_cycles, max_errors)) = limits else { return Ok(0) };
+
+    let open: Option<(i64, i64, i64)> = transaction
+        .query_row(
+            "SELECT segment_index, valid_cycles, errors FROM segments
+             WHERE session_id = ?1 AND closed_at IS NULL
+             ORDER BY segment_index LIMIT 1",
+            [session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    // Nothing open means the session was stopped between the cycle arriving and
+    // this commit; attribute it to the last segment rather than reopening one.
+    let Some((index, valid_cycles, errors)) = open else {
+        return transaction
+            .query_row(
+                "SELECT MAX(segment_index) FROM segments WHERE session_id = ?1",
+                [session_id],
+                |row| row.get::<_, Option<i64>>(0),
+            )
+            .map(|last| last.unwrap_or(0));
+    };
+
+    let valid_cycles = valid_cycles + i64::from(cycle.valid);
+    let errors = errors + i64::from(counts_as_error(cycle));
+    transaction.execute(
+        "UPDATE segments SET valid_cycles = ?3, errors = ?4
+         WHERE session_id = ?1 AND segment_index = ?2",
+        rusqlite::params![session_id, index, valid_cycles, errors],
+    )?;
+
+    // Whichever limit is reached first closes the segment (doc 12 §5).
+    let closed_by = if valid_cycles >= max_cycles {
+        Some("cycle_limit")
+    } else if errors >= max_errors {
+        Some("error_limit")
+    } else {
+        None
+    };
+    if let Some(reason) = closed_by {
+        transaction.execute(
+            "UPDATE segments SET closed_at = ?3, closed_by = ?4
+             WHERE session_id = ?1 AND segment_index = ?2",
+            rusqlite::params![session_id, index, now_utc(), reason],
+        )?;
+        transaction.execute(
+            "INSERT INTO segments (session_id, segment_index, started_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params![session_id, index + 1, now_utc()],
+        )?;
+    }
+    Ok(index)
 }
 
 fn now_utc() -> String {

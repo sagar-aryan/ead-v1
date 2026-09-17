@@ -438,6 +438,10 @@ pub fn parse_step_batch(payload: &[u8]) -> Result<Vec<GaitCycle>> {
 pub const SESSION_START_PAYLOAD_SIZE: usize = 4;
 pub const CALIBRATION_PAYLOAD_SIZE: usize = 128;
 /// Session kinds, `docs/protocol.md` §6.8.
+/// Indexed by the session kind byte (docs/protocol.md §6.8); 0 is no session.
+pub const SESSION_KINDS: [&str; 5] =
+    ["none", "calibration", "reference_capture", "reference_check", "evaluation"];
+
 pub const SESSION_KIND_CALIBRATION: u8 = 1;
 pub const SESSION_KIND_REFERENCE_CAPTURE: u8 = 2;
 pub const SESSION_KIND_REFERENCE_CHECK: u8 = 3;

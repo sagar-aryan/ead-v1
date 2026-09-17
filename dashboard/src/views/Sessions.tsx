@@ -5,8 +5,176 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
-import { api, type Patient, type Session } from "../api";
+import { api, type Patient, type Session, type StoredReference } from "../api";
 import type { DeviceApi } from "../useDevice";
+
+/**
+ * Doc 12 §4: an evaluation may start only with a patient, a reference profile,
+ * both segment limits and healthy sensors. The list of what is missing comes
+ * from the backend, so the button and the command agree about the gate rather
+ * than each deciding for itself.
+ */
+function Evaluation({
+  patients,
+  running,
+  refresh,
+}: {
+  patients: Patient[];
+  running: Session | null;
+  refresh: () => void;
+}) {
+  const [patientId, setPatientId] = useState("");
+  const [references, setReferences] = useState<StoredReference[]>([]);
+  const [referenceId, setReferenceId] = useState("");
+  // Strings, because doc 12 §5 forbids inventing a default: an empty box must
+  // stay empty rather than fall back to a number nobody entered.
+  const [maxCycles, setMaxCycles] = useState("");
+  const [maxErrors, setMaxErrors] = useState("");
+  const [blockers, setBlockers] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const limits =
+    /^\d+$/.test(maxCycles) && /^\d+$/.test(maxErrors)
+      ? { max_cycles: Number(maxCycles), max_errors: Number(maxErrors) }
+      : null;
+
+  useEffect(() => {
+    setReferenceId("");
+    if (!patientId) {
+      setReferences([]);
+      return;
+    }
+    api.references(patientId).then(setReferences).catch((e) => setError(String(e)));
+  }, [patientId]);
+
+  useEffect(() => {
+    if (running) return;
+    const poll = () =>
+      api
+        .sessionBlockers(patientId, referenceId, limits, "evaluation")
+        .then(setBlockers)
+        .catch(() => undefined);
+    poll();
+    const timer = setInterval(poll, 1000);
+    return () => clearInterval(timer);
+    // `limits` is rebuilt each render; the two fields it derives from are the
+    // real dependencies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patientId, referenceId, maxCycles, maxErrors, running]);
+
+  const start = async () => {
+    try {
+      await api.startScoredSession(patientId, referenceId, false, limits);
+      setError(null);
+      refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const stop = async () => {
+    try {
+      await api.stopScoredSession();
+      setError(null);
+      refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  if (running) {
+    return (
+      <div className="panel">
+        <h2>Evaluation</h2>
+        <div className="row">
+          <p className="hint" style={{ margin: 0, flex: 1 }}>
+            Evaluating <span className="num">{running.session_id}</span> against reference{" "}
+            <span className="num">{running.reference_id}</span>. Segments close at{" "}
+            <span className="num">{running.max_cycles_per_segment}</span> valid cycles or{" "}
+            <span className="num">{running.max_errors_per_segment}</span> errors. Scores
+            appear in Cycles.
+          </p>
+          <button className="danger" onClick={stop}>
+            Stop evaluation
+          </button>
+        </div>
+        {error && <p className="error">{error}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="panel">
+      <h2>Evaluation</h2>
+      <p className="hint">
+        Scores each cycle against the patient's locked reference and splits the
+        session into segments. Both limits are required: doc 12 §5 says no default
+        may be invented for them.
+      </p>
+      <div className="row">
+        <div className="field">
+          <label htmlFor="eval-patient">Patient</label>
+          <select
+            id="eval-patient"
+            value={patientId}
+            onChange={(e) => setPatientId(e.target.value)}
+          >
+            <option value="">Select…</option>
+            {patients.map((p) => (
+              <option key={p.patient_id} value={p.patient_id}>
+                {p.name} ({p.patient_id})
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="eval-reference">Reference</label>
+          <select
+            id="eval-reference"
+            value={referenceId}
+            onChange={(e) => setReferenceId(e.target.value)}
+          >
+            <option value="">Select…</option>
+            {references.map((r) => (
+              <option key={r.reference_id} value={r.reference_id}>
+                v{r.version} — {r.cycles} cycles{r.locked ? ", locked" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="eval-cycles">Valid cycles per segment</label>
+          <input
+            id="eval-cycles"
+            inputMode="numeric"
+            value={maxCycles}
+            onChange={(e) => setMaxCycles(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="eval-errors">Errors per segment</label>
+          <input
+            id="eval-errors"
+            inputMode="numeric"
+            value={maxErrors}
+            onChange={(e) => setMaxErrors(e.target.value)}
+          />
+        </div>
+        <button className="primary" disabled={blockers.length > 0} onClick={start}>
+          Start evaluation
+        </button>
+      </div>
+      {blockers.length > 0 && (
+        <ul className="hint" style={{ marginTop: 10 }}>
+          {blockers.map((b) => (
+            <li key={b}>{b}</li>
+          ))}
+        </ul>
+      )}
+      {error && <p className="error">{error}</p>}
+    </div>
+  );
+}
 
 function useSessions() {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -54,6 +222,9 @@ export function Sessions({ device }: { device: DeviceApi }) {
   const [selected, setSelected] = useState("");
 
   const connected = device.snapshot?.link_state === "connected";
+  /** What kind of session is open, when one is: a recording stops here, the
+   *  others stop where they started so the device session ends with them. */
+  const openKind = sessions.find((s) => s.session_id === recording)?.kind;
 
   const create = async () => {
     try {
@@ -99,6 +270,12 @@ export function Sessions({ device }: { device: DeviceApi }) {
         <h2>Record</h2>
         {patients.length === 0 ? (
           <p className="empty">Create a patient first.</p>
+        ) : recording && openKind !== "recording" ? (
+          <p className="hint">
+            A {openKind?.replace(/_/g, " ")} session is running. It is stopped where it
+            was started, so that the device session and the recording always end
+            together.
+          </p>
         ) : recording ? (
           <div className="row">
             <p className="hint" style={{ margin: 0, flex: 1 }}>
@@ -138,6 +315,14 @@ export function Sessions({ device }: { device: DeviceApi }) {
         )}
         {error && <p className="error">{error}</p>}
       </div>
+
+      <Evaluation
+        patients={patients}
+        running={
+          sessions.find((s) => s.session_id === recording && s.kind === "evaluation") ?? null
+        }
+        refresh={refresh}
+      />
 
       <div className="panel">
         <h2>Patients</h2>

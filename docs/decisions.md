@@ -108,7 +108,9 @@ documented; export tests must open the file in an independent reader.
 
 **Date:** 2026-09-16
 
-**Status:** Accepted
+**Status:** Accepted; the enforcement half superseded by DEC-014 on 2026-09-18.
+The limits are still researcher-entered and still refuse a default, but they are
+counted on the host rather than sent to the device.
 
 ### Context
 Doc 15 fixes segmentation: "Researcher enters cycle/error limits; whichever
@@ -429,3 +431,62 @@ Before any of this is used for a claim about a patient, these four values need
 review against captures from more than one person. `docs/testing.md` records that
 the error engine has been tested against hand-computed vectors only, never
 against a real reference capture, because nobody has yet walked thirty cycles.
+
+## DEC-014 — Segments are counted on the host, not the device
+
+**Date:** 2026-09-18
+
+**Status:** Accepted. Supersedes the enforcement half of DEC-004.
+
+### Context
+Doc 12 §5 has the researcher enter `max_valid_cycles_per_segment` and
+`max_errors_per_segment`, and the segment closes on whichever is reached first.
+DEC-004 decided in M0 that the limits would travel in SESSION_START and the
+firmware would enforce them. Implementing that in M5 meant a fifth protocol
+schema: two fields in SESSION_START, a segment index in every STEP_BATCH record
+(132 → 134 bytes), regenerated golden vectors, and matching changes in the
+firmware, the Rust decoder and `eadprobe`.
+
+Before doing that, the question was asked: what on the device behaves
+differently at a segment boundary? In V1, nothing. Haptics are not fitted
+(DEC-006), so no feedback is gated per segment. There is no on-device flash
+storage (M7 deferred), so no segment footer is written. The device state machine
+does not change state at a boundary. The segment is a bookkeeping unit for the
+researcher and for export.
+
+### Options Considered
+1. Firmware enforces the limits, as DEC-004 planned; protocol schema 5.
+2. The host counts cycles as they arrive and rolls the segment in the store.
+3. Both: the device counts and the host re-derives, checking agreement.
+
+### Decision
+Option 2. The limits are stored on the session row; `roll_segment` in the store
+writer counts each cycle into the open segment and closes it when either limit
+is reached, writing the segment index onto the cycle.
+
+### Reason
+The segment is a property of the session, which the host owns, and a rule
+applied to a stored cycle stream is more reproducible than one applied to a live
+one: re-running it over the same `cycles` rows gives the same segmentation, on
+any machine, with no device present. Option 1 costs a protocol schema for a
+counter. Option 3 costs the same and adds a disagreement to handle.
+
+### What counts as an error
+Doc 12 §5 says `max_errors_per_segment` without defining an error. Here it is a
+scored cycle whose primary class is not NONE **and** whose confidence reaches
+`kConfidenceForDisplay` (0.50). Below that confidence doc 06 §7 says the
+classification should not be shown at all, so counting it toward a limit that
+ends a segment would act on a finding the system will not even display.
+
+### Trade-offs
+Gained: no protocol change, reproducible segmentation, the rule in one function
+with one test. Sacrificed: a device running without a host cannot segment — but
+V1 has no standalone workflow, and a device with no host also has nowhere to
+store the result.
+
+### Consequences
+This must move to the device if the device ever has to change behaviour at a
+segment boundary: haptics gated per segment, or on-device storage writing a
+segment footer (doc 09 §10). Both are the point at which the protocol change
+earns its cost. `roll_segment` and `counts_as_error` in
+`dashboard/src-tauri/src/store/mod.rs` are the two places to look.

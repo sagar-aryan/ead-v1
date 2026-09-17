@@ -42,7 +42,7 @@ fn frames_round_trip_with_exact_values() {
     let (store, _dir) = temp_store();
     store.create_patient("P-001", "Reference Walker").unwrap();
     let session =
-        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
 
     let frames: Vec<RawFrame> = (0..250).map(frame).collect();
     store.record_frames(&frames);
@@ -67,7 +67,7 @@ fn repeated_frames_do_not_duplicate() {
     let (store, _dir) = temp_store();
     store.create_patient("P-001", "Reference Walker").unwrap();
     let session =
-        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
 
     let frames: Vec<RawFrame> = (0..10).map(frame).collect();
     store.record_frames(&frames);
@@ -82,7 +82,7 @@ fn session_reports_gaps_from_missing_frame_indices() {
     let (store, _dir) = temp_store();
     store.create_patient("P-001", "Reference Walker").unwrap();
     let started =
-        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
 
     // 0..20 with 5..9 never delivered.
     let frames: Vec<RawFrame> =
@@ -102,9 +102,9 @@ fn only_one_session_records_at_a_time() {
     let (store, _dir) = temp_store();
     store.create_patient("P-001", "Reference Walker").unwrap();
     let first =
-        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
     assert!(matches!(
-        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()),
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None),
         Err(StoreError::Rejected(_))
     ));
 
@@ -128,7 +128,7 @@ fn session_ids_follow_the_documented_shape() {
     let mut ids = Vec::new();
     for _ in 0..8 {
         let session = store
-            .start_session("P-001", SessionKind::Recording, &DeviceIdentity::default())
+            .start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None)
             .unwrap();
         ids.push(session.session_id.clone());
         store.stop_session().unwrap();
@@ -188,7 +188,7 @@ fn session_records_the_device_configuration() {
         boot_id: Some(7),
         config_section: Some(vec![1, 2, 3, 4]),
     };
-    let session = store.start_session("P-001", SessionKind::Recording, &identity).unwrap();
+    let session = store.start_session("P-001", SessionKind::Recording, &identity, None, None).unwrap();
     assert_eq!(store.session_config(&session.session_id).unwrap(), Some(vec![1, 2, 3, 4]));
     assert_eq!(store.session(&session.session_id).unwrap().firmware.as_deref(), Some("0.1.0+test"));
 }
@@ -198,7 +198,7 @@ fn raw_window_returns_every_frame_when_the_range_is_small() {
     let (store, _dir) = temp_store();
     store.create_patient("P-001", "Reference Walker").unwrap();
     let session =
-        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
     let frames: Vec<RawFrame> = (0..300).map(frame).collect();
     store.record_frames(&frames);
     store.flush();
@@ -224,7 +224,7 @@ fn decimation_preserves_a_single_sample_transient() {
     let (store, _dir) = temp_store();
     store.create_patient("P-001", "Reference Walker").unwrap();
     let session =
-        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
 
     // 20,000 quiet frames with one spike, the shape of a heel strike.
     let mut frames: Vec<RawFrame> = (0..20_000).map(frame).collect();
@@ -256,7 +256,7 @@ fn raw_window_rejects_a_backwards_range() {
     let (store, _dir) = temp_store();
     store.create_patient("P-001", "Reference Walker").unwrap();
     let session =
-        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
     assert!(matches!(
         store.raw_window(&session.session_id, &[SignalGroup::FootAccel], 100, 10, 100),
         Err(StoreError::Rejected(_))
@@ -271,7 +271,7 @@ fn raw_window_query_time_on_an_hour_of_data() {
     let (store, _dir) = temp_store();
     store.create_patient("P-001", "Reference Walker").unwrap();
     let session =
-        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
 
     // One hour at 100 Hz, with values that vary like real signals rather than
     // compressing to a constant.
@@ -386,7 +386,7 @@ fn raw_window_reads_several_signals_on_one_time_base() {
     let (store, _dir) = temp_store();
     store.create_patient("P-001", "Reference Walker").unwrap();
     let session =
-        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
     let frames: Vec<RawFrame> = (0..300)
         .map(|i| {
             let mut f = frame(i);
@@ -420,7 +420,7 @@ fn gait_cycles_and_events_round_trip() {
     let (store, _dir) = temp_store();
     store.create_patient("P-001", "Reference Walker").unwrap();
     let session =
-        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
 
     let cycle = GaitCycle {
         start_frame: 1200,
@@ -479,7 +479,7 @@ fn gait_is_only_stored_while_recording() {
     let (store, _dir) = temp_store();
     store.create_patient("P-001", "Reference Walker").unwrap();
     let session =
-        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
     store.stop_session().unwrap();
 
     store.record_gait(
@@ -522,16 +522,20 @@ fn schema_upgrades_from_version_2_keeping_frames() {
         let store = Store::open(&path).expect("create");
         store.create_patient("P-OLD", "Earlier study").unwrap();
         let session = store
-            .start_session("P-OLD", SessionKind::Recording, &DeviceIdentity::default())
+            .start_session("P-OLD", SessionKind::Recording, &DeviceIdentity::default(), None, None)
             .unwrap();
         store.record_frames(&[frame(0), frame(1)]);
         store.flush();
         let connection = store.reader().unwrap();
-        // Pretend this store predates the gait tables.
-        // Everything schemas 3 and 4 added, so the store really looks like a v2.
+        // Pretend this store predates the gait tables: undo everything schemas
+        // 3, 4 and 5 added, so it really looks like a v2 store.
         connection
             .execute_batch(
-                "DROP TRIGGER reference_profiles_locked;
+                "DROP TABLE segments;
+                 ALTER TABLE sessions DROP COLUMN reference_id;
+                 ALTER TABLE sessions DROP COLUMN max_cycles_per_segment;
+                 ALTER TABLE sessions DROP COLUMN max_errors_per_segment;
+                 DROP TRIGGER reference_profiles_locked;
                  DROP TABLE reference_profiles;
                  DROP TABLE events;
                  DROP TABLE cycles;
@@ -629,4 +633,81 @@ fn a_reference_round_trips_through_its_stored_bytes() {
     assert_eq!(read_back.profile, saved.profile);
     assert_eq!(read_back.profile.features[0].median, 16.0);
     assert_eq!(read_back.profile.features[6].spread, 22.0);
+}
+
+/// A cycle the segment counter will see: `valid` and, when `class` is nonzero
+/// and the confidence is high enough, an error (DEC-014).
+fn scored_cycle(start_frame: u32, valid: bool, class: u8, confidence: f32) -> GaitCycle {
+    GaitCycle {
+        start_frame,
+        end_frame: start_frame + 100,
+        start_us: 10_000 * start_frame as u64,
+        cycle_time_s: 1.0,
+        valid,
+        primary_class: class,
+        confidence,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn segments_close_on_whichever_limit_comes_first() {
+    let (store, _dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let limits = SegmentLimits { max_cycles: 3, max_errors: 2 };
+    let session = store
+        .start_session(
+            "P-001",
+            SessionKind::Evaluation,
+            &DeviceIdentity::default(),
+            None,
+            Some(limits),
+        )
+        .unwrap();
+
+    // Three valid, clean cycles reach the cycle limit.
+    store.record_gait(
+        &[scored_cycle(0, true, 0, 0.9), scored_cycle(1, true, 0, 0.9), scored_cycle(2, true, 0, 0.9)],
+        &[],
+    );
+    // Then two errors reach the error limit inside the next segment, with an
+    // invalid cycle between them that counts toward neither.
+    store.record_gait(
+        &[scored_cycle(3, true, 1, 0.9), scored_cycle(4, false, 0, 0.9), scored_cycle(5, true, 3, 0.9)],
+        &[],
+    );
+    // A classified cycle nobody may be shown does not count as an error.
+    store.record_gait(&[scored_cycle(6, true, 1, 0.2)], &[]);
+    store.flush();
+
+    let segments = store.segments(&session.session_id).unwrap();
+    assert_eq!(segments.len(), 3, "two closed segments and the one now open");
+    assert_eq!(segments[0].closed_by.as_deref(), Some("cycle_limit"));
+    assert_eq!(segments[0].valid_cycles, 3);
+    assert_eq!(segments[1].closed_by.as_deref(), Some("error_limit"));
+    assert_eq!(segments[1].errors, 2);
+    assert_eq!(segments[1].valid_cycles, 2, "the invalid cycle counts toward neither");
+    assert_eq!(segments[2].closed_by, None);
+    assert_eq!(segments[2].errors, 0, "0.2 confidence is below the display gate");
+
+    let cycles = store.cycles(&session.session_id).unwrap();
+    let indices: Vec<i64> = cycles.iter().map(|c| c.segment_index).collect();
+    assert_eq!(indices, vec![0, 0, 0, 1, 1, 1, 2], "the cycle that trips a limit closes it");
+
+    store.stop_session().unwrap();
+    let closed = store.segments(&session.session_id).unwrap();
+    assert_eq!(closed[2].closed_by.as_deref(), Some("session_stopped"));
+}
+
+#[test]
+fn a_recording_has_no_segments() {
+    let (store, _dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let session = store
+        .start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None)
+        .unwrap();
+    store.record_gait(&[scored_cycle(0, true, 1, 0.9)], &[]);
+    store.flush();
+    assert!(store.segments(&session.session_id).unwrap().is_empty());
+    assert_eq!(store.cycles(&session.session_id).unwrap()[0].segment_index, 0);
 }
