@@ -816,3 +816,69 @@ Complete. The workflow commands themselves have not been run against the device
 
 ### Next Steps
 M6: the export package.
+
+## 2026-09-18 — M6: the export package
+
+### Objective
+Clinical requirement 4 and doc 10: `raw.csv`, `gait.csv`, `events.csv`,
+`haptics.csv`, `metadata.json` and `session.mat`.
+
+### Investigation
+Three things doc 10 requires were not being kept, and had to be built before
+anything could be exported.
+
+1. **The unilateral cycle symmetry proxy** (doc 05 §10) had never been
+   implemented, although `gait.csv` and the doc 11 LIVE panel both name it. It is
+   `1 - normalized_difference` between consecutive valid cycles "using the same
+   robust feature normalization used by the error engine", which means it needs
+   the reference's spreads. Computed on the host in `Store::cycles`, for the same
+   reason segments are (DEC-014): it is a pure function of the stored cycle
+   stream. Null — not zero — for the first valid cycle and for a session with no
+   reference, because without spreads there is nothing to normalize by.
+2. **The calibration record** lived only in device RAM. Doc 10 §6 requires the
+   calibration parameters and their quality in `metadata.json`, so a session
+   exported after the device was unplugged would have had nothing to say. Now
+   stored as JSON on the session row when the session starts, and only when the
+   record is usable.
+3. **Faults** were not recorded at all. STATUS arrives at 5 Hz; only changes of
+   state or fault mask are stored, so a clean hour costs no rows.
+
+Schema 6.
+
+### Approach
+`events.csv` was the one place where the doc asks for more than the device
+produces: ten event types against the device's five. The ones that can be
+derived honestly are derived — cycle bounds from the cycles, ERROR_ACTIVE and
+ERROR_RESOLVED from the class transitions of displayable cycles, FAULT from the
+status changes. SERVICE_TEST never appears, and `metadata.json` says why rather
+than leaving a reader to wonder. ZUPT_END is written although doc 10 §4 does not
+list it: the device reports windows, not instants, and dropping the end would
+make the export hold less than the store.
+
+`raw.csv` carries the stored ADC counts, not physical units (DEC-007), with the
+scale factors and both mount maps in `metadata.json`. That keeps it consistent
+with doc 10 §7's rule that the raw integers survive into the `.mat`.
+
+### Problems
+`scipy.io.loadmat` refused the first `session.mat` with `buffer is too small for
+requested array`. The writer tagged char arrays `18`, which is `miUTF32`; the
+correct code for UTF-16 is `17`. A reader given the wrong width runs off the end
+of the buffer instead of failing cleanly, so the file looked structurally
+plausible and was simply unreadable.
+
+### Diagnosis
+`tools/check_mat.py`, written for exactly this purpose: the `.mat` writer is
+hand-rolled, so the only thing that can confirm it is an implementation somebody
+else wrote.
+
+### Verification
+TEST-035 (2 Rust cases) and TEST-036 (scipy, every check passing, 0 failures).
+57 Rust tests, zero clippy warnings, frontend builds.
+
+### Current Status
+CSV, metadata and `.mat` complete and verified. The PDF report (doc 10 §8) is
+not written yet.
+
+### Next Steps
+The PDF report, then the hardware verification that every one of these needs: a
+walk long enough to build a real reference.

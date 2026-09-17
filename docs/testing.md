@@ -979,3 +979,73 @@ were checking themselves; the third was not being run. A decoder that nothing
 executes is not a cross-check, and the schema-4 commit's claim of three-way
 agreement was wrong. `eadprobe vectors` is now the thing that makes it true, and
 it should be run whenever the schema changes.
+
+## TEST-035 — Export package against the database
+
+### Objective
+That the doc 10 package holds exactly what the store holds, and that a value
+that was not measured is empty rather than zero.
+
+### Environment
+Host, `cargo test`, a temporary store with a synthetic session: 3 frames,
+3 cycles (one classified), 1 event, a reference profile, segment limits of 2
+cycles / 5 errors, and two status changes of which one carries a fault.
+
+### Procedure
+`the_export_package_matches_the_database` and
+`an_unscored_session_exports_empty_cells_not_zeroes` in
+`dashboard/src-tauri/src/store/tests.rs`.
+
+### Expected
+`raw.csv` has two rows per stored frame plus a header. `gait.csv` has one row
+per cycle; the first valid cycle's symmetry-proxy cell is empty because there is
+no previous cycle to compare with, the second is not. The classified cycle reads
+`insufficient_dorsiflexion`. `events.csv` contains INITIAL_CONTACT, CYCLE_START,
+CYCLE_END, ERROR_ACTIVE and FAULT, and never SERVICE_TEST. `haptics.csv` is a
+header alone. `metadata.json` carries every doc 10 §6 group. For a session with
+no reference, all four derived columns of `gait.csv` are empty.
+
+### Actual
+As expected.
+
+### Result
+PASS — 2 cases.
+
+## TEST-036 — session.mat read back by scipy
+
+### Objective
+That the hand-rolled Level-5 writer (DEC-003) produces a file an independent
+implementation can open, and that what comes out agrees with the CSV files
+written beside it.
+
+### Environment
+Host. `cargo test -- --ignored export_sample` writes the package to
+`dashboard/src-tauri/target/export-sample`; `python3 tools/check_mat.py
+<that directory>` reads it with `scipy.io.loadmat` 1.11.4.
+
+### Procedure
+The checker verifies the six top-level variables doc 10 §7 names, that `raw` is
+int32 with int64 timestamps (§7: the raw integer values and timestamps must not
+be lost), that every raw column of the first row equals the same column of
+`raw.csv`, that each numeric `gait` column equals `gait.csv` — NaN exactly where
+the CSV cell is empty — that the metadata agrees with `metadata.json`, and that
+`haptics` is empty and carries the reason.
+
+### Actual
+First run: `TypeError: buffer is too small for requested array` inside
+`read_char`. **A real defect**: the writer tagged its char arrays `18`, which is
+`miUTF32`, not `miUTF16` (`17`). A reader told the wrong width walks off the end
+of the buffer rather than failing cleanly, which is why nothing before this
+noticed — the file was structurally plausible and simply unreadable.
+
+After the fix: every check passes, 0 failures, including the NaN-versus-empty
+agreement on the symmetry proxy and the error columns.
+
+### Result
+PASS, after fixing the defect it found.
+
+### Lessons
+A hand-rolled binary format needs a reader that was written by somebody else.
+`cargo test` could confirm the bytes were produced; only scipy could confirm
+they meant anything. The same argument applies to the PDF, which is why
+`pdfinfo`/`pdftotext` are the check there rather than a byte count.

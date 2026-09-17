@@ -7,7 +7,7 @@ use rusqlite::{Connection, Result};
 
 use crate::protocol::RawFrame;
 
-pub const SCHEMA_VERSION: i32 = 5;
+pub const SCHEMA_VERSION: i32 = 6;
 
 pub fn migrate(connection: &mut Connection) -> Result<()> {
     // WAL keeps readers (UI queries) from blocking the writer thread.
@@ -40,6 +40,7 @@ pub fn migrate(connection: &mut Connection) -> Result<()> {
             2 => transaction.execute_batch(MIGRATE_2_TO_3)?,
             3 => transaction.execute_batch(MIGRATE_3_TO_4)?,
             4 => transaction.execute_batch(MIGRATE_4_TO_5)?,
+            5 => transaction.execute_batch(MIGRATE_5_TO_6)?,
             other => unreachable!("no migration from schema {other}"),
         }
         version += 1;
@@ -185,6 +186,52 @@ CREATE TABLE segments (
   valid_cycles  INTEGER NOT NULL DEFAULT 0,
   errors        INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (session_id, segment_index)
+) WITHOUT ROWID;
+
+-- Schema 6: what the export package needs that was not being kept.
+--
+-- `calibration` is the record in force when the session started, as JSON. Doc 10
+-- §6 requires the calibration parameters and their quality in metadata.json, and
+-- the record lives only in device RAM: a session exported after the device was
+-- unplugged would otherwise have no way to say what its orientation estimate
+-- rested on.
+ALTER TABLE sessions ADD COLUMN calibration TEXT;
+
+-- One row each time the device's fault mask or state changed during a session,
+-- for the data-quality section of the report (doc 10 §8). Only changes are kept:
+-- STATUS arrives at 5 Hz and a session that never faults should not cost
+-- eighteen thousand rows an hour to say so.
+CREATE TABLE status_changes (
+  session_id   TEXT NOT NULL REFERENCES sessions(session_id),
+  frame_index  INTEGER NOT NULL,
+  at           TEXT NOT NULL,
+  device_state INTEGER NOT NULL,
+  faults       INTEGER NOT NULL,
+  PRIMARY KEY (session_id, frame_index)
+) WITHOUT ROWID;
+"#;
+
+const MIGRATE_5_TO_6: &str = r#"
+-- Schema 6: what the export package needs that was not being kept.
+--
+-- `calibration` is the record in force when the session started, as JSON. Doc 10
+-- §6 requires the calibration parameters and their quality in metadata.json, and
+-- the record lives only in device RAM: a session exported after the device was
+-- unplugged would otherwise have no way to say what its orientation estimate
+-- rested on.
+ALTER TABLE sessions ADD COLUMN calibration TEXT;
+
+-- One row each time the device's fault mask or state changed during a session,
+-- for the data-quality section of the report (doc 10 §8). Only changes are kept:
+-- STATUS arrives at 5 Hz and a session that never faults should not cost
+-- eighteen thousand rows an hour to say so.
+CREATE TABLE status_changes (
+  session_id   TEXT NOT NULL REFERENCES sessions(session_id),
+  frame_index  INTEGER NOT NULL,
+  at           TEXT NOT NULL,
+  device_state INTEGER NOT NULL,
+  faults       INTEGER NOT NULL,
+  PRIMARY KEY (session_id, frame_index)
 ) WITHOUT ROWID;
 "#;
 
@@ -339,4 +386,9 @@ VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?
 pub const INSERT_EVENT: &str = r#"
 INSERT OR IGNORE INTO events (session_id, frame_index, timestamp_us, kind)
 VALUES (?1, ?2, ?3, ?4)
+"#;
+
+pub const INSERT_STATUS_CHANGE: &str = r#"
+INSERT OR IGNORE INTO status_changes (session_id, frame_index, at, device_state, faults)
+VALUES (?1, ?2, ?3, ?4, ?5)
 "#;

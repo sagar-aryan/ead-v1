@@ -181,7 +181,7 @@ fn schema_upgrades_from_version_1_without_losing_data() {
 fn session_records_the_device_configuration() {
     let (store, _dir) = temp_store();
     store.create_patient("P-001", "Reference Walker").unwrap();
-    let identity = DeviceIdentity {
+    let identity = DeviceIdentity { calibration: None,
         firmware: Some("0.1.0+test".into()),
         config_sha256: Some("abc123".into()),
         mac: Some("44:B1:76:AF:FB:7C".into()),
@@ -710,4 +710,147 @@ fn a_recording_has_no_segments() {
     store.flush();
     assert!(store.segments(&session.session_id).unwrap().is_empty());
     assert_eq!(store.cycles(&session.session_id).unwrap()[0].segment_index, 0);
+}
+
+/// A session with everything an export has to carry: frames, cycles, events,
+/// a reference, segments and a fault.
+fn exportable_session() -> (Arc<Store>, tempdir::TempDir, String) {
+    let (store, dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let reference = store.add_reference("P-001", None, &sample_profile(34)).unwrap();
+    let session = store
+        .start_session(
+            "P-001",
+            SessionKind::Evaluation,
+            &DeviceIdentity {
+                calibration: Some(r#"{"kind":1,"reject":0,"samples":500}"#.into()),
+                firmware: Some("0.1.0+test".into()),
+                mac: Some("aa:bb:cc:dd:ee:ff".into()),
+                ..Default::default()
+            },
+            Some(&reference.reference_id),
+            Some(SegmentLimits { max_cycles: 2, max_errors: 5 }),
+        )
+        .unwrap();
+    store.record_frames(&[frame(0), frame(1), frame(2)]);
+    let mut cycles = Vec::new();
+    for i in 0..3u32 {
+        let mut c = scored_cycle(i, true, if i == 1 { 1 } else { 0 }, 0.9);
+        c.cycle_time_s = 1.0 + i as f32 * 0.05;
+        c.stance_ratio = 0.6;
+        c.peak_dorsiflexion_deg = 15.0 + i as f32;
+        c.distance_m = 1.1;
+        c.zupt_quality = 0.5;
+        cycles.push(c);
+    }
+    store.record_gait(
+        &cycles,
+        &[GaitEvent { event_type: crate::protocol::GaitEventType::InitialContact, frame_index: 0, timestamp_us: 0 }],
+    );
+    store.record_status(&crate::protocol::Status {
+        device_state: 5,
+        frame_index: 1,
+        faults: 0,
+        ..Default::default()
+    });
+    store.record_status(&crate::protocol::Status {
+        device_state: 7,
+        frame_index: 2,
+        faults: 1,
+        ..Default::default()
+    });
+    store.flush();
+    let id = session.session_id.clone();
+    (store, dir, id)
+}
+
+#[test]
+fn the_export_package_matches_the_database() {
+    let (store, dir, session_id) = exportable_session();
+    let target = dir.path().join("package");
+    let summary = crate::export::export_session(&store, &session_id, &target).unwrap();
+
+    // Doc 10 §2: two rows per frame, one per IMU.
+    assert_eq!(summary.raw_rows, store.frame_count(&session_id).unwrap() as usize * 2);
+    let raw = std::fs::read_to_string(target.join("raw.csv")).unwrap();
+    assert_eq!(raw.lines().count(), summary.raw_rows + 1, "one header row");
+    assert!(raw.lines().next().unwrap().starts_with("timestamp_us,frame_index,sensor,"));
+
+    let gait = std::fs::read_to_string(target.join("gait.csv")).unwrap();
+    assert_eq!(gait.lines().count(), store.cycles(&session_id).unwrap().len() + 1);
+    // The first valid cycle has no previous one, so its proxy cell is empty
+    // rather than zero; the second has both.
+    let rows: Vec<&str> = gait.lines().skip(1).collect();
+    assert_eq!(rows[0].split(',').nth(11).unwrap(), "", "no previous cycle to compare with");
+    assert_ne!(rows[1].split(',').nth(11).unwrap(), "");
+    assert_eq!(rows[1].split(',').nth(14).unwrap(), "insufficient_dorsiflexion");
+
+    // Doc 10 §4: the derived event types are present alongside the device's.
+    let events = std::fs::read_to_string(target.join("events.csv")).unwrap();
+    for kind in ["INITIAL_CONTACT", "CYCLE_START", "CYCLE_END", "ERROR_ACTIVE", "FAULT"] {
+        assert!(events.contains(kind), "events.csv is missing {kind}");
+    }
+    assert!(!events.contains("SERVICE_TEST"), "no haptics, so no service test happened");
+
+    // Doc 10 §5: the header alone, so a reader sees no haptic event occurred
+    // rather than finding no file at all.
+    let haptics = std::fs::read_to_string(target.join("haptics.csv")).unwrap();
+    assert_eq!(haptics.lines().count(), 1);
+
+    let metadata: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(target.join("metadata.json")).unwrap())
+            .unwrap();
+    for key in ["patient", "session", "device", "calibration", "reference_profile",
+                "segmentation", "haptics", "storage_recovery", "coordinate_convention"] {
+        assert!(!metadata[key].is_null(), "metadata.json is missing {key}");
+    }
+    assert_eq!(metadata["haptics"]["fitted"], serde_json::json!(false));
+    assert_eq!(metadata["device"]["firmware_version"], serde_json::json!("0.1.0+test"));
+    assert_eq!(metadata["segmentation"]["max_valid_cycles_per_segment"], serde_json::json!(2));
+
+    assert!(target.join("session.mat").metadata().unwrap().len() > 256);
+}
+
+#[test]
+fn an_unscored_session_exports_empty_cells_not_zeroes() {
+    let (store, dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let session = store
+        .start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None)
+        .unwrap();
+    store.record_gait(&[scored_cycle(0, true, 0, 0.0), scored_cycle(1, true, 0, 0.0)], &[]);
+    store.flush();
+    let target = dir.path().join("package");
+    crate::export::export_session(&store, &session.session_id, &target).unwrap();
+
+    let gait = std::fs::read_to_string(target.join("gait.csv")).unwrap();
+    for row in gait.lines().skip(1) {
+        let cells: Vec<&str> = row.split(',').collect();
+        assert_eq!(cells[11], "", "symmetry proxy needs a reference's spreads");
+        assert_eq!(cells[12], "", "an unscored cycle has no error score");
+        assert_eq!(cells[13], "", "an unscored cycle has no confidence");
+        assert_eq!(cells[14], "", "an unscored cycle has no class");
+    }
+    let metadata: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(target.join("metadata.json")).unwrap())
+            .unwrap();
+    assert!(metadata["reference_profile"].as_str().unwrap().starts_with("none"));
+}
+
+/// Writes the same package to `target/export-sample` so `tools/check_mat.py`
+/// can read it back with scipy — an independent implementation of the Level-5
+/// format, which is the only thing that can tell us the hand-rolled writer
+/// produces a file MATLAB would actually open.
+///
+/// Ignored by default because it writes outside a temporary directory. Run:
+///   cargo test --manifest-path dashboard/src-tauri/Cargo.toml -- --ignored export_sample
+///   python3 tools/check_mat.py dashboard/src-tauri/target/export-sample
+#[test]
+#[ignore]
+fn export_sample_for_the_mat_checker() {
+    let (store, _dir, session_id) = exportable_session();
+    let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/export-sample");
+    let _ = std::fs::remove_dir_all(&target);
+    let summary = crate::export::export_session(&store, &session_id, &target).unwrap();
+    println!("{} files in {}", summary.files.len(), summary.directory);
 }

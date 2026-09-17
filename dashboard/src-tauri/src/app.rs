@@ -24,7 +24,9 @@ impl Sink for Telemetry {
         self.live.push(frames);
     }
 
-    fn status(&self, _status: &Status) {}
+    fn status(&self, status: &Status) {
+        self.store.record_status(status);
+    }
 
     fn gait(&self, cycles: &[crate::protocol::GaitCycle], events: &[crate::protocol::GaitEvent]) {
         self.store.record_gait(cycles, events);
@@ -88,6 +90,12 @@ impl App {
     fn device_identity(&self) -> DeviceIdentity {
         let snapshot = self.device.snapshot();
         DeviceIdentity {
+            // Only a usable record is stored: a rejected one describes nothing
+            // the orientation estimate actually used.
+            calibration: snapshot
+                .calibration
+                .filter(|record| record.usable())
+                .and_then(|record| serde_json::to_string(&record).ok()),
             firmware: snapshot.firmware,
             config_sha256: self.config_hash(),
             mac: snapshot.mac,
@@ -393,6 +401,33 @@ pub fn stop_scored_session(app: tauri::State<'_, Arc<App>>) -> CommandResult<Opt
     let session = app.store.stop_session().map_err(failed)?;
     stop?;
     Ok(session)
+}
+
+/// Writes the doc 10 export package for a session.
+///
+/// `directory` defaults to `exports/<session id>` beside the database, so the
+/// package lands somewhere findable without a file dialog. Returns what was
+/// written, so the UI reports counts rather than claiming success.
+#[tauri::command]
+pub fn export_session(
+    app: tauri::State<'_, Arc<App>>,
+    session_id: String,
+    directory: Option<String>,
+) -> CommandResult<crate::export::ExportSummary> {
+    let target = match directory {
+        Some(path) if !path.trim().is_empty() => std::path::PathBuf::from(path),
+        _ => app.store.export_root().join(&session_id),
+    };
+    crate::export::export_session(&app.store, &session_id, &target).map_err(failed)
+}
+
+/// Where an export would go if the researcher names no directory.
+#[tauri::command]
+pub fn default_export_directory(
+    app: tauri::State<'_, Arc<App>>,
+    session_id: String,
+) -> String {
+    app.store.export_root().join(&session_id).display().to_string()
 }
 
 /// Every segment of a session, in order; empty unless it was an evaluation.

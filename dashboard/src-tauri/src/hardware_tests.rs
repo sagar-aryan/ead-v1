@@ -98,7 +98,7 @@ fn records_a_session_from_a_real_device() {
     let rejected_at_start = device.snapshot().rejected_frames;
 
     store.create_patient("HW-TEST", "Hardware test").expect("create patient");
-    let identity = DeviceIdentity {
+    let identity = DeviceIdentity { calibration: None,
         firmware: snapshot.firmware.clone(),
         config_sha256: device
             .config_sha256()

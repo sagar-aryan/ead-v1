@@ -537,7 +537,7 @@ pub fn session_start(kind: u8, duration_ms: u16) -> Vec<u8> {
     out
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct CalibrationSensor {
     /// Mean rate while still, chip frame, deg/s: subtract from a reading.
     pub gyro_bias_dps: [f32; 3],
@@ -550,7 +550,7 @@ pub struct CalibrationSensor {
     pub gyro_std_dps: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct Calibration {
     pub kind: u8,
     /// Reject bits (docs/protocol.md §6.5); 0 means the record is usable.
@@ -670,7 +670,7 @@ pub const RAW_STATUS_NAMES: [&str; 9] = [
     "orientation_valid",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RawFrame {
     pub timestamp_us: u64,
     pub frame_index: u32,

@@ -162,6 +162,15 @@ export interface Session {
   max_errors_per_segment: number | null;
 }
 
+/** What an export actually wrote. */
+export interface ExportSummary {
+  directory: string;
+  files: string[];
+  raw_rows: number;
+  gait_rows: number;
+  event_rows: number;
+}
+
 /** Doc 12 §5. Both are required before an evaluation may start. */
 export interface SegmentLimits {
   max_cycles: number;
@@ -343,6 +352,10 @@ export const api = {
   cycles: (sessionId: string) => invoke<Cycle[]>("cycles", { sessionId }),
   references: (patientId: string) => invoke<StoredReference[]>("references", { patientId }),
   segments: (sessionId: string) => invoke<Segment[]>("segments", { sessionId }),
+  exportSession: (sessionId: string, directory: string | null) =>
+    invoke<ExportSummary>("export_session", { sessionId, directory }),
+  defaultExportDirectory: (sessionId: string) =>
+    invoke<string>("default_export_directory", { sessionId }),
   /** Why a session may not start, in words. Empty means it may. */
   sessionBlockers: (
     patientId: string,

@@ -5,6 +5,7 @@ mod app;
 #[cfg(test)]
 mod hardware_tests;
 mod device;
+mod export;
 mod link;
 mod live;
 mod orientation;
@@ -59,6 +60,8 @@ fn main() {
             app::finish_reference_capture,
             app::session_blockers,
             app::segments,
+            app::export_session,
+            app::default_export_directory,
             app::start_scored_session,
             app::references,
             app::events,

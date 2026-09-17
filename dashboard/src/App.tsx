@@ -7,12 +7,12 @@ import { Device } from "./views/Device";
 import { Live } from "./views/Live";
 import { Cycles } from "./views/Cycles";
 import { Events } from "./views/Events";
+import { Export } from "./views/Export";
 import { References } from "./views/References";
 import { Raw } from "./views/Raw";
 import { Sessions } from "./views/Sessions";
 
-/** Doc 11 order. HAPTICS is absent because no drivers are fitted (DEC-006);
- *  EXPORT arrives with M6. */
+/** Doc 11 order. HAPTICS is absent because no drivers are fitted (DEC-006). */
 const VIEWS = [
   "Live",
   "Cycles",
@@ -20,6 +20,7 @@ const VIEWS = [
   "Raw data",
   "References",
   "Sessions",
+  "Export",
   "Device",
 ] as const;
 type View = (typeof VIEWS)[number];
@@ -66,6 +67,7 @@ export default function App() {
           {view === "References" && <References device={device} />}
           {view === "Raw data" && <Raw />}
           {view === "Sessions" && <Sessions device={device} />}
+          {view === "Export" && <Export />}
           {view === "Device" && <Device device={device} />}
         </main>
       </div>

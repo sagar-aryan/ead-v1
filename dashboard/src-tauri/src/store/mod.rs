@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use rusqlite::{Connection, OptionalExtension};
 
-use crate::protocol::{GaitCycle, GaitEvent, RawFrame};
+use crate::protocol::{GaitCycle, GaitEvent, RawFrame, Status};
 
 pub use raw::{RawWindow, SignalGroup};
 
@@ -67,6 +67,15 @@ pub struct SegmentLimits {
     pub max_errors: u32,
 }
 
+/// A moment where the device's state or fault mask changed during a session.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct StatusChange {
+    pub frame_index: i64,
+    pub at: String,
+    pub device_state: u8,
+    pub faults: u16,
+}
+
 /// One segment of an evaluation, as closed or still open.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct StoredSegment {
@@ -89,6 +98,57 @@ pub fn counts_as_error(cycle: &GaitCycle) -> bool {
 
 /// Doc 06 §7, mirrored from `ead::kConfidenceForDisplay`.
 const CONFIDENCE_FOR_DISPLAY: f32 = 0.50;
+
+/// Doc 06 §3 weights, in feature order, mirrored from `ead::kFeatureWeights`.
+const FEATURE_WEIGHTS: [f32; 7] = [0.25, 0.15, 0.15, 0.15, 0.10, 0.10, 0.10];
+/// Doc 06 §2: three spreads out is a deviation of 1.
+const DEVIATION_SCALE: f32 = 3.0;
+
+/// `unilateral_cycle_symmetry_proxy` (doc 05 §10): cycle repeatability between
+/// consecutive valid right-leg cycles, `1 - normalized_difference`, using the
+/// error engine's normalization — the difference in spreads, clamped at three,
+/// weighted by doc 06 §3.
+///
+/// This is never a left-versus-right symmetry claim. Only the right leg is
+/// instrumented, so the name it is given in the export is the one doc 05 §10
+/// insists on.
+///
+/// Returns None when no feature could be compared: a cycle distance with no
+/// zero-velocity window is dropped from both cycles, exactly as the error
+/// engine drops it, rather than scored as perfect repeatability.
+fn symmetry_proxy(current: &StoredCycle, previous: &StoredCycle, spreads: &[f32; 7]) -> Option<f32> {
+    let mut weighted = 0.0;
+    let mut active = 0.0;
+    for feature in 0..7 {
+        if spreads[feature] <= 0.0 {
+            continue;
+        }
+        if feature == 5 && (current.zupt_quality <= 0.0 || previous.zupt_quality <= 0.0) {
+            continue;
+        }
+        let difference = (feature_value(current, feature)
+            - feature_value(previous, feature))
+        .abs();
+        let d = (difference / spreads[feature] / DEVIATION_SCALE).clamp(0.0, 1.0);
+        weighted += FEATURE_WEIGHTS[feature] * d;
+        active += FEATURE_WEIGHTS[feature];
+    }
+    (active > 0.0).then(|| 1.0 - weighted / active)
+}
+
+/// The feature values doc 06 §3 weighs, in its order, read off a stored row.
+/// Mirrors `ead::featureValue`.
+fn feature_value(cycle: &StoredCycle, feature: usize) -> f32 {
+    match feature {
+        0 => cycle.peak_dorsiflexion_deg,
+        1 => cycle.contact_sagittal_deg,
+        2 => cycle.peak_inversion_deg,
+        3 => cycle.cycle_time_s,
+        4 => cycle.stance_ratio,
+        5 => cycle.distance_m,
+        _ => cycle.peak_shank_rate_dps,
+    }
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Patient {
@@ -127,6 +187,10 @@ pub struct Session {
 #[derive(Debug, Clone, Default)]
 pub struct DeviceIdentity {
     pub firmware: Option<String>,
+    /// The calibration record in force when the session started, as JSON. It
+    /// lives only in device RAM, so a session exported later has no other way
+    /// to say what its orientation estimate rested on (doc 10 §6).
+    pub calibration: Option<String>,
     pub config_sha256: Option<String>,
     pub mac: Option<String>,
     pub boot_id: Option<u32>,
@@ -166,6 +230,11 @@ pub struct StoredCycle {
     pub primary_class: u8,
     /// Which segment of the session it fell in; 0 when the session has none.
     pub segment_index: i64,
+    /// Doc 05 §10, `unilateral_cycle_symmetry_proxy`: cycle repeatability
+    /// against the previous valid cycle, never a left-versus-right claim.
+    /// Null for the first valid cycle, for rejected cycles, and for a session
+    /// with no reference — the normalization needs the reference's spreads.
+    pub symmetry_proxy: Option<f32>,
 }
 
 /// A versioned reference profile (doc 12 §2–§3).
@@ -193,6 +262,7 @@ pub struct StoredEvent {
 
 enum WriteCommand {
     Frames { session_id: String, frames: Vec<RawFrame> },
+    Status { session_id: String, frame_index: i64, device_state: u8, faults: u16 },
     Gait { session_id: String, cycles: Vec<GaitCycle>, events: Vec<GaitEvent> },
     Flush(mpsc::Sender<()>),
     Stop,
@@ -200,6 +270,8 @@ enum WriteCommand {
 
 pub struct Store {
     path: PathBuf,
+    /// The last (state, faults) written, so only changes are stored.
+    last_status: Mutex<Option<(u8, u16)>>,
     writer: Mutex<Option<mpsc::Sender<WriteCommand>>>,
     /// Session currently recording, if any.
     recording: Mutex<Option<String>>,
@@ -223,9 +295,16 @@ impl Store {
 
         Ok(Arc::new(Self {
             path,
+            last_status: Mutex::new(None),
             writer: Mutex::new(Some(tx)),
             recording: Mutex::new(None),
         }))
+    }
+
+    /// Where exports go by default: an `exports` folder beside the database,
+    /// so a package is somewhere findable without a file dialog.
+    pub fn export_root(&self) -> PathBuf {
+        self.path.parent().unwrap_or_else(|| Path::new(".")).join("exports")
     }
 
     fn reader(&self) -> Result<Connection> {
@@ -305,8 +384,8 @@ impl Store {
             "INSERT INTO sessions
                (session_id, patient_id, kind, started_at, firmware, config_sha256, device_mac,
                 boot_id, config_section, reference_id, max_cycles_per_segment,
-                max_errors_per_segment)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                max_errors_per_segment, calibration)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             rusqlite::params![
                 &session_id,
                 patient_id,
@@ -320,6 +399,7 @@ impl Store {
                 reference_id,
                 limits.map(|l| i64::from(l.max_cycles)),
                 limits.map(|l| i64::from(l.max_errors)),
+                &identity.calibration,
             ],
         )?;
         // A segmented session always has a first segment open, so the UI has
@@ -331,6 +411,7 @@ impl Store {
                 (&session_id, now_utc()),
             )?;
         }
+        *self.last_status.lock().expect("last status") = None;
         *recording = Some(session_id.clone());
         drop(recording);
         self.session(&session_id)
@@ -459,9 +540,141 @@ impl Store {
                 active_classes: row.get::<_, i64>(21)? as u16,
                 primary_class: row.get::<_, i64>(22)? as u8,
                 segment_index: row.get(23)?,
+                symmetry_proxy: None,
+            })
+        })?;
+        let mut cycles = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(statement);
+        self.fill_symmetry_proxy(&connection, session_id, &mut cycles)?;
+        Ok(cycles)
+    }
+
+    /// Fills in each valid cycle's repeatability against the previous one.
+    /// Silent when the session had no reference: the normalization has no
+    /// spreads to work from, and inventing some would make an unfounded number
+    /// look like a measurement (doc 05 §10).
+    fn fill_symmetry_proxy(
+        &self,
+        connection: &Connection,
+        session_id: &str,
+        cycles: &mut [StoredCycle],
+    ) -> Result<()> {
+        let reference_id: Option<String> = connection.query_row(
+            "SELECT reference_id FROM sessions WHERE session_id = ?1",
+            [session_id],
+            |row| row.get(0),
+        )?;
+        let Some(reference_id) = reference_id else { return Ok(()) };
+        let profile = self.reference(&reference_id)?.profile;
+        let mut spreads = [0.0f32; 7];
+        for (spread, feature) in spreads.iter_mut().zip(profile.features.iter()) {
+            *spread = feature.spread;
+        }
+        let mut previous: Option<StoredCycle> = None;
+        for cycle in cycles.iter_mut() {
+            if !cycle.valid {
+                continue;
+            }
+            if let Some(last) = previous.as_ref() {
+                cycle.symmetry_proxy = symmetry_proxy(cycle, last, &spreads);
+            }
+            previous = Some(cycle.clone());
+        }
+        Ok(())
+    }
+
+    /// Streams every stored frame of a session in frame order, handing each to
+    /// `visit`. Streamed rather than collected: an hour at 100 Hz is 360 000
+    /// frames, and the export writes them straight out.
+    pub fn for_each_frame(
+        &self,
+        session_id: &str,
+        mut visit: impl FnMut(&RawFrame),
+    ) -> Result<usize> {
+        let connection = self.reader()?;
+        let mut statement = connection.prepare(
+            "SELECT frame_index, timestamp_us,
+                    fax, fay, faz, fgx, fgy, fgz,
+                    sax, say, saz, sgx, sgy, sgz,
+                    fqw, fqx, fqy, fqz, sqw, sqx, sqy, sqz, status
+             FROM raw_frames WHERE session_id = ?1 ORDER BY frame_index",
+        )?;
+        let mut rows = statement.query([session_id])?;
+        let mut count = 0;
+        while let Some(row) = rows.next()? {
+            let mut frame = RawFrame {
+                frame_index: row.get::<_, i64>(0)? as u32,
+                timestamp_us: row.get::<_, i64>(1)? as u64,
+                status: row.get::<_, i64>(22)? as u16,
+                ..Default::default()
+            };
+            for (i, value) in frame.foot.iter_mut().enumerate() {
+                *value = row.get::<_, i64>(2 + i)? as i16;
+            }
+            for (i, value) in frame.shank.iter_mut().enumerate() {
+                *value = row.get::<_, i64>(8 + i)? as i16;
+            }
+            for (i, value) in frame.q_foot.iter_mut().enumerate() {
+                *value = row.get::<_, i64>(14 + i)? as i16;
+            }
+            for (i, value) in frame.q_shank.iter_mut().enumerate() {
+                *value = row.get::<_, i64>(18 + i)? as i16;
+            }
+            visit(&frame);
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    /// The calibration record in force when a session started, as stored JSON.
+    pub fn session_calibration(&self, session_id: &str) -> Result<Option<String>> {
+        let connection = self.reader()?;
+        Ok(connection.query_row(
+            "SELECT calibration FROM sessions WHERE session_id = ?1",
+            [session_id],
+            |row| row.get(0),
+        )?)
+    }
+
+    /// Every status change recorded during a session, in order.
+    pub fn status_changes(&self, session_id: &str) -> Result<Vec<StatusChange>> {
+        let connection = self.reader()?;
+        let mut statement = connection.prepare(
+            "SELECT frame_index, at, device_state, faults
+             FROM status_changes WHERE session_id = ?1 ORDER BY frame_index",
+        )?;
+        let rows = statement.query_map([session_id], |row| {
+            Ok(StatusChange {
+                frame_index: row.get(0)?,
+                at: row.get(1)?,
+                device_state: row.get::<_, i64>(2)? as u8,
+                faults: row.get::<_, i64>(3)? as u16,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Records a status whose state or fault mask differs from the last one
+    /// stored. Called from the link task, so it writes through the writer
+    /// thread like everything else.
+    pub fn record_status(&self, status: &Status) {
+        let Some(session_id) = self.recording_session() else { return };
+        let mut last = self.last_status.lock().expect("last status");
+        let current = (status.device_state, status.faults);
+        if *last == Some(current) {
+            return;
+        }
+        *last = Some(current);
+        drop(last);
+        let writer = self.writer.lock().expect("writer");
+        if let Some(writer) = writer.as_ref() {
+            let _ = writer.send(WriteCommand::Status {
+                session_id,
+                frame_index: i64::from(status.frame_index),
+                device_state: status.device_state,
+                faults: status.faults,
+            });
+        }
     }
 
     /// Every segment of a session, in order. Empty unless it was segmented.
@@ -705,6 +918,7 @@ fn session_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
 fn writer_loop(mut connection: Connection, rx: mpsc::Receiver<WriteCommand>) {
     let mut pending: Vec<(String, Vec<RawFrame>)> = Vec::new();
     let mut pending_gait: PendingGait = Vec::new();
+    let mut pending_status: Vec<(String, i64, u8, u16)> = Vec::new();
     let mut last_commit = Instant::now();
     loop {
         match rx.recv_timeout(COMMIT_INTERVAL) {
@@ -720,23 +934,29 @@ fn writer_loop(mut connection: Connection, rx: mpsc::Receiver<WriteCommand>) {
                     continue;
                 }
             }
+            Ok(WriteCommand::Status { session_id, frame_index, device_state, faults }) => {
+                pending_status.push((session_id, frame_index, device_state, faults));
+                if last_commit.elapsed() < COMMIT_INTERVAL {
+                    continue;
+                }
+            }
             Ok(WriteCommand::Flush(done)) => {
-                commit(&mut connection, &mut pending, &mut pending_gait);
+                commit(&mut connection, &mut pending, &mut pending_gait, &mut pending_status);
                 last_commit = Instant::now();
                 let _ = done.send(());
                 continue;
             }
             Ok(WriteCommand::Stop) => {
-                commit(&mut connection, &mut pending, &mut pending_gait);
+                commit(&mut connection, &mut pending, &mut pending_gait, &mut pending_status);
                 return;
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
-                commit(&mut connection, &mut pending, &mut pending_gait);
+                commit(&mut connection, &mut pending, &mut pending_gait, &mut pending_status);
                 return;
             }
         }
-        commit(&mut connection, &mut pending, &mut pending_gait);
+        commit(&mut connection, &mut pending, &mut pending_gait, &mut pending_status);
         last_commit = Instant::now();
     }
 }
@@ -747,8 +967,9 @@ fn commit(
     connection: &mut Connection,
     pending: &mut Vec<(String, Vec<RawFrame>)>,
     pending_gait: &mut PendingGait,
+    pending_status: &mut Vec<(String, i64, u8, u16)>,
 ) {
-    if pending.is_empty() && pending_gait.is_empty() {
+    if pending.is_empty() && pending_gait.is_empty() && pending_status.is_empty() {
         return;
     }
     let result = (|| -> rusqlite::Result<()> {
@@ -789,6 +1010,18 @@ fn commit(
                 }
             }
         }
+        {
+            let mut status = transaction.prepare_cached(schema::INSERT_STATUS_CHANGE)?;
+            for (session_id, frame_index, device_state, faults) in pending_status.iter() {
+                status.execute(rusqlite::params![
+                    session_id,
+                    frame_index,
+                    now_utc(),
+                    i64::from(*device_state),
+                    i64::from(*faults),
+                ])?;
+            }
+        }
         transaction.commit()
     })();
     if let Err(err) = result {
@@ -797,6 +1030,7 @@ fn commit(
     }
     pending.clear();
     pending_gait.clear();
+    pending_status.clear();
 }
 
 /// Counts a cycle into the session's open segment and closes that segment when
