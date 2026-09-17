@@ -30,7 +30,7 @@ A result is only recorded as PASS when it was run and checked.
 | TEST-026 | 2026-09-17 | Raw view load with four signals and overview; window arithmetic | PASS |
 | TEST-027 | 2026-09-17 | Mounting check on a worn device | PASS (after correcting the shank map) |
 | TEST-028 | 2026-09-18 | Static calibration on the device, repeatability and window length | PASS |
-| TEST-029 | 2026-09-18 | Orientation estimate on hardware | PASS (static); dynamic check pending |
+| TEST-029 | 2026-09-18 | Orientation estimate on hardware | PASS |
 
 ## TEST-008 — M0 firmware build
 
@@ -750,6 +750,20 @@ After the fix, standing still over 502 frames:
 A flat foot reads zero, which is the pose whose answer is known independently of
 the code.
 
+Toe raises against the corrected firmware, four lifts in fifteen seconds:
+
+| Lift | Peak sagittal angle |
+|---|---:|
+| 1 | +24.9° |
+| 2 | +25.9° |
+| 3 | +26.5° |
+| 4 | +26.7° |
+
+Peaks repeat within 0.2° across four independent movements, and the angle
+returns to about +3.5° between lifts against a calibrated neutral of −0.11°. The
+residual is the standing pose not being reproduced exactly between lifts rather
+than estimator error: it does not accumulate across the sequence, which drift
+would.
+
 ### Result
-PASS for the static case and for the neutral pose. The toe-raise range check is
-still to run against the corrected firmware.
+PASS

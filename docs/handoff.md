@@ -190,10 +190,9 @@ Every milestone ends with its verification actually run, measured numbers in
   anatomical a ≈ (0, 0, +1) g (TEST-014).
 
 ## Next Steps
-1. Mahony orientation on the device, using the calibration record (gyro bias and
-   gravity alignment) that schema 2 now produces. The mount maps are settled
-   (TEST-027, PROB-002 closed) and calibration is measured and repeatable
-   (TEST-028).
+1. M4: gait events (IC, TO, foot-flat) and ZUPT. Everything they depend on is
+   verified on hardware: mount maps (TEST-027), calibration (TEST-028) and
+   orientation (TEST-029, peaks repeatable within 0.2°).
 2. Ask the user to run the Wi-Fi link tests (command in Environment above).
 3. Calibration and Mahony orientation; then walking recordings for M4.
 

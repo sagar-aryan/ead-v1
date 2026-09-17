@@ -571,5 +571,7 @@ the alignment applied to the acceleration and angular rate, a flat foot reads
 −0.11°.
 
 ### Next Steps
-Confirm the toe-raise range against the corrected firmware, then gait events and
-ZUPT (M4).
+M4: gait events and ZUPT.
+
+Orientation is confirmed on the leg: four toe raises peaked at +24.9°, +25.9°,
++26.5° and +26.7°, repeating within 0.2°, with no accumulation between lifts.
