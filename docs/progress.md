@@ -332,3 +332,53 @@ M2 complete.
 
 ### Next Steps
 M3, starting with the guided mounting check so PROB-002 closes first.
+
+## 2026-09-17 — Raw view: timeline navigation and simultaneous signals
+
+### Objective
+The user, looking at the raw view zoomed to 101 frames at t ≈ 899.5 s, asked how
+a researcher scrolls the timeline, and that all the data be visible at once.
+
+### Investigation
+Confirmed: the view had only "Zoom in" (always to the centre) and "Whole
+session". There was no way to move along a recording, and only one signal group
+was drawn at a time, so a foot impact could not be compared with the shank at
+the same instant.
+
+### Approach
+- Focus plus context: whole-session overview strip with the window marked; drag
+  to select on any chart; pan and zoom buttons plus arrow/+/− keys.
+- All four signal groups stacked by default, toggled by checkbox, shared time
+  axis, synced cursor.
+- Window arithmetic extracted to `timeline.ts` and tested with `node --test`,
+  because the M2 lesson was that untested frontend logic is where bugs hide.
+
+### Changes
+- Added: `dashboard/src/timeline.ts`, `dashboard/src/timeline.test.ts`.
+- Modified: `views/Raw.tsx`, `styles.css`, `api.ts`, `tsconfig.json`
+  (`allowImportingTsExtensions`), `package.json` (`test` script,
+  `@types/node` dev dependency).
+- Modified: `store/raw.rs` (one query for several groups, `RawSignal`),
+  `store/mod.rs`, `app.rs`, `store/tests.rs`, `hardware_tests.rs`.
+
+### Problems
+1. First version issued one query per signal. Measured on an hour of data:
+   542 ms for four signals on the whole session. All four read the same rows, so
+   they were merged into one pass: 291 ms, zoomed 78 → 35 ms (TEST-026).
+2. `cargo clippy -- -D warnings` failed on two M2 lines in `raw.rs`
+   (`needless_lifetimes`, `needless_range_loop`). M2's "zero warnings" was from
+   `cargo build`, not clippy. Fixed.
+3. The running app is now a native Wayland window, so the XTEST/xwd screenshot
+   route used in M2 no longer reaches it, and Xvfb is not installed. The new view
+   has not been looked at by the agent; the user is asked to check it.
+
+### Verification
+`npm test` 10 pass; `npm run build` clean; `cargo test` 31 pass, 2 ignored;
+`cargo clippy --all-targets -D warnings` clean; TEST-026 measured.
+Not verified: the rendered view (see Problem 3).
+
+### Current Status
+Implemented; visual check pending with the user.
+
+### Next Steps
+User checks the view; then the guided mounting check (M3).

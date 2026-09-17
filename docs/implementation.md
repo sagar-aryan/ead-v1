@@ -102,6 +102,27 @@ Summary tables were considered and deliberately not built: measurement showed a
 full-session query over an hour takes 309 ms and every zoomed view under 90 ms
 (TEST-024).
 
+All selected signals come back from one request (`raw_window` takes a list of
+signal groups). They read the same rows, so the store aggregates every group's
+columns in a single `GROUP BY` pass and returns one shared time base. That halved
+the whole-session load for four signals (542 ms as four queries, 291 ms as one,
+TEST-026) and guarantees the stacked charts have identical bucket boundaries.
+
+### Raw view navigation
+Focus plus context. An overview strip draws the whole session (first selected
+signal, 700 points, loaded once per session/signal) with the visible window
+marked; below it every selected signal is stacked on a shared time axis with a
+cursor synced across charts (uPlot `cursor.sync`). The reader moves by dragging
+a range on any chart, ◀/▶ or arrow keys (pan half a window), In/Out or +/−
+(halve/double the width, centred), or Whole session.
+
+The window arithmetic lives in `dashboard/src/timeline.ts` and is tested
+(`npm test`, Node's built-in runner executing TypeScript directly, no framework;
+`@types/node` added as a types-only dev dependency so `tsc` checks the tests).
+Windows move by frame index, never derived from time, because the device runs at
+100.145 Hz rather than 100 Hz (TEST-018). A window covering the whole session is
+represented as `null` so "zoomed" and "whole session" cannot disagree.
+
 ### Limitations
 No export and no gait views (M4–M6).
 

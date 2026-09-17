@@ -292,7 +292,7 @@ impl Store {
     pub fn raw_window(
         &self,
         session_id: &str,
-        group: SignalGroup,
+        groups: &[SignalGroup],
         first_frame: i64,
         last_frame: i64,
         max_points: usize,
@@ -306,7 +306,7 @@ impl Store {
         raw::read_window(
             &connection,
             session_id,
-            group,
+            groups,
             first_frame,
             last_frame,
             max_points,

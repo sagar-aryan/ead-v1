@@ -146,12 +146,17 @@ export interface AxisWindow {
   max: number[];
 }
 
-export interface RawWindow {
-  session_id: string;
+export interface RawSignal {
   group: SignalGroup;
   label: string;
   sensor: string;
   unit: string;
+  axes: AxisWindow[];
+}
+
+/** Several signals over one frame range, sharing one time base. */
+export interface RawWindow {
+  session_id: string;
   /** False when the session stored no configuration: values are raw counts. */
   anatomical: boolean;
   first_frame: number;
@@ -160,7 +165,7 @@ export interface RawWindow {
   bucket: number;
   time_s: number[];
   frame_index: number[];
-  axes: AxisWindow[];
+  signals: RawSignal[];
   status: number[];
   points: number;
   query_ms: number;
@@ -185,11 +190,11 @@ export const api = {
   session: (sessionId: string) => invoke<Session>("session", { sessionId }),
   rawWindow: (
     sessionId: string,
-    group: SignalGroup,
+    groups: SignalGroup[],
     firstFrame: number,
     lastFrame: number,
     maxPoints: number,
-  ) => invoke<RawWindow>("raw_window", { sessionId, group, firstFrame, lastFrame, maxPoints }),
+  ) => invoke<RawWindow>("raw_window", { sessionId, groups, firstFrame, lastFrame, maxPoints }),
 };
 
 export { Channel };

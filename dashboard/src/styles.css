@@ -412,3 +412,47 @@ tr.selectable:hover td {
 .u-legend {
   display: none;
 }
+
+/* The window marked on the overview strip, and the range being dragged out. */
+.u-select {
+  background: rgba(21, 24, 28, 0.07);
+  border-left: 1px solid var(--ink-2);
+  border-right: 1px solid var(--ink-2);
+}
+
+/* Stacked signals read as one instrument: a rule between them, and only the
+   bottom chart prints the shared time axis. */
+.stacked-signal + .stacked-signal {
+  border-top: 1px solid var(--rule);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+
+.button-group {
+  display: flex;
+}
+/* Buttons share one border, so a group reads as one control. */
+.button-group button + button {
+  margin-left: -1px;
+}
+
+.toggle-group {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+  min-height: 32px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.toggle input {
+  accent-color: var(--ink);
+  margin: 0;
+  cursor: pointer;
+}

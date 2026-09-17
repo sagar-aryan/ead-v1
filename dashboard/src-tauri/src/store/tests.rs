@@ -204,19 +204,19 @@ fn raw_window_returns_every_frame_when_the_range_is_small() {
     store.flush();
 
     let window = store
-        .raw_window(&session.session_id, SignalGroup::FootAccel, 0, 299, 1000)
+        .raw_window(&session.session_id, &[SignalGroup::FootAccel], 0, 299, 1000)
         .unwrap();
     assert_eq!(window.bucket, 1);
     assert_eq!(window.points, 300);
     // Time is relative to the session's first frame; frames are 10 ms apart.
     assert_eq!(window.time_s[0], 0.0);
     assert!((window.time_s[299] - 2.99).abs() < 1e-9);
-    assert_eq!(window.axes.len(), 3);
+    assert_eq!(window.signals[0].axes.len(), 3);
     // No stored configuration: raw counts in the sensor's own axes.
     assert!(!window.anatomical);
-    assert_eq!(window.unit, "counts");
-    assert_eq!(window.axes[0].min[0], 1.0);
-    assert_eq!(window.axes[2].max[0], 8192.0);
+    assert_eq!(window.signals[0].unit, "counts");
+    assert_eq!(window.signals[0].axes[0].min[0], 1.0);
+    assert_eq!(window.signals[0].axes[2].max[0], 8192.0);
 }
 
 #[test]
@@ -234,20 +234,20 @@ fn decimation_preserves_a_single_sample_transient() {
     store.flush();
 
     let window = store
-        .raw_window(&session.session_id, SignalGroup::FootAccel, 0, 19_999, 500)
+        .raw_window(&session.session_id, &[SignalGroup::FootAccel], 0, 19_999, 500)
         .unwrap();
     assert!(window.bucket > 1, "a 20,000-frame range must be decimated");
     assert!(window.points <= 520, "returned {} points", window.points);
     // Sampling every Nth frame would lose the spike; min/max cannot.
-    assert_eq!(window.axes[0].max.iter().copied().fold(f32::MIN, f32::max), 30_000.0);
+    assert_eq!(window.signals[0].axes[0].max.iter().copied().fold(f32::MIN, f32::max), 30_000.0);
     assert!(window.status.iter().any(|s| s & 0x0008 != 0), "flagged frame must survive");
 
     // Zooming in reaches the exact sample.
     let zoom = store
-        .raw_window(&session.session_id, SignalGroup::FootAccel, 12_300, 12_400, 1000)
+        .raw_window(&session.session_id, &[SignalGroup::FootAccel], 12_300, 12_400, 1000)
         .unwrap();
     assert_eq!(zoom.bucket, 1);
-    assert_eq!(zoom.axes[0].max[45], 30_000.0);
+    assert_eq!(zoom.signals[0].axes[0].max[45], 30_000.0);
     assert_eq!(zoom.frame_index[45], 12_345);
 }
 
@@ -258,7 +258,7 @@ fn raw_window_rejects_a_backwards_range() {
     let session =
         store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
     assert!(matches!(
-        store.raw_window(&session.session_id, SignalGroup::FootAccel, 100, 10, 100),
+        store.raw_window(&session.session_id, &[SignalGroup::FootAccel], 100, 10, 100),
         Err(StoreError::Rejected(_))
     ));
 }
@@ -303,7 +303,7 @@ fn raw_window_query_time_on_an_hour_of_data() {
         ("10 seconds", 200_000, 201_000),
     ] {
         let window =
-            store.raw_window(&session.session_id, SignalGroup::FootAccel, first, last, 1400).unwrap();
+            store.raw_window(&session.session_id, &[SignalGroup::FootAccel], first, last, 1400).unwrap();
         println!(
             "{label:14} {:>7} frames -> {:>5} points, bucket {:>4}, {} ms",
             last - first + 1,
@@ -312,6 +312,29 @@ fn raw_window_query_time_on_an_hour_of_data() {
             window.query_ms
         );
         assert!(window.query_ms < 1000, "{label} took {} ms", window.query_ms);
+    }
+
+    // What the raw view actually costs now that it draws every signal at once:
+    // four detail queries plus the whole-session overview strip.
+    let groups = [
+        SignalGroup::FootAccel,
+        SignalGroup::FootGyro,
+        SignalGroup::ShankAccel,
+        SignalGroup::ShankGyro,
+    ];
+    for (label, first, last) in
+        [("whole session", 0i64, total as i64 - 1), ("1 minute", 100_000, 106_000)]
+    {
+        let started = std::time::Instant::now();
+        let window = store.raw_window(&session.session_id, &groups, first, last, 1400).unwrap();
+        assert_eq!(window.signals.len(), 4);
+        let detail = started.elapsed().as_millis();
+        let started = std::time::Instant::now();
+        store.raw_window(&session.session_id, &groups[..1], 0, total as i64 - 1, 700).unwrap();
+        println!(
+            "{label:14} four signals {detail} ms + overview {} ms",
+            started.elapsed().as_millis()
+        );
     }
 
     let size = std::fs::metadata(_dir.path().join("ead.sqlite3")).unwrap().len();
@@ -356,4 +379,37 @@ mod tempdir {
             let _ = std::fs::remove_dir_all(&self.0);
         }
     }
+}
+
+#[test]
+fn raw_window_reads_several_signals_on_one_time_base() {
+    let (store, _dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let session =
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+    let frames: Vec<RawFrame> = (0..300)
+        .map(|i| {
+            let mut f = frame(i);
+            f.foot[0] = 100;
+            f.shank[5] = -200;
+            f
+        })
+        .collect();
+    store.record_frames(&frames);
+    store.flush();
+
+    let groups = [SignalGroup::ShankGyro, SignalGroup::FootAccel, SignalGroup::ShankGyro];
+    let window = store.raw_window(&session.session_id, &groups, 0, 299, 1000).unwrap();
+    // Duplicates collapse; the caller's order is kept, since it is the stacking order.
+    let order: Vec<_> = window.signals.iter().map(|s| s.group).collect();
+    assert_eq!(order, [SignalGroup::ShankGyro, SignalGroup::FootAccel]);
+    // Each signal reads its own columns, not its neighbour's.
+    assert_eq!(window.signals[0].axes[2].min[0], -200.0);
+    assert_eq!(window.signals[1].axes[0].max[0], 100.0);
+    assert!(window.signals.iter().all(|s| s.axes[0].min.len() == window.points));
+
+    assert!(matches!(
+        store.raw_window(&session.session_id, &[], 0, 299, 1000),
+        Err(StoreError::Rejected(_))
+    ));
 }

@@ -215,13 +215,13 @@ pub fn session(app: tauri::State<'_, Arc<App>>, session_id: String) -> CommandRe
 pub fn raw_window(
     app: tauri::State<'_, Arc<App>>,
     session_id: String,
-    group: SignalGroup,
+    groups: Vec<SignalGroup>,
     first_frame: i64,
     last_frame: i64,
     max_points: usize,
 ) -> CommandResult<RawWindow> {
     app.store
-        .raw_window(&session_id, group, first_frame, last_frame, max_points)
+        .raw_window(&session_id, &groups, first_frame, last_frame, max_points)
         .map_err(failed)
 }
 

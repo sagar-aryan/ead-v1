@@ -56,7 +56,7 @@ impl SignalGroup {
         matches!(self, SignalGroup::FootAccel | SignalGroup::ShankAccel)
     }
 
-    fn mount<'a>(self, config: &'a DeviceConfigSection) -> &'a MountMap {
+    fn mount(self, config: &DeviceConfigSection) -> &MountMap {
         match self.sensor() {
             "foot" => &config.imu.foot_mount,
             _ => &config.imu.shank_mount,
@@ -93,13 +93,25 @@ pub struct AxisWindow {
     pub max: Vec<f32>,
 }
 
+/// One signal drawn in the window: a sensor's quantity in three axes.
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct RawWindow {
-    pub session_id: String,
+pub struct RawSignal {
     pub group: SignalGroup,
     pub label: &'static str,
     pub sensor: &'static str,
     pub unit: &'static str,
+    pub axes: Vec<AxisWindow>,
+}
+
+/// Several signals over one frame range.
+///
+/// The time base is shared rather than repeated per signal: every signal comes
+/// from the same rows in one pass, so the stacked charts are guaranteed to have
+/// identical bucket boundaries, and a reader comparing sensors at an instant is
+/// comparing the same frames.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RawWindow {
+    pub session_id: String,
     /// False when the session has no stored configuration: values are raw counts
     /// in the sensor's own axes, not anatomical physical units.
     pub anatomical: bool,
@@ -110,7 +122,7 @@ pub struct RawWindow {
     /// Device time of each point, seconds since the session's first frame.
     pub time_s: Vec<f64>,
     pub frame_index: Vec<i64>,
-    pub axes: Vec<AxisWindow>,
+    pub signals: Vec<RawSignal>,
     /// Status flags OR-ed within each bucket, so a flagged frame is never hidden.
     pub status: Vec<i64>,
     pub points: usize,
@@ -134,8 +146,8 @@ fn map_extremes(map: &MountMap, scale: f32, bucket: &Extremes) -> ([f32; 3], [f3
     for axis in 0..3 {
         let mut lo = 0f32;
         let mut hi = 0f32;
-        for source in 0..3 {
-            let sign = map[axis][source] as f32;
+        for (source, &sign) in map[axis].iter().enumerate() {
+            let sign = sign as f32;
             if sign == 0.0 {
                 continue;
             }
@@ -153,7 +165,7 @@ fn map_extremes(map: &MountMap, scale: f32, bucket: &Extremes) -> ([f32; 3], [f3
 pub fn read_window(
     connection: &Connection,
     session_id: &str,
-    group: SignalGroup,
+    groups: &[SignalGroup],
     first_frame: i64,
     last_frame: i64,
     max_points: usize,
@@ -161,6 +173,17 @@ pub fn read_window(
 ) -> Result<RawWindow> {
     if last_frame < first_frame {
         return Err(StoreError::Rejected("empty frame range".into()));
+    }
+    // A repeated signal would read the same columns twice and draw the same
+    // chart twice, so ask for each one once.
+    let mut wanted: Vec<SignalGroup> = Vec::with_capacity(groups.len());
+    for group in groups {
+        if !wanted.contains(group) {
+            wanted.push(*group);
+        }
+    }
+    if wanted.is_empty() {
+        return Err(StoreError::Rejected("no signals selected".into()));
     }
     let started = std::time::Instant::now();
 
@@ -178,10 +201,12 @@ pub fn read_window(
         )
         .unwrap_or(0);
 
-    // Column names come from the enum, never from the caller.
-    let columns = group.columns();
-    let aggregates = columns
+    // Column names come from the enum, never from the caller. Every signal is
+    // aggregated in the same pass: the rows are shared, so a second signal costs
+    // three more columns rather than another scan.
+    let aggregates = wanted
         .iter()
+        .flat_map(|group| group.columns())
         .map(|c| format!("MIN({c}), MAX({c})"))
         .collect::<Vec<_>>()
         .join(", ");
@@ -197,48 +222,57 @@ pub fn read_window(
         statement.query(rusqlite::params![session_id, first_frame, last_frame, bucket])?;
 
     let identity: MountMap = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-    let (map, scale) = match config {
-        Some(config) => (group.mount(config), group.scale(config)),
-        None => (&identity, 1.0),
-    };
-
     let axis_names = ["X", "Y", "Z"];
     let mut window = RawWindow {
         session_id: session_id.to_string(),
-        group,
-        label: group.label(),
-        sensor: group.sensor(),
-        unit: group.unit(config.is_some()),
         anatomical: config.is_some(),
         first_frame,
         last_frame,
         bucket,
         time_s: Vec::new(),
         frame_index: Vec::new(),
-        axes: axis_names
+        signals: wanted
             .iter()
-            .map(|axis| AxisWindow { axis, min: Vec::new(), max: Vec::new() })
+            .map(|group| RawSignal {
+                group: *group,
+                label: group.label(),
+                sensor: group.sensor(),
+                unit: group.unit(config.is_some()),
+                axes: axis_names
+                    .iter()
+                    .map(|axis| AxisWindow { axis, min: Vec::new(), max: Vec::new() })
+                    .collect(),
+            })
             .collect(),
         status: Vec::new(),
         points: 0,
         query_ms: 0,
     };
 
+    // The last column is the status; each signal owns the six before it.
+    let status_column = 2 + wanted.len() * 6;
     while let Some(row) = rows.next()? {
         let timestamp_us: i64 = row.get(0)?;
         window.time_s.push((timestamp_us - origin_us) as f64 / 1e6);
         window.frame_index.push(row.get(1)?);
-        let mut bucket_values = Extremes { min: [0.0; 3], max: [0.0; 3] };
-        for source in 0..3 {
-            bucket_values.min[source] = row.get::<_, i64>(2 + source * 2)? as f32;
-            bucket_values.max[source] = row.get::<_, i64>(3 + source * 2)? as f32;
+        for (ordinal, (signal, group)) in window.signals.iter_mut().zip(&wanted).enumerate() {
+            let (map, scale) = match config {
+                Some(config) => (group.mount(config), group.scale(config)),
+                None => (&identity, 1.0),
+            };
+            let base = 2 + ordinal * 6;
+            let mut bucket_values = Extremes { min: [0.0; 3], max: [0.0; 3] };
+            for source in 0..3 {
+                bucket_values.min[source] = row.get::<_, i64>(base + source * 2)? as f32;
+                bucket_values.max[source] = row.get::<_, i64>(base + 1 + source * 2)? as f32;
+            }
+            let (min, max) = map_extremes(map, scale, &bucket_values);
+            for axis in 0..3 {
+                signal.axes[axis].min.push(min[axis]);
+                signal.axes[axis].max.push(max[axis]);
+            }
         }
-        let (min, max) = map_extremes(map, scale, &bucket_values);
-        for axis in 0..3 {
-            window.axes[axis].min.push(min[axis]);
-            window.axes[axis].max.push(max[axis]);
-        }
-        window.status.push(row.get(8)?);
+        window.status.push(row.get(status_column)?);
     }
     window.points = window.time_s.len();
     window.query_ms = started.elapsed().as_millis() as u64;

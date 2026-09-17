@@ -162,7 +162,7 @@ fn records_a_session_from_a_real_device() {
     let first = stopped.first_frame_index.expect("frames");
     let last = stopped.last_frame_index.expect("frames");
     let window = store
-        .raw_window(&stopped.session_id, SignalGroup::FootAccel, first, last, 400)
+        .raw_window(&stopped.session_id, &[SignalGroup::FootAccel], first, last, 400)
         .unwrap();
     println!(
         "raw window: {} frames -> {} points, bucket {}, {} ms",
@@ -172,9 +172,9 @@ fn records_a_session_from_a_real_device() {
         window.query_ms
     );
     assert!(window.points > 0);
-    assert_eq!(window.axes.len(), 3);
+    assert_eq!(window.signals[0].axes.len(), 3);
     assert!(window.anatomical, "the session must carry its configuration");
-    assert_eq!(window.unit, "g");
+    assert_eq!(window.signals[0].unit, "g");
     assert!(window.time_s[0] == 0.0, "time is relative to the session's first frame");
 
     // Every bucket must bracket 1 g: the extremes of a still sensor are still
@@ -183,7 +183,7 @@ fn records_a_session_from_a_real_device() {
         for extreme in [0usize, 1] {
             let axes: Vec<f32> = (0..3)
                 .map(|axis| {
-                    let a = &window.axes[axis];
+                    let a = &window.signals[0].axes[axis];
                     if extreme == 0 { a.min[point] } else { a.max[point] }
                 })
                 .collect();

@@ -27,6 +27,7 @@ A result is only recorded as PASS when it was run and checked.
 | TEST-023 | 2026-09-17 | Dashboard application end to end on hardware | PASS |
 | TEST-024 | 2026-09-17 | Raw-window query time on an hour of data | PASS |
 | TEST-025 | 2026-09-17 | Raw view over 30 minutes of recorded device data | PASS |
+| TEST-026 | 2026-09-17 | Raw view load with four signals and overview; window arithmetic | PASS |
 
 ## TEST-008 — M0 firmware build
 
@@ -575,3 +576,39 @@ CSV/`.mat`/PDF export, segmentation, reference lock.
 
 ### Result
 NOT RUN.
+
+## TEST-026 — Raw view load with four signals and overview; window arithmetic
+
+### Objective
+Measure what the raw view costs now that it draws every signal at once plus an
+overview, and test the navigation arithmetic.
+
+### Environment
+Release build, laptop, synthetic one-hour session (360,000 frames, varying
+values) in a temporary store — the same fixture as TEST-024.
+
+### Procedure
+1. `cd dashboard/src-tauri && cargo test --release raw_window_query_time -- --ignored --nocapture`
+2. `cd dashboard && npm test`
+
+### Expected
+Whole-session four-signal load well under 1 s; panning (zoomed windows) under
+100 ms; all timeline tests pass.
+
+### Actual
+| Load | Four queries (first version) | One query (final) |
+|---|---|---|
+| Whole session, four signals | 542 ms | 291 ms |
+| 1 minute, four signals | 78 ms | 35 ms |
+| Overview, whole session, one signal, 700 points | 135 ms | 141 ms |
+
+The overview loads once per session/signal, not on every pan.
+`npm test`: 10/10 pass (clamping at both ends keeps width, minimum span,
+whole-session as null, 1000 half-window pans stay in bounds, zoom out reaches
+whole session in eight doublings from 1000 frames, clock format).
+
+### Result
+PASS
+
+### Notes
+Rendered view not inspected by the agent (native Wayland window, no Xvfb).

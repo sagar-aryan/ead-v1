@@ -170,6 +170,8 @@ Every milestone ends with its verification actually run, measured numbers in
   `python3 protocol/vectors/generate.py`, then rerun both test suites.
 - Dashboard: `cd dashboard && npm install`, then `npx tauri dev` to run,
   `npm run build` and `(cd src-tauri && cargo build)` to build.
+- Frontend logic tests: `cd dashboard && npm test` (Node 22.6+ runs the
+  TypeScript directly; keep test syntax erasable — no enums).
 - Dashboard tests: `cd dashboard/src-tauri && cargo test`; add
   `-- --ignored` to run the hardware test with the device attached.
 - The dashboard's database lives at
@@ -187,6 +189,8 @@ Every milestone ends with its verification actually run, measured numbers in
   anatomical a ≈ (0, 0, +1) g (TEST-014).
 
 ## Next Steps
+0. User visually checks the raw view navigation (overview strip, drag-select,
+   pan/zoom, four stacked signals) — not yet seen by the agent.
 1. Build the guided mounting check, then have the user run it. It replaces
    TEST-014 and settles PROB-002, the last open question on the mount maps.
 2. Ask the user to run the Wi-Fi link tests (command in Environment above).
