@@ -528,10 +528,12 @@ fn schema_upgrades_from_version_2_keeping_frames() {
         store.flush();
         let connection = store.reader().unwrap();
         // Pretend this store predates the gait tables: undo everything schemas
-        // 3, 4 and 5 added, so it really looks like a v2 store.
+        // 3, 4, 5 and 6 added, so it really looks like a v2 store.
         connection
             .execute_batch(
-                "DROP TABLE segments;
+                "DROP TABLE status_changes;
+                 ALTER TABLE sessions DROP COLUMN calibration;
+                 DROP TABLE segments;
                  ALTER TABLE sessions DROP COLUMN reference_id;
                  ALTER TABLE sessions DROP COLUMN max_cycles_per_segment;
                  ALTER TABLE sessions DROP COLUMN max_errors_per_segment;
@@ -809,6 +811,13 @@ fn the_export_package_matches_the_database() {
     assert_eq!(metadata["segmentation"]["max_valid_cycles_per_segment"], serde_json::json!(2));
 
     assert!(target.join("session.mat").metadata().unwrap().len() > 256);
+
+    // The report's contents are checked by pdftotext in TEST-037; here, only
+    // that it is a PDF of three pages, which is what the composer promises.
+    let report = std::fs::read(target.join("report.pdf")).unwrap();
+    assert_eq!(&report[..5], b"%PDF-");
+    let text = String::from_utf8_lossy(&report);
+    assert!(text.contains("/Count 3"), "the report is three pages");
 }
 
 #[test]

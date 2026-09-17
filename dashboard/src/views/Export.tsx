@@ -18,6 +18,7 @@ const FILES: { name: string; what: string }[] = [
   { name: "haptics.csv", what: "Header only: no ERM drivers are fitted (§5, DEC-006)" },
   { name: "metadata.json", what: "Device, calibration, reference, segmentation (§6)" },
   { name: "session.mat", what: "MATLAB Level-5, raw counts kept as integers (§7)" },
+  { name: "report.pdf", what: "Three-page research report: measures, seven trends, quality (§8)" },
 ];
 
 export function Export() {

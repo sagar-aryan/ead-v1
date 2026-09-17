@@ -9,6 +9,7 @@
 
 pub mod csv;
 pub mod mat;
+pub mod pdf;
 
 use std::path::{Path, PathBuf};
 
@@ -92,6 +93,17 @@ pub fn export_session(store: &Store, session_id: &str, directory: &Path) -> Resu
     })?;
     write(directory, "session.mat", mat)?;
     files.push("session.mat".into());
+
+    let report = pdf::report(
+        &session,
+        &cycles,
+        &segments,
+        &status,
+        reference.as_ref(),
+        &crate::protocol::ERROR_CLASSES,
+    )?;
+    write(directory, "report.pdf", report)?;
+    files.push("report.pdf".into());
 
     Ok(ExportSummary {
         directory: directory.display().to_string(),

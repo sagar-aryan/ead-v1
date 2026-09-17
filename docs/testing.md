@@ -1049,3 +1049,46 @@ A hand-rolled binary format needs a reader that was written by somebody else.
 `cargo test` could confirm the bytes were produced; only scipy could confirm
 they meant anything. The same argument applies to the PDF, which is why
 `pdfinfo`/`pdftotext` are the check there rather than a byte count.
+
+## TEST-037 — report.pdf against doc 10 §8
+
+### Objective
+That every section doc 10 §8 requires is on the page, that all seven trend
+plots are drawn, and that the research-report label appears on every page — so
+a page printed on its own still says what the document is not.
+
+### Environment
+Host. `cargo test -- --ignored export_sample` writes the package; `python3
+tools/check_pdf.py <that directory>` reads it with `pdfinfo` and `pdftotext`
+(poppler).
+
+### Procedure
+The checker asserts three A4 pages, the PDF subject line, the nineteen section
+headings and readouts doc 10 §8 names, the seven trend titles on page 2, and the
+footer label on each page.
+
+### Actual
+The composer has no layout engine, so the failures it found were content
+falling off the page rather than malformed PDF:
+
+- Long paragraphs ran past the right margin and were cut mid-sentence —
+  `pdftotext` showed "…never corrected (doc" and nothing after it. Added a
+  wrapping `paragraph` helper. It estimates the line width from a mean advance
+  of 0.52 em rather than shaping each candidate line; the report's prose is all
+  lowercase Latin and nothing is set flush right, so an estimate is enough and
+  the alternative is shaping every line twice.
+- The seventh trend plot overflowed the page: seven charts at 84 pt with 26 pt
+  gaps needed 844 pt on an 841.89 pt page. Charts are now 72 pt with 20 pt gaps,
+  which lands the last one at 744.
+- One checker bug of my own: a case-sensitive match on the subject line.
+
+After those: **0 failures**, 41 checks.
+
+### Result
+PASS
+
+### Notes
+The haptic-response plot doc 10 §8 asks for is drawn as an empty panel titled
+"Haptic response — no drivers fitted (DEC-006)" rather than omitted. A reader
+has to be able to see that the report was asked for it and that nothing could
+answer it; a missing panel would look like an oversight.

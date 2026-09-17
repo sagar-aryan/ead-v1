@@ -882,3 +882,52 @@ not written yet.
 ### Next Steps
 The PDF report, then the hardware verification that every one of these needs: a
 walk long enough to build a real reference.
+
+## 2026-09-18 — M6: the PDF report
+
+### Objective
+Doc 10 §8: the research report, and with it the last file of the export package.
+
+### Approach
+krilla 0.8 (DEC-003 and the build plan) for the PDF, with a fixed-grid composer:
+every element at a measured coordinate on A4, no layout engine, because the
+report's shape never changes and a page that always looks the same is one a
+reader can scan. Charts are drawn directly as polylines and rectangles rather
+than rasterised, so the file stays around 22 kB and the text is selectable.
+
+Fonts: the dashboard bundles IBM Plex as woff, which krilla cannot read, so the
+latin subsets were converted to TTF once with fontTools and committed under
+`dashboard/src-tauri/assets/fonts` (116 kB for three faces). Embedding the same
+faces the UI uses means a printed number lines up with the one on screen, and
+subsetting means a patient name outside Latin-1 still renders — which a base-14
+font would have turned into question marks.
+
+Three pages: session identity and measures with the error-score distribution and
+class counts; the seven trend plots; the event timeline, segments and data
+quality. Every page carries "Research and engineering report. Not a validated
+clinical diagnostic report."
+
+Nothing in the report passes or fails a patient. Doc 06 defines no threshold
+separating a good cycle from a bad one, so the report shows distributions and
+says that no threshold is drawn.
+
+### Problems
+The composer has no layout engine, and `pdftotext` showed exactly what that
+costs: paragraphs ran off the right margin and were cut mid-sentence, and the
+seventh trend plot needed 844 pt on an 841.89 pt page. Both fixed — a wrapping
+paragraph helper, and charts at 72 pt with 20 pt gaps.
+
+### Verification
+TEST-037: `tools/check_pdf.py`, 41 checks, 0 failures. The Rust test additionally
+asserts the file starts `%PDF-` and declares three pages.
+55 Rust tests, zero clippy warnings, frontend builds.
+
+### Current Status
+M6 complete: `raw.csv`, `gait.csv`, `events.csv`, `haptics.csv`,
+`metadata.json`, `session.mat` and `report.pdf`, with an EXPORT view that
+reports what was written rather than announcing success.
+
+### Next Steps
+Everything left needs the device and somebody to walk. Nothing in M5 or M6 has
+been exercised against real data: the reference workflow, the error scores, the
+segments and every one of these files have only ever seen synthetic cycles.

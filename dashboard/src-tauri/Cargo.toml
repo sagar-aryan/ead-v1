@@ -17,6 +17,7 @@ tokio-tungstenite = "0.30"                             # Wi-Fi link
 serialport = { version = "4", default-features = false }  # USB link
 rusqlite = { version = "0.40", features = ["bundled"] }   # session store
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
+krilla = { version = "0.8.2", default-features = false, features = ["simple-text"] }
 
 [features]
 default = ["custom-protocol"]
