@@ -9,6 +9,8 @@ failed, and what was verified. Update it alongside every significant change.
 
 - `handoff.md` — Start here: current state, milestone plan, how to run and verify.
 - `protocol.md` — The device wire protocol: payloads, framing, backfill.
+- `clinical_requirements.md` — The four clinical requirements: where each is
+  specified, what is built, what is proven.
 - `architecture.md` — Target system design, data flow, interfaces, dependencies.
 - `implementation.md` — What exists in code today, per feature.
 - `hardware.md` — As-built hardware: silicon, register config, pins, mount maps.

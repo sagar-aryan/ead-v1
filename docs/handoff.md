@@ -46,6 +46,7 @@ and USB links → Rust backend with SQLite → React views and exports.
 | `docs/testing.md` | Executed tests with measured results |
 | `firmware/include/config_v1.h` | Fixed V1 constants and mount maps |
 | `docs/protocol.md` | Wire protocol: payloads, framing, backfill, enumerations |
+| `docs/clinical_requirements.md` | The researcher's four requirements vs what is built |
 | `firmware/lib/ead_core/` | Portable codec, COBS, CRC-32, message ring, config section |
 | `firmware/src/acquisition.cpp` | Data-ready interrupt, self-test, frame assembly |
 | `firmware/src/link.cpp` | Per-link protocol endpoint (replies, streaming, backfill) |
