@@ -30,8 +30,14 @@ that tilt as you move, plus a pitch-history strip and STILL-OK flags.
 
 PASS = checks 1–4 behave as above on BOTH sensors.
 FAIL = note which check + which sensor + what moved instead, and send it
-to the agent. Fix is a one-line sign/swap in `REMAP` (viewer) mirrored
-into `firmware/include/config_v1.h` — do not remount blindly.
+to the agent — do not remount blindly. Firmware already outputs the
+anatomical frame, so leave `REMAP` in the viewer at identity. Axis fixes go
+into the mount maps in `firmware/include/config_v1.h`. Those must stay
+proper rotations (the build rejects anything else; see `docs/problems.md`
+PROB-002).
+
+This bring-up tool is retired in milestone M1, when the binary protocol
+replaces the text stream; the dashboard mounting check (M3) takes over.
 
 Motors stay OFF during this test (send `m` in serial monitor only for
 the separate vibration test).

@@ -40,23 +40,59 @@
 
 // ---- Coordinate frame (doc 04) ----
 // X+ forward toward toes, Y+ medial/left (right leg), Z+ up.
-// NOTE: left-handed anatomical frame; chip frames are right-handed,
-// so the shank map below is a reflection (det -1) by construction.
+// This anatomical frame is right-handed (X x Y = Z), and so is the MPU chip
+// frame. Any rigid mounting is therefore a proper rotation: a mount map with
+// determinant -1 is physically impossible and would make gyro rates disagree
+// with accel-derived tilt (see docs/problems.md PROB-002).
 
-// ---- Per-sensor axis remap: raw chip -> anatomical (verified live) ----
-// Foot (0x68, dorsum, mounted per image): identity. Still-read evidence:
-//   raw a ~ (+0.42,+0.84,+1.81) -> Z dominant up. Gyro quiet.
-// Shank (0x69, anterior shin): board rotated vs image. User-verified live:
-//   chip +Z = posterior (into calf, -anatX); still-read raw
-//   a ~ (+0.16,-1.92,-0.47) -> raw -Y is up, so chip +Y = down (-anatZ).
-// Solved map (applied to accel AND gyro):
-//   anatX = -chipZ, anatY = -chipX, anatZ = -chipY.
-#define EAD_FOOT_MAP_AX(rx, ry, rz) (rx)
-#define EAD_FOOT_MAP_AY(rx, ry, rz) (ry)
-#define EAD_FOOT_MAP_AZ(rx, ry, rz) (rz)
-#define EAD_SHANK_MAP_AX(rx, ry, rz) (-(rz))
-#define EAD_SHANK_MAP_AY(rx, ry, rz) (-(rx))
-#define EAD_SHANK_MAP_AZ(rx, ry, rz) (-(ry))
+// ---- Mount maps: anatomical = M * chip, for accel AND gyro ----
+struct EadMountMap {
+  int8_t m[3][3];
+};
+
+constexpr int eadMountDet(const EadMountMap& a) {
+  return a.m[0][0] * (a.m[1][1] * a.m[2][2] - a.m[1][2] * a.m[2][1]) -
+         a.m[0][1] * (a.m[1][0] * a.m[2][2] - a.m[1][2] * a.m[2][0]) +
+         a.m[0][2] * (a.m[1][0] * a.m[2][1] - a.m[1][1] * a.m[2][0]);
+}
+
+// True when M * M^T = I, i.e. every row and column holds exactly one +-1.
+constexpr bool eadMountIsSignedPermutation(const EadMountMap& a) {
+  for (int r = 0; r < 3; r++) {
+    for (int c = 0; c < 3; c++) {
+      int dot = 0;
+      for (int k = 0; k < 3; k++) dot += a.m[r][k] * a.m[c][k];
+      if (dot != (r == c ? 1 : 0)) return false;
+    }
+  }
+  return true;
+}
+
+// Foot (0x68): board flat on the dorsum, chip X toward the toes, chip Z up.
+constexpr EadMountMap kEadFootMount = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
+
+// Shank (0x69): board on the anterior shin. Chip +Z points toward the bone
+// (posterior; user-confirmed 2026-09-17) and standing still puts gravity on
+// chip -Y, so chip +Y points down the leg. Hence anatX = -chipZ and
+// anatZ = -chipY, and right-handedness forces anatY = anatZ x anatX = +chipX.
+// The shank board in reference_images/RIGHT_LEG_IMU_PLACEMENT.png does not
+// match this physical mounting; the anatomical convention it labels does.
+constexpr EadMountMap kEadShankMount = {{{0, 0, -1}, {1, 0, 0}, {0, -1, 0}}};
+
+static_assert(eadMountIsSignedPermutation(kEadFootMount) &&
+                  eadMountDet(kEadFootMount) == 1,
+              "foot mount map must be a proper rotation");
+static_assert(eadMountIsSignedPermutation(kEadShankMount) &&
+                  eadMountDet(kEadShankMount) == 1,
+              "shank mount map must be a proper rotation");
+
+// int32 output: negating a raw -32768 count must not overflow.
+inline void eadMountApply(const EadMountMap& map, int32_t cx, int32_t cy,
+                          int32_t cz, int32_t out[3]) {
+  for (int r = 0; r < 3; r++) {
+    out[r] = map.m[r][0] * cx + map.m[r][1] * cy + map.m[r][2] * cz;
+  }
+}
 
 // ---- Calibration / orientation (doc 04) ----
 #define EAD_CAL_STATIC_S           5u

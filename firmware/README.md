@@ -1,46 +1,52 @@
-# EAD-V1 Firmware Skeleton
+# EAD-V1 Firmware
 
-Right-leg, barefoot, dual-MPU6050 gait error-augmentation device on
-Seeed XIAO ESP32-S3. Spec: `../ead_agent_docs_v2/` (authoritative;
-`CONFIG_V1.json` is the fixed-value source of truth).
+Seeed XIAO ESP32-S3 with two IMUs (foot `0x68`, shank `0x69`). Contract:
+`../ead_agent_docs_v2/` (`CONFIG_V1.json` holds the fixed values). As-built
+hardware and verification status: `../docs/hardware.md`.
+
+## Current state
+
+Bring-up firmware (milestone M0). It configures both IMUs, verifies the
+configuration by readback, and prints anatomical-frame accel/gyro at 10 Hz over
+USB. The motor GPIOs are held LOW; no motor drivers are fitted and there is no
+haptic code (DEC-006). Milestone M1 replaces `src/main.cpp` with data-ready
+acquisition and the binary protocol.
 
 ## Layout
 
 ```text
 firmware/
-  platformio.ini          env:seeed_xiao_esp32s3, Arduino, LittleFS, USB-CDC flags
-  src/main.cpp            setup()/loop() skeleton
-  include/config_v1.h     all fixed V1 values from CONFIG_V1.json
-  lib/ead_codec/          WS binary header + EAD1 block envelope + CRC32
-  test/                   Unity replay-test placeholder (determinism required)
+  platformio.ini        env seeed_xiao_esp32s3: espressif32 @ 7.1.3, gnu++17, no external libs
+  src/main.cpp          bring-up: IMU init + readback, 10 Hz text output, 'c' diagnostics
+  include/config_v1.h   fixed V1 values; per-sensor mount maps with compile-time checks
+  lib/ead_codec/        WS frame header, EAD1 block header, CRC32 (not yet linked)
+  test/                 placeholder; real Unity tests arrive in M1
 ```
 
-## Build
+## Build and flash
 
 ```bash
-pip install platformio
-pio run                   # builds env:seeed_xiao_esp32s3
-pio run -t upload         # flash over USB-C
-pio device monitor -b 115200
-pio test                  # Unity tests (once written)
+pio run                      # build
+pio run -t upload            # flash over USB-C
+pio device monitor -b 115200 # text output; send 'c' for register diagnostics
 ```
 
-## Wiring reference (docs 02/03 — summary, see docs for authority)
+Expected boot log: I²C scan finds `0x68` and `0x69`, both report
+`WHO_AM_I=0x70 (MPU6500)`, then `Foot OK  Shank OK`. A readback mismatch prints
+the register, value read and value expected.
 
-- I²C bus: XIAO GPIO5 (D4, SDA) + GPIO6 (D5, SCL), 400 kHz, shared by both IMUs.
-  XIAO 3V3/GND to both MPU VCC/GND; on-board breakout pull-ups used.
-- Foot MPU AD0→GND = `0x68`; shank MPU AD0→3V3 = `0x69`.
-- DRDY INTs: foot→GPIO7 (D8), shank→GPIO8 (D9).
-- Motors M1–M6 PWM → GPIO 1, 2, 4, 9, 43, 44. Each via 100R→IRLML6344 gate
-  (100k gate pulldown), low-side switch, 1N5819W flyback (stripe to ERM+),
-  3V3_HAPTIC rail split A (M1–M3) / B (M4–M6), 220 µF bulk per rail.
-- Boot: all six motor GPIOs OUTPUT + LOW before PWM start; stay OFF until
-  READY with sensor health checks passing. No battery/switch/BLE/BNO/FSR in V1.
+## Output lines
 
-## Skeleton scope
+- `F[ok] a=… g g=… dps INT=… | S[ok] …` — human-readable, anatomical frame.
+- `RAW,fax,fay,faz,sax,say,saz` — chip-frame accel in g (diagnoses mounting).
+- `CSV,fax,fay,faz,fgx,fgy,fgz,sax,say,saz,sgx,sgy,sgz,fi,si` — anatomical frame,
+  consumed by `../tools/orient_viewer.py`.
 
-Includes: USB-CDC boot banner, `DeviceState` enum (BOOT…RECOVERY),
-motor-GPIO safe init, I²C 400 kHz stub, 100 Hz timer placeholder,
-`config_v1.h`, `ead_codec` (WS + EAD1 + CRC32).
-NOT included yet: MPU6050 driver, Mahony, gait/ZUPT FSM, haptic engine,
-LittleFS writer, WebSocket AP/telemetry — per doc 07/14 build order.
+The `INT` columns are 10 Hz `digitalRead` samples of 50 µs pulses; they say
+nothing about whether the interrupt lines work (tested in M1).
+
+## Mount maps
+
+`anat = M · chip`, applied to accel and gyro. Foot: identity. Shank:
+`X = −chipZ, Y = +chipX, Z = −chipY`. A map that is not a proper rotation fails
+to compile. See DEC-009 and PROB-002.

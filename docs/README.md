@@ -1,33 +1,43 @@
 # EAD V1 — Engineering Documentation
 
 Right-leg, barefoot, wearable error-augmentation system for stroke gait.
-Source of implementation truth: `ead_agent_docs_v2/` (read-only contract, do not modify).
-This `docs/` tree records the engineering process per `AGENTS.md`.
+Source of implementation truth: `ead_agent_docs_v2/` (read-only contract).
+This `docs/` tree records the engineering process: what was built, why, what
+failed, and what was verified. Update it alongside every significant change.
 
 ## Index
 
-- `architecture.md` — System overview, components, data flow, constraints.
-- `implementation.md` — Phase 1 skeleton status and module implementation state.
-- `decisions.md` — DEC-001 through DEC-004.
-- `problems.md` — Bug/failure log (currently empty template).
-- `testing.md` — Replay determinism and validation plan (from doc 13).
+- `handoff.md` — Start here: current state, milestone plan, how to run and verify.
+- `architecture.md` — Target system design, data flow, interfaces, dependencies.
+- `implementation.md` — What exists in code today, per feature.
+- `hardware.md` — As-built hardware: silicon, register config, pins, mount maps.
+- `decisions.md` — DEC-001 to DEC-012.
+- `problems.md` — PROB-001 to PROB-004, including failed approaches.
+- `testing.md` — Executed tests with measured results; doc-13 acceptance suites.
 - `progress.md` — Chronological engineering log.
-- `handoff.md` — Current state, how to run, next steps.
 
-## Authoritative references
+## Rules for contributors
 
-- `ead_agent_docs_v2/00_README.md` — V1 identity and non-negotiable rule.
-- `ead_agent_docs_v2/01_SYSTEM_SPEC.md` — Product definition, real-time loop.
-- `ead_agent_docs_v2/02_HARDWARE_WIRING.md` — I2C bus, interrupts, motor channels.
-- `ead_agent_docs_v2/07_FIRMWARE_ARCHITECTURE.md` — Module structure, timing, states.
-- `ead_agent_docs_v2/13_TEST_AND_VALIDATION_PLAN.md` — Verification requirements.
-- `ead_agent_docs_v2/14_IMPLEMENTATION_PLAN.md` — Phase 1–12 plan.
-- `ead_agent_docs_v2/15_DECISION_LOG_AND_TRACEABILITY.md` — Fixed V1 decisions.
+- Contract values in `ead_agent_docs_v2/` override library defaults and intuition.
+  Deviations need a DEC entry.
+- Record failed approaches; never delete them.
+- Record a test as passed only if it was run; include the measured numbers.
+- Mark hardware facts as verified or unverified.
+
+## Agent tooling
+
+Project-level agent skills live in `.claude/skills/` (installed with the
+`skills` CLI; pinned in `skills-lock.json`):
+- `frontend-design`: UI design guidance.
+- `vercel-react-best-practices`: React rendering-performance rules.
 
 ## V1 identity (summary)
 
-- Right leg only, barefoot. 2 × MPU6050 (foot `0x68`, shank `0x69`), 100 Hz, 400 kHz I2C.
-- 6 × ERM motors, circumferential lower-shank band, ESP32-S3 direct PWM/MOSFET.
-- Wi-Fi AP + WebSocket primary link. No BLE, no FSR, no BNO086, no battery ADC in V1.
-- Desktop: Tauri 2 + React + TypeScript + Rust (observation/configuration/export only).
-- ESP32 remains in the haptic control loop even when Wi-Fi is unavailable.
+- Right leg only, barefoot. Two IMUs (foot `0x68`, shank `0x69`; MPU6500
+  silicon), 100 Hz, 400 kHz I²C.
+- Six ERM motors on a lower-shank band are specified; drivers are not fitted and
+  there is no haptic code (DEC-006).
+- Wi-Fi AP + WebSocket primary link, plus the same binary protocol over USB
+  (DEC-005). No BLE, FSR, BNO086 or battery monitoring.
+- Desktop: Tauri 2 + React + TypeScript + Rust, for observation, configuration,
+  storage, analysis and export.
