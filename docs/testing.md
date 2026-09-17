@@ -30,7 +30,7 @@ A result is only recorded as PASS when it was run and checked.
 | TEST-026 | 2026-09-17 | Raw view load with four signals and overview; window arithmetic | PASS |
 | TEST-027 | 2026-09-17 | Mounting check on a worn device | PASS (after correcting the shank map) |
 | TEST-028 | 2026-09-18 | Static calibration on the device, repeatability and window length | PASS |
-| TEST-029 | — | Orientation estimate on hardware | Pending (needs the device upright) |
+| TEST-029 | 2026-09-18 | Orientation estimate on hardware | PASS (static); dynamic check pending |
 
 ## TEST-008 — M0 firmware build
 
@@ -720,10 +720,21 @@ calibrated, stable while still, and agreeing with measured gravity.
 estimated and measured gravity under 1°; the sagittal angle following the foot.
 
 ### Actual
-Not yet run: with the boards lying on the bench the shank sensor sits 73° from
-upright, so calibration rejects the window (`upside_down`) and orientation
-correctly stays unavailable. Observed so far, both correct: 0/410 frames carried
-`orientation_valid` without a usable record.
+Two earlier attempts were refused by the device, correctly: with the boards
+lying on the bench the shank sensor sat 73° from upright, calibration rejected
+the window as `upside_down`, and 0/410 frames carried `orientation_valid`.
+
+With the device worn (foot tilt 40.7°, shank tilt 1.6°, calibration accepted):
+
+| Measure | Result |
+|---|---|
+| Frames with `orientation_valid` | 507 / 510 |
+| Foot: estimated vs measured gravity | mean 0.09°, max 0.24° |
+| Shank: estimated vs measured gravity | mean 0.17°, max 0.78° |
+
+The three invalid frames are the first after the record was adopted, before an
+interval exists to integrate over — the documented behaviour, not a fault.
 
 ### Result
-Pending
+PASS for the static case. The dynamic check (the sagittal angle following a toe
+raise) is still to run.
