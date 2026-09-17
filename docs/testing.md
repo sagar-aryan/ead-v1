@@ -929,3 +929,53 @@ PASS — 5 cases. Frontend total 28.
 The last case is the one that matters for honesty: a zero-velocity window that
 never closed is a detector fault worth seeing, and silently dropping it would
 make the lane look tidier than the data.
+
+## TEST-034 — eadprobe decodes every golden vector
+
+### Objective
+That `tools/eadprobe.py`, the independent Python decoder, agrees with the
+cross-language golden vectors in `protocol/vectors/` — and that it keeps
+agreeing as the schema grows.
+
+### Environment
+Host, `python3 tools/eadprobe.py vectors`. No device.
+
+### Procedure
+The command reads every `*.hex` vector, strips its comments, un-frames the two
+USB vectors (COBS then CRC32), parses the header and decodes the payload with
+eadprobe's own decoders. `--verbose` prints what each one decoded to, which is
+what was compared against the human-readable comment at the top of each file.
+
+### Expected
+Eighteen vectors, no failures, and the decoded values matching each file's
+stated contents.
+
+### Actual
+First run: **4 failures**, and one of them was a real defect.
+
+- `step_batch.hex` — `unpack requires a buffer of 72 bytes`. eadprobe's
+  `CYCLE_RECORD` was still the schema-3 layout. STEP_BATCH grew from 72 to 132
+  bytes when schema 4 added the error fields, and nothing had checked the Python
+  decoder, so it had been silently wrong since that commit. Fixed by extending
+  the struct (with a `size == 132` assertion at import) and decoding the score,
+  confidence, five subscores, seven deviations and primary class.
+- `config_response.hex`, `config_section.hex` — not messages; they are payloads
+  on their own. The command now decodes them as payloads.
+- `long_message.hex`, `usb_frame_long.hex` — a 300-byte body that exists to
+  exercise framing, not a STATUS payload. Framing is checked, the body is not.
+
+After those changes: 18 vectors, 0 failures. Spot-checked against the file
+comments — `step_batch.hex` decodes to error score 0.42, confidence 0.86,
+primary class `insufficient_dorsiflexion` with a dorsiflexion deviation of 0.91;
+`reference_profile.hex` decodes to 34 cycles, version 2, dorsiflexion
+16.0 ± 1.6°, shank 400 ± 22 °/s. Both match their headers exactly.
+
+### Result
+PASS, after fixing the defect it found.
+
+### Lessons
+The vectors were described as checked by three implementations. Two of them
+were checking themselves; the third was not being run. A decoder that nothing
+executes is not a cross-check, and the schema-4 commit's claim of three-way
+agreement was wrong. `eadprobe vectors` is now the thing that makes it true, and
+it should be run whenever the schema changes.

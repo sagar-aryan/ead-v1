@@ -768,3 +768,51 @@ M5 complete in code. Unverified on hardware.
 driven without the GUI; then M6, the export package. The hardware verification
 needs one walk of about a minute — thirty valid cycles — recorded through the
 dashboard.
+
+## 2026-09-18 — eadprobe: reference workflow and a vector self-check
+
+### Objective
+Drive the doc 12 workflow from the command line, so a capture, a check and an
+evaluation can be run against the device without the GUI.
+
+### Changes
+`tools/eadprobe.py` gains three commands:
+- `capture --seconds N [--save FILE]` — runs a REFERENCE_CAPTURE, counts valid
+  cycles as they arrive, stops, and prints the profile the device built. Writes
+  the raw 64-byte profile when asked. Exits 1 when the device refuses to build
+  one, which it does below thirty valid cycles.
+- `score --profile FILE [--evaluate] [--seconds N]` — sends the saved profile
+  inside SESSION_START as a REFERENCE_CHECK or an EVALUATION and prints each
+  cycle's score, confidence and class, then the median score and the median
+  deviation per feature.
+- `vectors [--verbose]` — decodes every golden vector with eadprobe's own
+  decoders.
+
+### Problems
+`vectors` was written to close a hole, and immediately found what was in it. The
+protocol design says the golden vectors are checked by three independent
+implementations: firmware, Rust and this tool. The first two check themselves in
+their test suites. Nothing ran the third. eadprobe's `CYCLE_RECORD` was still the
+schema-3 72-byte layout, so it had been unable to decode a STEP_BATCH since the
+schema-4 commit earlier the same day, and the claim of three-way agreement in
+that commit was not true.
+
+### Diagnosis
+`python3 tools/eadprobe.py vectors` → `step_batch.hex FAILED: unpack requires a
+buffer of 72 bytes`.
+
+### Solution
+Extended the struct to the 132-byte schema-4 record with a size assertion at
+import, added `decode_reference` and `decode_session_start`, and made `vectors`
+a command that has to pass.
+
+### Verification
+TEST-034: 18 vectors, 0 failures, values spot-checked against each file's stated
+contents.
+
+### Current Status
+Complete. The workflow commands themselves have not been run against the device
+— that needs someone to walk.
+
+### Next Steps
+M6: the export package.

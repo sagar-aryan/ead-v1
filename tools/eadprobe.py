@@ -18,6 +18,7 @@ import base64
 import hashlib
 import math
 import os
+import pathlib
 import socket
 import statistics
 import struct
@@ -308,7 +309,20 @@ GAIT_STATES = ["INIT", "SWING", "CONTACT_TRANSITION", "STANCE", "FOOT_FLAT_ZV", 
 GAIT_EVENTS = {1: "INITIAL_CONTACT", 2: "TOE_OFF", 3: "FOOT_FLAT", 4: "ZUPT_START",
                5: "ZUPT_END"}
 EVENT_RECORD = struct.Struct("<BBIQ")
-CYCLE_RECORD = struct.Struct("<IIQ13fHH")
+# Schema 4 record (docs/protocol.md §5.12): the gait measurements, then the
+# error engine's output — score, confidence, five subscores, seven deviations.
+CYCLE_RECORD = struct.Struct("<IIQ13fHHff5f7fBBH")
+assert CYCLE_RECORD.size == 132, CYCLE_RECORD.size
+
+REFERENCE_RECORD = struct.Struct("<HH14fI")
+assert REFERENCE_RECORD.size == 64, REFERENCE_RECORD.size
+
+FEATURES = ["swing_dorsiflexion", "contact_plantarflexion", "inversion", "cycle_time",
+            "stance_ratio", "cycle_distance", "shank_dynamics"]
+ERROR_CLASSES = ["none", "insufficient_dorsiflexion", "excess_plantarflexion",
+                 "inversion_deviation", "eversion_deviation", "timing_deviation",
+                 "overall_deviation"]
+SESSION_KINDS = {"calibration": 1, "capture": 2, "check": 3, "evaluate": 4}
 
 
 def decode_events(p):
@@ -334,8 +348,24 @@ def decode_cycles(p):
             "contact_sagittal_deg": round(v[11], 1), "peak_inversion_deg": round(v[12], 1),
             "distance_m": round(v[13], 3), "speed_mps": round(v[14], 3),
             "zupt_quality": round(v[15], 3), "valid": bool(v[16] & 1),
+            "active_classes": flag_names(v[17], ERROR_CLASSES),
+            "error_score": round(v[18], 3), "confidence": round(v[19], 3),
+            "subscores": [round(x, 3) for x in v[20:25]],
+            "deviations": [round(x, 3) for x in v[25:32]],
+            "primary_class": ERROR_CLASSES[v[32]] if v[32] < len(ERROR_CLASSES) else v[32],
         })
     return out
+
+
+def decode_reference(p):
+    """The 64-byte profile (docs/protocol.md §5.13)."""
+    v = REFERENCE_RECORD.unpack(p)
+    return {
+        "cycles": v[0], "version": v[1],
+        "features": {FEATURES[i]: {"median": round(v[2 + 2 * i], 4),
+                                   "spread": round(v[3 + 2 * i], 4)}
+                     for i in range(7)},
+    }
 
 
 CALIB_STATES = ["none", "collecting", "ready", "rejected"]
@@ -531,6 +561,171 @@ def cmd_walk(args):
             print(f"valid cycles {len(valid)}  total distance {total:.2f} m  "
                   f"mean cadence {sum(c['cadence'] for c in valid)/len(valid):.1f} steps/min")
     s.transport.close()
+
+
+def _collect(s, seconds, on_cycle=None):
+    """Streams for `seconds`, keeping the link alive, returning events and cycles."""
+    events, cycles = [], []
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        s.send(STATUS, b"")
+        for msg in s.transport.poll(0.2):
+            t, _, _, p = parse(msg)
+            if t == EVENT_BATCH:
+                events.extend(decode_events(p))
+            elif t == STEP_BATCH:
+                batch = decode_cycles(p)
+                cycles.extend(batch)
+                if on_cycle:
+                    for c in batch:
+                        on_cycle(c)
+            elif t == ERROR:
+                print(decode_error(p), file=sys.stderr)
+    return events, cycles
+
+
+def cmd_capture(args):
+    """Collects a reference profile on the device and prints what it built.
+
+    The device refuses to build one from fewer than thirty valid cycles, which
+    is the point: --save then writes nothing.
+    """
+    s = Session(args)
+    s.open()
+    s.hello()
+    s.send(SESSION_START, struct.pack("<BBH", SESSION_KINDS["capture"], 0, 0))
+    print(f"reference capture: walk for {args.seconds:.0f} s")
+    valid = [0]
+
+    def count(c):
+        if c["valid"]:
+            valid[0] += 1
+            print(f"  valid cycle {valid[0]}", end="\r", flush=True)
+
+    _collect(s, args.seconds, count)
+    print(f"{valid[0]} valid cycles collected      ")
+    s.send(SESSION_STOP, b"")
+    # The profile comes back as a SESSION_STOP reply, a round trip later.
+    payload = None
+    deadline = time.monotonic() + 3
+    while payload is None and time.monotonic() < deadline:
+        s.send(STATUS, b"")
+        for msg in s.transport.poll(0.1):
+            t, _, _, p = parse(msg)
+            if t == SESSION_STOP and len(p) == REFERENCE_RECORD.size:
+                payload = p
+            elif t == ERROR:
+                print(decode_error(p), file=sys.stderr)
+    s.transport.close()
+    if payload is None:
+        print("the device built no profile: fewer than 30 valid cycles", file=sys.stderr)
+        return 1
+    profile = decode_reference(payload)
+    print(f"profile from {profile['cycles']} cycles")
+    for name, f in profile["features"].items():
+        print(f"  {name:24} median {f['median']:9.4f}   spread {f['spread']:9.4f}")
+    if args.save:
+        with open(args.save, "wb") as fh:
+            fh.write(payload)
+        print(f"saved {args.save} ({len(payload)} bytes)")
+    return 0
+
+
+def cmd_score(args):
+    """Runs a check or an evaluation against a saved profile and prints the scores."""
+    with open(args.profile, "rb") as fh:
+        payload = fh.read()
+    if len(payload) != REFERENCE_RECORD.size:
+        raise ValueError(f"{args.profile} is {len(payload)} bytes, expected {REFERENCE_RECORD.size}")
+    profile = decode_reference(payload)
+    kind = SESSION_KINDS["evaluate" if args.evaluate else "check"]
+    s = Session(args)
+    s.open()
+    s.hello()
+    print(f"{'evaluation' if args.evaluate else 'check'} against a profile built from "
+          f"{profile['cycles']} cycles: walk for {args.seconds:.0f} s")
+    s.send(SESSION_START, struct.pack("<BBH", kind, 0, 0) + payload)
+    _, cycles = _collect(s, args.seconds)
+    s.send(SESSION_STOP, b"")
+    s.transport.close()
+
+    scored = [c for c in cycles if c["valid"] and c["confidence"] > 0]
+    print(f"{len(cycles)} cycles, {len(scored)} scored")
+    if not scored:
+        return 1
+    print(f"{'cycle':>6} {'score':>6} {'conf':>6}  class")
+    for i, c in enumerate(scored, 1):
+        print(f"{i:6d} {c['error_score']:6.2f} {c['confidence']:6.2f}  {c['primary_class']}")
+    order = sorted(c["error_score"] for c in scored)
+    print(f"median error score {order[len(order) // 2]:.3f}")
+    for i, name in enumerate(FEATURES):
+        values = sorted(c["deviations"][i] for c in scored)
+        print(f"  {name:24} median deviation {values[len(values) // 2]:.3f}")
+    return 0
+
+
+def decode_session_start(p):
+    """Kind and duration, plus the reference profile a check or evaluation carries."""
+    kind, _, duration_ms = struct.unpack_from("<BBH", p)
+    name = next((n for n, v in SESSION_KINDS.items() if v == kind), kind)
+    out = {"kind": name, "duration_ms": duration_ms}
+    if len(p) == 4 + REFERENCE_RECORD.size:
+        out["reference"] = decode_reference(p[4:])
+    elif len(p) != 4:
+        raise ValueError(f"SESSION_START is {len(p)} bytes")
+    return out
+
+
+def cmd_vectors(args):
+    """Decodes every golden vector with this tool's own decoders.
+
+    The vectors are the cross-language ground truth (protocol/vectors). Firmware
+    and the dashboard check themselves against them; without this, nothing
+    checked eadprobe, and its cycle record silently stayed at the schema-3
+    layout after STEP_BATCH grew the error fields.
+    """
+    root = pathlib.Path(__file__).resolve().parent.parent / "protocol" / "vectors"
+    decoders = {
+        HELLO: lambda p: decode_hello(p) if len(p) > 2 else {"schema": struct.unpack("<H", p)[0]},
+        STATUS: decode_status,
+        EVENT_BATCH: decode_events,
+        STEP_BATCH: decode_cycles,
+        ERROR: decode_error,
+        SESSION_STOP: lambda p: (decode_reference(p) if len(p) == REFERENCE_RECORD.size
+                                 else decode_calibration(p)),
+        SESSION_START: decode_session_start,
+    }
+    # Three vectors are not messages: two are payloads on their own, and the
+    # long pair exists to exercise framing with an oversized body.
+    payload_only = {"config_response.hex": decode_config, "config_section.hex": config_fields}
+    framing_only = {"long_message.hex", "usb_frame_long.hex"}
+    failures = 0
+    for path in sorted(root.glob("*.hex")):
+        raw = bytes.fromhex("".join(
+            line.split("#")[0] for line in path.read_text().splitlines()))
+        try:
+            if path.name.startswith("usb_frame_"):
+                raw = cobs_decode(raw.strip(b"\x00"))
+                if zlib.crc32(raw[:-4]) != struct.unpack("<I", raw[-4:])[0]:
+                    raise ValueError("CRC32 mismatch")
+                raw = raw[:-4]
+            if path.name in payload_only:
+                decoded = payload_only[path.name](raw)
+                print(f"{path.name:28} payload           ok")
+                if args.verbose:
+                    print(f"    {decoded}")
+                continue
+            msg_type, seq, _, payload = parse(raw)
+            decoded = (f"{len(payload)} bytes" if path.name in framing_only
+                       else decoders.get(msg_type, lambda p: f"{len(p)} bytes")(payload))
+            print(f"{path.name:28} type 0x{msg_type:02x} seq {seq:<5} ok")
+            if args.verbose:
+                print(f"    {decoded}")
+        except Exception as e:  # noqa: BLE001 - the point is to report, not to stop
+            failures += 1
+            print(f"{path.name:28} FAILED: {e}", file=sys.stderr)
+    print(f"{failures} failures")
+    return 1 if failures else 0
 
 
 def cmd_config(args):
@@ -769,12 +964,23 @@ def main():
     wk.add_argument("--seconds", type=float, default=30)
     cal = sub.add_parser("calibrate")
     cal.add_argument("--seconds", type=float, default=5.0)
+    cap = sub.add_parser("capture", help="collect a reference profile (doc 12 §2)")
+    cap.add_argument("--seconds", type=float, default=60)
+    cap.add_argument("--save", metavar="FILE", help="write the 64-byte profile")
+    sc = sub.add_parser("score", help="check or evaluate against a saved profile")
+    sc.add_argument("--profile", metavar="FILE", required=True)
+    sc.add_argument("--seconds", type=float, default=30)
+    sc.add_argument("--evaluate", action="store_true",
+                    help="EVALUATION rather than REFERENCE_CHECK")
+    ve = sub.add_parser("vectors", help="decode the golden vectors with this tool")
+    ve.add_argument("--verbose", action="store_true")
     ro = sub.add_parser("reopen")
     ro.add_argument("--cycles", type=int, default=20)
     ro.add_argument("--pause", type=float, default=0.5)
     args = ap.parse_args()
     {"hello": cmd_hello, "config": cmd_config, "stats": cmd_stats, "reopen": cmd_reopen,
-     "calibrate": cmd_calibrate, "walk": cmd_walk}[args.command](args)
+     "calibrate": cmd_calibrate, "walk": cmd_walk, "capture": cmd_capture,
+     "score": cmd_score, "vectors": cmd_vectors}[args.command](args)
 
 
 if __name__ == "__main__":
