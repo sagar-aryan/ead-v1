@@ -28,7 +28,7 @@ A result is only recorded as PASS when it was run and checked.
 | TEST-024 | 2026-09-17 | Raw-window query time on an hour of data | PASS |
 | TEST-025 | 2026-09-17 | Raw view over 30 minutes of recorded device data | PASS |
 | TEST-026 | 2026-09-17 | Raw view load with four signals and overview; window arithmetic | PASS |
-| TEST-027 | 2026-09-17 | Mounting check on a worn device | FAIL → map corrected, re-check pending |
+| TEST-027 | 2026-09-17 | Mounting check on a worn device | PASS (after correcting the shank map) |
 
 ## TEST-008 — M0 firmware build
 
@@ -650,8 +650,14 @@ The still step's tilt rule was relaxed afterwards: it now requires gravity to be
 dominant on +Z and reports the tilt angle, because a strap over the instep holds
 the board at a slope and calibration's gravity alignment removes it.
 
+Re-run on the leg with the corrected map flashed: **all three steps PASS**
+(user-reported, 2026-09-17). Both sensors read gravity on +Z standing still, the
+toe lift turned the foot about −Y, and the knee extension turned the shank
+about −Y.
+
 ### Result
-FAIL — which is what produced the correction. Re-check pending.
+PASS on the second run. The first run's FAIL is what produced the correction and
+is kept above: it is the evidence for the map.
 
 ### Notes
 A FAIL is the useful outcome here: the panel prints the measured vector, which

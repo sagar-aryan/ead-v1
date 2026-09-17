@@ -458,7 +458,9 @@ Flashed, and the device reports the new map over USB
 (`eadprobe config`: `shank_mount [0,0,-1, 0,1,0, 1,0,0]`).
 
 ### Current Status
-Corrected and flashed; the on-leg re-check is the confirmation.
+Resolved. The re-run on the leg passed all three steps (user-reported), so
+PROB-002 is closed and both mount maps are confirmed against the hardware.
 
 ### Next Steps
-Re-run the mounting check. The foot rotation step needs a fuller toe lift.
+Static calibration: gyro bias and gravity alignment from five seconds of
+stillness, which is what removes the 33° instep tilt from the measurements.

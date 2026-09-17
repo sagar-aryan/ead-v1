@@ -49,7 +49,7 @@ config registers; DIAG-on-demand (`c`) beats reboot-timing captures.
 
 ## PROB-002 — Shank anatomical mapping differs from placement image
 
-**Status:** Corrected from on-body measurement (2026-09-17); re-check pending
+**Status:** Resolved (2026-09-17), confirmed on the leg
 
 ### Symptoms
 With image-identity mapping, shank gravity did not sit on +Z.
@@ -122,8 +122,13 @@ failed was that chip +Y points down the leg; chip +X does.
   maps without overflow.
 - On-body: the mounting check (TEST-027) found the error and gave the numbers the
   correction was derived from. The device reports the new map
-  (`eadprobe config`: `shank_mount [0,0,-1, 0,1,0, 1,0,0]`). Re-running the check
-  on the leg is the outstanding confirmation.
+  (`eadprobe config`: `shank_mount [0,0,-1, 0,1,0, 1,0,0]`), and the check was
+  re-run on the leg with all three steps passing.
+
+### Lessons
+The map was derived twice from statements about how the board faces and was wrong
+both times; it took three seconds of measurement on the leg to settle. Physical
+orientation is cheap to measure and expensive to reason about — measure it.
 - On-body: pending. Standing still must read anatomical a ≈ (0, 0, +1) g on the
   shank. The M3 mounting check then verifies gyro signs with a toe raise and a
   seated knee extension.
