@@ -2,48 +2,77 @@
 
 Seeed XIAO ESP32-S3 with two IMUs (foot `0x68`, shank `0x69`). Contract:
 `../ead_agent_docs_v2/` (`CONFIG_V1.json` holds the fixed values). As-built
-hardware and verification status: `../docs/hardware.md`.
+hardware and verification status: `../docs/hardware.md`. Wire protocol:
+`../docs/protocol.md`.
 
 ## Current state
 
-Bring-up firmware (milestone M0). It configures both IMUs, verifies the
-configuration by readback, and prints anatomical-frame accel/gyro at 10 Hz over
-USB. The motor GPIOs are held LOW; no motor drivers are fitted and there is no
-haptic code (DEC-006). Milestone M1 replaces `src/main.cpp` with data-ready
-acquisition and the binary protocol.
+Acquires both IMUs at 100 Hz, clocked by the foot sensor's data-ready interrupt,
+and streams the binary protocol over Wi-Fi and USB. Roughly 12 minutes of
+telemetry is held in PSRAM so a host can recover anything it missed.
+
+No calibration, orientation or gait analysis yet (milestones M3–M5): the
+quaternion fields in each frame are identity and session commands answer
+NotSupported. The motor GPIOs are held LOW — no drivers are fitted and there is
+no haptic code (DEC-006).
 
 ## Layout
 
 ```text
 firmware/
-  platformio.ini        env seeed_xiao_esp32s3: espressif32 @ 7.1.3, gnu++17, no external libs
-  src/main.cpp          bring-up: IMU init + readback, 10 Hz text output, 'c' diagnostics
-  include/config_v1.h   fixed V1 values; per-sensor mount maps with compile-time checks
-  lib/ead_codec/        WS frame header, EAD1 block header, CRC32 (not yet linked)
-  test/                 placeholder; real Unity tests arrive in M1
+  platformio.ini        seeed_xiao_esp32s3 + native test env; gnu++17, no external libs
+  include/config_v1.h   fixed V1 values; mount maps with compile-time checks
+  lib/ead_core/         portable: codec, COBS, CRC-32, message ring, config section
+  src/imu.*             register driver, readback verification, bus recovery
+  src/acquisition.*     data-ready interrupt, self-test, frame assembly
+  src/telemetry.*       durable message ring (PSRAM) and the processing task
+  src/link.*            protocol endpoint: replies, status, streaming, backfill
+  src/link_usb.*        USB Serial/JTAG transport (COBS framing)
+  src/link_wifi.*       access point + WebSocket transport
+  src/device.*          identity, faults, counters, HELLO/STATUS/CONFIG builders
+  test/                 Unity tests, run on the host against the golden vectors
+  scripts/              build-time headers (firmware version, AP passphrase)
 ```
 
-## Build and flash
+## Build, test and flash
 
 ```bash
-pio run                      # build
-pio run -t upload            # flash over USB-C
-pio device monitor -b 115200 # text output; send 'c' for register diagnostics
+pio run                 # build for the device
+pio test -e native      # unit tests on the host
+pio run -t upload       # flash over USB-C
 ```
 
-Expected boot log: I²C scan finds `0x68` and `0x69`, both report
-`WHO_AM_I=0x70 (MPU6500)`, then `Foot OK  Shank OK`. A readback mismatch prints
-the register, value read and value expected.
+## Talking to it
 
-## Output lines
+The USB port carries binary protocol frames, not text. Nothing in the firmware
+may print to USB: a stray byte corrupts a frame (`../docs/problems.md` PROB-006),
+which is why `CORE_DEBUG_LEVEL=0` is a build flag and Arduino `Serial` is unused.
 
-- `F[ok] a=… g g=… dps INT=… | S[ok] …` — human-readable, anatomical frame.
-- `RAW,fax,fay,faz,sax,say,saz` — chip-frame accel in g (diagnoses mounting).
-- `CSV,fax,fay,faz,fgx,fgy,fgz,sax,say,saz,sgx,sgy,sgz,fi,si` — anatomical frame,
-  consumed by `../tools/orient_viewer.py`.
+```bash
+python3 ../tools/eadprobe.py hello     # identity, sequence window
+python3 ../tools/eadprobe.py config    # configuration, hash-verified
+python3 ../tools/eadprobe.py stats --seconds 60
+```
 
-The `INT` columns are 10 Hz `digitalRead` samples of 50 µs pulses; they say
-nothing about whether the interrupt lines work (tested in M1).
+Expect zero missing frames, zero dropped, zero rejected, and |a| ≈ 1.02 g on a
+resting device.
+
+## Wi-Fi access point
+
+`EAD-V1-<last two MAC bytes>`, WPA2, channel 6, device at `192.168.4.1`,
+WebSocket at `ws://192.168.4.1:8080/ws`. The passphrase is generated at first
+build into `include/ead_secrets.h`, which git does not track; delete that file to
+roll a new one.
+
+## Wiring reference (docs 02/03 — summary, see docs for authority)
+
+- I²C bus: XIAO GPIO5 (D4, SDA) + GPIO6 (D5, SCL), 400 kHz, shared by both IMUs.
+  XIAO 3V3/GND to both MPU VCC/GND; on-board breakout pull-ups used.
+- Foot MPU AD0→GND = `0x68`; shank MPU AD0→3V3 = `0x69`.
+- Data-ready interrupts: foot→GPIO7 (D8), shank→GPIO8 (D9). Both verified
+  (TEST-015).
+- Motors M1–M6 → GPIO 1, 2, 4, 9, 43, 44. Held LOW as the first action at boot;
+  no drivers fitted. See PROB-004 before fitting any.
 
 ## Mount maps
 

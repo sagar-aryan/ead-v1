@@ -37,6 +37,9 @@
 #define EAD_MPU_DLPF_CFG           3
 #define EAD_MPU_SMPLRT_DIV         9
 // Clock source: PLL with X-axis gyro reference (see MPU6050 driver setup).
+// Sensitivity at the configured ranges (same for MPU6050 and MPU6500).
+#define EAD_ACCEL_LSB_PER_G        8192.0f  // +-4 g
+#define EAD_GYRO_LSB_PER_DPS       65.5f    // +-500 dps
 
 // ---- Coordinate frame (doc 04) ----
 // X+ forward toward toes, Y+ medial/left (right leg), Z+ up.
@@ -141,10 +144,22 @@ inline void eadMountApply(const EadMountMap& map, int32_t cx, int32_t cy,
 #define EAD_HAPTIC_MAX_ON_S        5u
 #define EAD_HAPTIC_ROLL_WIN_S      10u
 #define EAD_HAPTIC_ROLL_DUTY_LIM   0.50f
-// Motor positions (deg, circumferential): M1=0 M2=60 M3=120 M4=180 M5=240 M6=300.
+// Motor positions (deg, circumferential).
+#define EAD_MOTOR_M1_DEG           0u
+#define EAD_MOTOR_M2_DEG           60u
+#define EAD_MOTOR_M3_DEG           120u
+#define EAD_MOTOR_M4_DEG           180u
+#define EAD_MOTOR_M5_DEG           240u
+#define EAD_MOTOR_M6_DEG           300u
+// ERM driver channels are not fitted in this build (docs/decisions.md DEC-006).
+#define EAD_HAPTICS_FITTED         0u
 
 // ---- Network (doc 08) ----
 #define EAD_NET_AP_IP              "192.168.4.1"
+#define EAD_NET_AP_IP_0            192
+#define EAD_NET_AP_IP_1            168
+#define EAD_NET_AP_IP_2            4
+#define EAD_NET_AP_IP_3            1
 #define EAD_NET_PORT               8080
 #define EAD_NET_WS_PATH            "/ws"
 #define EAD_WS_PROTO_VER           1u

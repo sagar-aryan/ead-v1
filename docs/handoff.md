@@ -11,19 +11,25 @@ Build the real device data path and a fully functional research dashboard, in
 verified milestones. The user asked for genuinely engineered work: no filler, no
 placeholder or fake data, no features the spec doesn't need.
 
-## Current State (2026-09-17, after M0)
-- Firmware is bring-up code.
-  - Both IMUs (MPU6500 silicon) are configured, and the configuration is
-    verified by readback, including the accel filter (PROB-003).
-  - Mount maps are proper rotations enforced at compile time (PROB-002).
-  - Motor pins are LOW first thing at boot.
-  - Output is 10 Hz text over USB. There is no protocol, Wi-Fi, calibration or
-    orientation yet.
-- Dashboard: the Tauri Rust shell builds, with icons, capabilities and a strict CSP.
-  The React UI is still the old placeholder skeleton.
-- Docs are current as of M0.
-- On-body gravity check (TEST-014) is pending: it needs the user to wear the
-  device and stand still.
+## Current State (2026-09-17, after M1 and most of M2)
+- **Firmware streams real data.** 100 Hz acquisition clocked by the foot IMU's
+  data-ready interrupt, every frame timestamped and indexed. The doc-08 binary
+  protocol runs over both the Wi-Fi access point and USB; roughly 12 minutes of
+  telemetry is held in PSRAM so a host can backfill anything it missed.
+  Verified by a 30-minute run with zero missing, dropped or corrupted frames
+  (TEST-018).
+- **Dashboard connects, shows and records.** The Tauri app detects the device by
+  USB ID, performs the handshake, verifies the device's configuration against the
+  hash the device reports, shows live sensor traces, and records sessions into
+  SQLite with every raw sample preserved (TEST-022, TEST-023).
+- **Not yet built:** the RAW view over stored frames; calibration, orientation,
+  gait analysis, the error engine and exports (M3–M6). The device answers
+  SESSION_* commands with NotSupported.
+- On-body gravity check (TEST-014) is still pending: it needs the user to wear
+  the device and stand still.
+- The Wi-Fi link is verified as far as this machine can go: the access point
+  advertises correctly (TEST-019) and the WebSocket code path is shared with USB,
+  but an end-to-end Wi-Fi session has not been run (see Environment).
 
 ## Architecture
 See `docs/architecture.md`. In one line: data-ready-driven 100 Hz acquisition →
@@ -36,88 +42,88 @@ and USB links → Rust backend with SQLite → React views and exports.
 | `ead_agent_docs_v2/` | Contract. Never modify |
 | `docs/hardware.md` | As-built hardware, mount maps, what is verified |
 | `docs/decisions.md` | DEC-001–DEC-012 |
-| `docs/problems.md` | PROB-001–PROB-004 |
+| `docs/problems.md` | PROB-001–PROB-007 |
 | `docs/testing.md` | Executed tests with measured results |
 | `firmware/include/config_v1.h` | Fixed V1 constants and mount maps |
-| `firmware/src/main.cpp` | Bring-up firmware (replaced in M1) |
-| `firmware/lib/ead_codec/` | WS header, EAD1 block header, CRC32 (not yet linked) |
+| `docs/protocol.md` | Wire protocol: payloads, framing, backfill, enumerations |
+| `firmware/lib/ead_core/` | Portable codec, COBS, CRC-32, message ring, config section |
+| `firmware/src/acquisition.cpp` | Data-ready interrupt, self-test, frame assembly |
+| `firmware/src/link.cpp` | Per-link protocol endpoint (replies, streaming, backfill) |
+| `protocol/vectors/` | Golden vectors; `generate.py` rebuilds them |
+| `tools/eadprobe.py` | Independent host decoder: `hello`, `config`, `stats`, `reopen` |
+| `dashboard/src-tauri/src/` | protocol, link, device, store, live, app |
+| `dashboard/src/` | React UI: api, useDevice, components, views |
 | `dashboard/src-tauri/` | Tauri shell (`main.rs`, `tauri.conf.json`, `capabilities/`, `icons/`) |
 | `dashboard/app-icon.svg` | Icon source; regenerate with `npx tauri icon app-icon.svg` and keep only the desktop sizes |
-| `tools/orient_viewer.py` | Bring-up orientation viewer; retired in M1 |
 | `.claude/skills/` | Installed agent skills: `frontend-design`, `vercel-react-best-practices` |
 
 ## Completed Work
 - Phase 1 skeleton and Phase 2 bring-up (see `docs/progress.md`).
 - Full audit and V1 build plan (2026-09-17).
 - M0 baseline fixes and cleanup (2026-09-17).
+- M1 firmware acquisition, protocol and both links (2026-09-17).
+- M2 dashboard foundation, except the RAW view (2026-09-17).
 
 ## Current Work
-M0 is complete except TEST-014. M1 is next.
+Finish M2: build the RAW view over stored frames, then stop for the user's
+look-and-feel review before starting M3.
 
 ## Milestone Plan
 Every milestone ends with its verification actually run, measured numbers in
 `docs/testing.md`, docs updated, and a local commit. Push only when the user asks.
 
-1. **M1 — Acquisition, protocol, links.**
-   - Build:
-     - Interrupt-count test on GPIO7/8 first; if INT is not wired, stop and ask
-       the user.
-     - `lib/ead_core` with codec, COBS, CRC32 and message ring, plus native Unity
-       tests and golden vectors in `protocol/vectors/`.
-     - IRAM data-ready acquisition with µs timestamps and self-test.
-     - HELLO / STATUS / RAW_SAMPLE_BATCH / CONFIG_GET / ERROR / BACKFILL over Wi-Fi
-       (`esp_http_server`) and USB (COBS).
-     - `docs/protocol.md`.
-     - `tools/eadprobe.py`: an independent decoder with stats and recording.
-     - `tools/check_config.py`.
-   - Verify:
-     - `pio test -e native`.
-     - 30-minute zero-gap runs over USB and Wi-Fi.
-     - The user runs the Wi-Fi dropout and backfill tests offline.
-2. **M2 — Dashboard foundation.**
-   - Build:
-     - Rust protocol, link, device manager, SQLite store and 20 Hz live channel.
-     - Shell with the device-state bar, device drawer, LIVE raw charts and health.
-     - Patients, recording sessions, SESSIONS tree, RAW view.
-   - Verify: 60-minute recording is exact; backfill works; RAW query < 100 ms.
-   - **Stop for the user's UI review.**
-3. **M3 — Calibration and orientation.**
+1. **M2 (remaining) — RAW view.** Query stored frames by time or cycle range,
+   decimated for display, with the full-rate data one click away. Measure the
+   query time on an hour-long session before adding summary tables.
+2. **M3 — Calibration and orientation.**
    - Build:
      - Gyro bias + gravity alignment.
      - Mahony, relative orientation, Canvas2D orientation view.
      - Guided mounting check; host replay tool.
    - Verify: host replay bit-exact with the device; doc 13 §2 checks.
    - The user records walking datasets on a measured course.
-4. **M4 — Gait and ZUPT.**
+3. **M4 — Gait and ZUPT.**
    - Build:
      - Gait state machine and IC/TO/foot-flat events with adaptive thresholds.
      - ZUPT error-state Kalman filter and cycle features.
      - EVENTS/CYCLES/TRENDS views.
    - Verify: stride count ±1; distance ±5 %; cadence against a metronome.
-5. **M5 — Reference and error engine.**
+4. **M5 — Reference and error engine.**
    - Build:
      - Device-built reference (≥30 cycles); dashboard versioning and locking.
      - 10-cycle reference check.
      - Doc 06 error score, classes and confidence.
      - Segmentation; REFERENCES/SESSIONS workflow.
    - Undefined analysis values become DECs reviewed with the user.
-6. **M6 — Exports.**
+5. **M6 — Exports.**
    - CSV package, `metadata.json`, Level-5 `session.mat` (checked with scipy),
      PDF report (krilla).
-7. **M7 — On-device flash storage and recovery.** Needs a storage DEC first
+6. **M7 — On-device flash storage and recovery.** Needs a storage DEC first
    (1.5 MB data partition).
 
 ## Known Problems
 - PROB-002: shank map fixed in firmware; on-body confirmation pending (TEST-014).
 - PROB-004: GPIO43 may toggle during ROM boot. Unverified; matters only once
   motor drivers are fitted.
-- The ±4 g / ±500 °/s ranges may clip during walking. Measure in M3 before
-  proposing any change.
+- The ±4 g / ±500 °/s ranges may clip during walking. Nothing saturated while
+  resting (TEST-018); measure during the M3 walking recordings before proposing
+  any change.
+- The sample rate is 100.145 Hz, not exactly 100 Hz: it comes from the sensor's
+  own oscillator. Analysis must use the device timestamps, never an assumed rate.
+- The two IMUs' clocks differ by 0.14 %, so the shank repeats a sample roughly
+  every 3.7 s. Those frames are flagged, and ZUPT/orientation work in M3–M4 must
+  treat them as what they are rather than as new data.
 
 ## Failed Approaches
 - The shank map derived by assuming a left-handed anatomical frame (PROB-002
   Attempt 1). Never accept a mount map with determinant −1.
 - Gating IMU init on WHO_AM_I 0x68 only (PROB-001). Clone boards carry MPU6500.
+- Arduino `Serial` (HWCDC) for the USB link, and silencing only the ESP-IDF
+  logger (PROB-006 attempts 1 and 2). The Arduino `log_*` macros write to the
+  same USB endpoint and must be compiled out with `CORE_DEBUG_LEVEL=0`; the
+  firmware now drives the endpoint directly.
+- Reading the IMUs immediately on the data-ready edge (PROB-007). Always leave a
+  guard delay.
 
 ## Important Decisions
 - DEC-005 USB fallback link.
@@ -136,31 +142,52 @@ Every milestone ends with its verification actually run, measured numbers in
 - WebKitGTK 4.1 and libudev are installed. The user is in the `dialout` and
   `plugdev` groups.
 - The device enumerates as `303a:1001` on `/dev/ttyACM0`.
-- **The laptop has Wi-Fi only.** Joining the device AP drops internet. Tests the
-  agent runs use USB; Wi-Fi tests are run by the user.
+- **The laptop has Wi-Fi only.** Joining the device access point drops its
+  internet connection, so the agent tests over USB and the user runs the Wi-Fi
+  tests. The access point is `EAD-V1-<last two MAC bytes>`; its WPA2 passphrase
+  is generated at first build into `firmware/include/ead_secrets.h`, which is not
+  tracked by git. To test:
+  `python3 tools/eadprobe.py --ws ws://192.168.4.1:8080/ws stats --seconds 300`.
+- Screenshotting the app needs `GDK_BACKEND=x11 WEBKIT_DISABLE_COMPOSITING_MODE=1`
+  and `xwd`; the XWD decoder must skip the colormap or the image comes out
+  shifted sideways.
 
 ## How To Run
-- Firmware build: `cd firmware && pio run`.
-- Flash: `cd firmware && pio run -t upload`.
-- Serial (bring-up text): `pio device monitor -b 115200`. Send `c` for register
-  diagnostics.
-- Orientation viewer (bring-up only): `python3 tools/orient_viewer.py`.
-- Dashboard backend: `cd dashboard/src-tauri && cargo build`.
-- Dashboard frontend: `cd dashboard && npm install && npm run build`.
-- Dashboard app: `cd dashboard && npx tauri dev`. Not yet exercised; the UI is a
-  placeholder until M2.
+- Firmware: `cd firmware && pio run` to build, `pio run -t upload` to flash.
+- Firmware unit tests: `cd firmware && pio test -e native`.
+- Talk to the device without the dashboard:
+  - `python3 tools/eadprobe.py hello` — identity and sequence window
+  - `python3 tools/eadprobe.py config` — configuration, hash-verified
+  - `python3 tools/eadprobe.py stats --seconds 1800 --record run.eadlog`
+  - `python3 tools/eadprobe.py reopen --cycles 20` — port reopen must not reset
+  - add `--ws ws://192.168.4.1:8080/ws` for the Wi-Fi link
+- Regenerate the protocol vectors after a protocol change:
+  `python3 protocol/vectors/generate.py`, then rerun both test suites.
+- Dashboard: `cd dashboard && npm install`, then `npx tauri dev` to run,
+  `npm run build` and `(cd src-tauri && cargo build)` to build.
+- Dashboard tests: `cd dashboard/src-tauri && cargo test`; add
+  `-- --ignored` to run the hardware test with the device attached.
+- The dashboard's database lives at
+  `~/.local/share/com.ead.dashboard/ead.sqlite3`.
 
 ## How To Verify
-- Builds: the three commands above succeed with no warnings from project code.
-- Device:
-  - The boot log shows "Foot OK  Shank OK".
-  - `c` shows `ACCEL2=0x03` on both sensors.
-  - Standing still, both sensors read anatomical a ≈ (0, 0, +1) g.
+- Builds and tests: `pio run`, `pio test -e native`, `cargo test`,
+  `npm run build` — all clean, no warnings from project code.
+- Device, 60 seconds over USB: `python3 tools/eadprobe.py stats --seconds 60`
+  should report 0 missing frames, 0 dropped, 0 rejected, |a| ≈ 1.02 g on both
+  sensors, and no faults.
+- Application: `npx tauri dev`, connect over USB, and check the Live view shows
+  about 1 g and near-zero angular rate on a still device.
+- Still outstanding: standing still while wearing both sensors must read
+  anatomical a ≈ (0, 0, +1) g (TEST-014).
 
 ## Next Steps
-1. TEST-014: the user wears the device and stands still; capture anatomical gravity.
-2. M1 step 1: data-ready interrupt-count test on GPIO7/8.
-3. Continue M1 as above.
+1. Build the RAW view to finish M2, then hand the dashboard to the user for the
+   look-and-feel review.
+2. TEST-014: wear the device, stand still, and confirm anatomical gravity on both
+   sensors. This is the last open check on the mount maps.
+3. Ask the user to run the Wi-Fi link tests (command in Environment above).
+4. Start M3: calibration, Mahony orientation and the guided mounting check.
 
 ## Warnings
 - Never modify `ead_agent_docs_v2/`. Contract values override library defaults.

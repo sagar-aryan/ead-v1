@@ -205,6 +205,194 @@ Boot-state guarantees must cover the ROM stage, not only `setup()`.
 
 ---
 
+## PROB-005 — Opening the USB port reset the device
+
+**Status:** Resolved (2026-09-17)
+
+### Symptoms
+Every `eadprobe` connection produced a new `boot_id`, so sequence numbers
+restarted and no backfill could span a reconnect.
+
+### Environment
+XIAO ESP32-S3 native USB Serial/JTAG (`303a:1001`), Linux 7.0, pyserial 3.5.
+
+### Expected Behavior
+Opening and closing the port is passive; the device keeps running (doc 13 §6
+requires telemetry to survive a host disconnect).
+
+### Actual Behavior
+`boot_id` changed on every open. Device uptime and `frame_index` restarted.
+
+### Investigation
+The probe set `dtr = False` and `rts = False` after `Serial()` construction but
+before `open()`; pyserial applies them in sequence after opening. Linux asserts
+both lines on open, so the sequence passed through DTR=0 with RTS=1. The
+ESP32-S3 USB Serial/JTAG interprets that combination as a reset request, the
+same mechanism `esptool` uses to enter the bootloader.
+
+### Root Cause
+Confirmed: a transient DTR=0/RTS=1 state while clearing both control lines.
+
+### Resolution
+The probe leaves both lines asserted (`dtr = rts = True` before `open()`), which
+is the state Linux already sets. Recorded as a host rule in `docs/protocol.md` §2.2.
+
+### Verification
+`eadprobe.py reopen --cycles 20`: one distinct `boot_id` across 20 open/close
+cycles, `last_seq` rising monotonically (TEST-016).
+
+### Lessons
+On this chip the serial control lines are a reset interface. Any host tool must
+open the port without changing them.
+
+---
+
+## PROB-006 — USB protocol frames intermittently corrupted
+
+**Status:** Resolved (2026-09-17)
+
+### Symptoms
+Roughly 0.5–1% of USB frames failed CRC. A 6-minute run rejected 240 frames, and
+whole backfill chunks were lost, so requested ranges arrived incomplete
+(8–12 missing messages per full-window request).
+
+### Environment
+Arduino-ESP32 2.0.17, ESP32-S3 native USB Serial/JTAG, streaming ~5.6 kB/s of
+raw batches plus backfill bursts at ~55 kB/s.
+
+### Expected Behavior
+Every framed message arrives intact; COBS and CRC exist to detect line noise,
+not to mask routine loss.
+
+### Actual Behavior
+Corrupted frames fell into two groups: byte runs missing from the middle of a
+frame, and frames carrying 80 extra bytes.
+
+### Investigation
+1. Captured raw port bytes during two identical backfill requests and byte-diffed
+   each corrupted frame against an intact copy of the same chunk. The damage was
+   neither a truncation nor a prefix: bytes were missing from the middle, and the
+   oversized frames contained an inserted run.
+2. Printed the inserted bytes. They were Arduino core log text:
+   `[ 86010][E][Wire.cpp:499] requestFrom(): i2cWriteReadNonStop returned Error -1`.
+3. Slowing the host reader changed the rate slightly but never eliminated it,
+   ruling out host-side overrun as the main cause.
+
+### Hypotheses
+1. Host `cdc_acm` overrun — rejected: a slow reader did not make it worse in
+   proportion.
+2. Arduino `HWCDC` write path losing data — supported by upstream reports
+   (arduino-esp32 issues #9378, #11959, both open) of missing chunks on S3.
+3. Core log output sharing the USB endpoint — confirmed by the captured text.
+
+### Attempts
+#### Attempt 1
+Silenced ESP-IDF logging with `esp_log_level_set("*", ESP_LOG_NONE)` at boot.
+Insufficient: that controls the IDF logger, not the Arduino `log_e()` macros,
+which are compiled in by `CORE_DEBUG_LEVEL` and write through `ets_printf` to
+the same USB FIFO.
+
+#### Attempt 2
+Replaced Arduino `Serial` with direct writes to the USB Serial/JTAG FIFO, one
+64-byte packet at a time, waiting for the endpoint-empty status before the next
+packet. This removed the `HWCDC` ring buffer, its interrupt, and its
+disconnect-time buffer flush from the path. Corruption rate dropped but did not
+reach zero, because core logging still wrote into the same FIFO.
+
+#### Attempt 3
+Added `-DCORE_DEBUG_LEVEL=0`, compiling out every Arduino `log_*` call.
+
+### Root Cause
+Confirmed: two writers shared the USB IN endpoint. Arduino core error logging
+(triggered here by the I²C failures of PROB-007) interleaved text into the byte
+stream mid-frame. The `HWCDC` write path contributed additional loss under
+sustained load.
+
+### Resolution
+- `-DCORE_DEBUG_LEVEL=0` in `platformio.ini`: no core log output exists to
+  interleave. `esp_log_level_set("*", ESP_LOG_NONE)` covers the IDF logger.
+- `src/link_usb.cpp` owns the endpoint: no Arduino `Serial`, one packet in
+  flight, next packet only after the peripheral reports the endpoint empty.
+- Firmware must never print to USB. Diagnostics travel as protocol messages.
+
+### Verification
+90-second run: 0 rejected frames, 0 missing messages (TEST-017). Confirmed again
+over 30 minutes (TEST-018).
+
+### Lessons
+A binary protocol needs exclusive ownership of its transport. On this core that
+means disabling both loggers and bypassing `HWCDC`, whose data loss is a known
+open upstream issue.
+
+---
+
+## PROB-007 — I²C reads fail when started on the data-ready edge
+
+**Status:** Resolved (2026-09-17)
+
+### Symptoms
+About 0.6% of frames carried a read-failure flag (237 of 38,460 frames over
+6 minutes); `i2c_errors` rose steadily. Affected frames carry zeroed sensor
+values.
+
+### Environment
+Both MPU6500 IMUs on one 400 kHz bus; acquisition clocked by the foot data-ready
+interrupt, reading foot then shank immediately on each interrupt.
+
+### Expected Behavior
+Every scheduled read succeeds; a failure means a real bus fault.
+
+### Actual Behavior
+`Wire` returned `i2cWriteReadNonStop ... Error -1` at irregular intervals
+(median 112 frames apart, minimum 2, maximum 2334).
+
+### Investigation
+1. Failures showed no periodicity against `frame_index` (87 distinct values of
+   `frame_index % 100`), ruling out a fixed beat against the 100 Hz cycle or the
+   1 Hz power check.
+2. Swapping the read order moved the failures: with foot first, only the foot
+   failed (237 fails, 0 shank); with shank first, only the shank failed
+   (20 fails, 0 foot). The failure follows the *position* in the frame, not the
+   device.
+3. Adding a delay between the interrupt and the first read eliminated them.
+
+### Hypotheses
+1. Bus contention between the two IMUs — rejected: they are read sequentially,
+   and the second read never failed.
+2. A faulty sensor or connection — rejected: either sensor fails when read first.
+3. Reading while the sensor updates its output registers at the data-ready edge
+   disturbs the transaction — supported by the order-swap result and the fix.
+
+### Attempts
+#### Attempt 1
+Swapped read order (diagnostic, not a fix): moved the failures to the other
+sensor, which identified the timing relationship.
+
+#### Attempt 2
+Guard delay of at least 1 ms after the data-ready notification, before the first
+read. `vTaskDelay(2)` guarantees one full 1 ms tick and yields core 1 to the
+processing task, unlike a busy-wait.
+
+### Root Cause
+Confirmed by experiment: starting an I²C transaction immediately on the
+data-ready edge fails intermittently. The precise mechanism inside the sensor is
+unverified; the timing dependence and the order-swap result establish the cause.
+
+### Resolution
+A guard delay of 1–2 ms after each data-ready notification. The frame timestamp
+still comes from the interrupt, so timing accuracy is unaffected, and the read
+completes well inside the 10 ms sample period.
+
+### Verification
+90 seconds: 0 read failures, `i2c_errors` 0 (TEST-017), previously ~30 in the
+same period. Confirmed over 30 minutes (TEST-018).
+
+### Lessons
+When a failure follows the position in a sequence rather than the device, it is a
+timing problem. Swapping the order is a cheap way to tell the two apart.
+
+---
+
 ## PROB-000 — Template (do not treat as a real problem)
 
 **Status:** Open / Investigating / Resolved / Workaround

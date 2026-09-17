@@ -105,11 +105,11 @@ They take effect between frames, and the ACK reports the effective frame index.
 | Interface | Detail |
 |---|---|
 | I²C | 400 kHz, foot `0x68`, shank `0x69` |
-| GPIO interrupts | Foot INT → GPIO7, shank INT → GPIO8 (wiring verification pending) |
+| GPIO interrupts | Foot INT → GPIO7, shank INT → GPIO8; both verified at 100 Hz (TEST-015) |
 | Motor GPIOs | 1, 2, 4, 9, 43, 44 held LOW (not fitted) |
 | Wi-Fi | Device AP, `ws://192.168.4.1:8080/ws`, binary frames (doc 08 header) |
-| USB | Native USB Serial/JTAG `303a:1001`: flashing, and the same binary protocol framed `00 \| COBS(msg ‖ CRC32) \| 00` (from M1) |
-| Protocol payloads | `docs/protocol.md` (written in M1) |
+| USB | Native USB Serial/JTAG `303a:1001`: flashing, and the same binary protocol framed `00 \| COBS(msg ‖ CRC32) \| 00` |
+| Protocol payloads | `docs/protocol.md` |
 | Dashboard IPC | Tauri commands; live data over `ipc::Channel`; RAW ranges as binary responses |
 
 ## Dependencies

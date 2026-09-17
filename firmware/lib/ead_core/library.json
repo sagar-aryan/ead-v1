@@ -1,0 +1,10 @@
+{
+  "name": "ead_core",
+  "version": "0.1.0",
+  "description": "Portable EAD-V1 protocol and processing core (no Arduino dependencies).",
+  "frameworks": "*",
+  "platforms": "*",
+  "build": {
+    "flags": ["-Wall", "-Wextra", "-Wdouble-promotion", "-ffp-contract=off"]
+  }
+}

@@ -8,11 +8,12 @@ failed, and what was verified. Update it alongside every significant change.
 ## Index
 
 - `handoff.md` — Start here: current state, milestone plan, how to run and verify.
+- `protocol.md` — The device wire protocol: payloads, framing, backfill.
 - `architecture.md` — Target system design, data flow, interfaces, dependencies.
 - `implementation.md` — What exists in code today, per feature.
 - `hardware.md` — As-built hardware: silicon, register config, pins, mount maps.
 - `decisions.md` — DEC-001 to DEC-012.
-- `problems.md` — PROB-001 to PROB-004, including failed approaches.
+- `problems.md` — PROB-001 to PROB-007, including failed approaches.
 - `testing.md` — Executed tests with measured results; doc-13 acceptance suites.
 - `progress.md` — Chronological engineering log.
 
@@ -37,6 +38,9 @@ Project-level agent skills live in `.claude/skills/` (installed with the
   silicon), 100 Hz, 400 kHz I²C.
 - Six ERM motors on a lower-shank band are specified; drivers are not fitted and
   there is no haptic code (DEC-006).
+- The wire protocol between device and dashboard is implemented three times over
+  (firmware, dashboard, `tools/eadprobe.py`), all checked against the same golden
+  vectors in `protocol/vectors/`.
 - Wi-Fi AP + WebSocket primary link, plus the same binary protocol over USB
   (DEC-005). No BLE, FSR, BNO086 or battery monitoring.
 - Desktop: Tauri 2 + React + TypeScript + Rust, for observation, configuration,
