@@ -646,3 +646,37 @@ Complete as far as it can go without the device on USB.
 
 ### Next Steps
 Flash, record a walk through the dashboard, and read the Cycles view.
+
+## 2026-09-18 — M5: reference profiles and the error engine
+
+### Objective
+Build the patient-specific reference and the per-cycle error score, classes and
+confidence that doc 06 specifies.
+
+### Approach
+Portable core first, in `ead_core`, because DEC-012 puts reference building on
+the device and the same code has to run in the host replay. `reference.{h,cpp}`
+holds the feature table, the weights and the median/MAD statistics;
+`error_engine.{h,cpp}` holds the scoring, the six classes and the five
+confidence subscores.
+
+Doc 06 leaves four values undefined — the spread floors, the reference-stability
+subscore, what "no single class dominates" means, and which features may be
+missing. They are chosen, justified and recorded in DEC-013 rather than buried.
+
+### Verification
+TEST-031: 11 native cases against hand-computed answers, including the ones that
+matter for honesty — a reference refuses to build from 29 cycles, a stumble does
+not move the median, a flat feature cannot divide by zero, and a cycle with no
+zero-velocity window loses its distance feature instead of scoring it as perfect.
+
+Firmware 58 native tests.
+
+### Current Status
+The core is done and tested. Not yet wired: the session kinds that capture and
+check a reference (schema 4), storage and locking in the dashboard, and the
+REFERENCES view.
+
+### Next Steps
+Schema 4 (session kinds carrying a reference, error fields in STEP_BATCH), then
+the dashboard side.

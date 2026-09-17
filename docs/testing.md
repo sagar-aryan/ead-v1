@@ -32,6 +32,7 @@ A result is only recorded as PASS when it was run and checked.
 | TEST-028 | 2026-09-18 | Static calibration on the device, repeatability and window length | PASS |
 | TEST-029 | 2026-09-18 | Orientation estimate on hardware | PASS |
 | TEST-030 | 2026-09-18 | Gait detection and distance on a measured 6 m course | PASS (6.39 m measured against 6.00 m) |
+| TEST-031 | 2026-09-18 | Reference profile and error engine against hand-computed cases | PASS |
 
 ## TEST-008 — M0 firmware build
 
@@ -827,3 +828,38 @@ walks, at different speeds, are the next evidence needed.
 Saturation appeared for the first time: 2 frames of accelerometer and 1 of
 gyroscope clipping (±4 g, ±500 °/s) in 4,010. Impacts reached 5.3 g, so the
 accelerometer range is marginal for heel strike (PROB-011).
+
+## TEST-031 — Reference profile and error engine
+
+### Objective
+Check the reference statistics and the error engine against cases whose answers
+are known by hand, before any of it is used on a patient.
+
+### Environment
+`cd firmware && pio test -e native -f test_reference` (11 cases).
+
+### Cases and results
+| Case | Expected | Result |
+|---|---|---|
+| 29 valid cycles offered | refused | PASS |
+| 40 cycles, half marked invalid | refused: 20 valid is still too few | PASS |
+| 35 ordinary cycles plus 5 stumbles | median moves by less than 2° | PASS |
+| Every cycle identical | spread takes the floor, never zero | PASS |
+| Cycle equal to the reference | score < 0.2, no class | PASS |
+| Dorsiflexion at 2° against a 16° reference | INSUFFICIENT_DORSIFLEXION | PASS |
+| Dorsiflexion at 30° | scores, but raises no class (V1 has no excess class) | PASS |
+| Inversion above / below the reference | INVERSION / EVERSION | PASS |
+| One feature at full deviation, rest at median | score = its weight, 0.25 | PASS |
+| ZUPT quality 0 | distance leaves the denominator; confidence falls | PASS |
+| Every subscore at 1 | confidence 1.00; sensor quality 0 gives 0.70; sensor and event 0 gives 0.45, below the display gate | PASS |
+| Two classes within 10 % of each other | OVERALL_DEVIATION, both classes still logged | PASS |
+
+### Result
+PASS
+
+### Notes
+Every case here is synthetic. The engine has never been run against a reference
+captured from a person, because that needs thirty valid cycles and the longest
+walk recorded so far is six. The four values doc 06 leaves undefined are recorded
+in DEC-013 and need review against real captures before any claim is made from
+this output.
