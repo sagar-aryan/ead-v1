@@ -735,6 +735,21 @@ With the device worn (foot tilt 40.7°, shank tilt 1.6°, calibration accepted):
 The three invalid frames are the first after the record was adopted, before an
 interval exists to integrate over — the documented behaviour, not a fault.
 
+Dynamic, first attempt: a toe raise moved the sagittal angle by about +28° in
+the correct direction, but the flat-foot pose read −34° and the frontal angle a
+constant +20° — the mounting tilt was not being removed (PROB-010).
+
+After the fix, standing still over 502 frames:
+
+| Angle | Mean | Spread |
+|---|---:|---:|
+| Sagittal | −0.11° | 0.19° |
+| Frontal | −0.02° | 0.11° |
+| Transverse | −0.19° | 0.43° |
+
+A flat foot reads zero, which is the pose whose answer is known independently of
+the code.
+
 ### Result
-PASS for the static case. The dynamic check (the sagittal angle following a toe
-raise) is still to run.
+PASS for the static case and for the neutral pose. The toe-raise range check is
+still to run against the corrected firmware.

@@ -486,3 +486,50 @@ per-sensor scale factor, since it already carries `accel_magnitude_g`.
 ### Lessons
 The calibration's `accel_magnitude_g` field earns its place: it is what made a
 2.5 % scale error visible, and it would equally catch a wrong range setting.
+
+## PROB-010 — Mounting tilt appeared as a permanent ankle angle
+
+**Status:** Resolved (2026-09-18)
+
+### Symptoms
+With the device worn and the foot flat on the floor, the sagittal ankle angle
+read about −34° instead of 0°, and the frontal angle a constant +20°. The angles
+still followed the foot correctly: a toe raise moved the sagittal angle about
++28° in the right direction.
+
+### Environment
+Firmware with Mahony orientation, foot board strapped over the instep at 40.7°
+from upright, shank board 1.6° (TEST-029, 2026-09-18).
+
+### Investigation
+The offsets were constant and matched the mounting tilts the calibration had
+measured, which pointed at the alignment rather than at the estimator: a drifting
+or broken estimator does not hold a fixed offset while tracking movement
+correctly. The static check had already shown each sensor's estimate agreeing
+with its own measured gravity to 0.09°, so each estimator was right about its
+own board — the boards were simply not the segments.
+
+### Root cause
+The calibration's alignment rotation was used only as the estimator's initial
+attitude, never applied to the measurements. The estimator therefore described
+the orientation of the board, and the relative orientation of two boards
+mounted at different angles is not the ankle angle. Doc 04 §4 says the alignment
+transform corrects the data; §5 says the estimator's input is calibrated
+accelerometer and gyroscope.
+
+### Resolution
+`firmware/src/orientation.cpp` now rotates both the acceleration and the angular
+rate by the sensor's alignment quaternion before the Mahony update, and starts
+both estimators from identity.
+
+### Verification
+Standing still after the fix, over 502 frames: sagittal mean −0.11° (spread
+0.19°), frontal −0.02° (0.11°), transverse −0.19° (0.43°). Before the fix the
+same pose read −34° and +20°.
+
+### Lessons
+The bug was invisible to unit tests, which fed the estimator ideal data, and
+invisible to the static gravity check, which compared each sensor against
+itself. It took a physical pose with a known answer — a flat foot is 0° — to
+show it. Every estimator needs at least one test whose expected value comes from
+the world rather than from the code.

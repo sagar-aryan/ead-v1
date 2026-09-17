@@ -563,7 +563,13 @@ Firmware 36 native tests, Rust 41, frontend 23; clippy clean; all four builds
 clean. Orientation itself is not yet verified against the hardware.
 
 ### Current Status
-Implemented; needs the device worn or laid flat to verify (TEST-029).
+Verified on the leg after one fix. The first on-body run exposed PROB-010: the
+calibration's alignment was used as the estimator's starting attitude but never
+applied to the measurements, so the estimator described the board rather than the
+segment and the 40.7° instep mounting appeared as a permanent ankle angle. With
+the alignment applied to the acceleration and angular rate, a flat foot reads
+−0.11°.
 
 ### Next Steps
-Verify on the leg, then gait events and ZUPT (M4).
+Confirm the toe-raise range against the corrected firmware, then gait events and
+ZUPT (M4).
