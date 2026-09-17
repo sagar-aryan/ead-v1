@@ -73,6 +73,7 @@ struct State {
     schema_mismatch: bool,
     config: Option<Arc<DeviceConfigSection>>,
     config_sha256: Option<[u8; 32]>,
+    config_section: Option<Vec<u8>>,
 }
 
 pub struct Device {
@@ -133,6 +134,12 @@ impl Device {
     /// Hash of the configuration section, recorded with every session (doc 18).
     pub fn config_sha256(&self) -> Option<[u8; 32]> {
         self.state.lock().expect("device state").config_sha256
+    }
+
+    /// The configuration section exactly as the device sent it, stored with a
+    /// session so the recording describes the device that produced it.
+    pub fn config_section(&self) -> Option<Vec<u8>> {
+        self.state.lock().expect("device state").config_section.clone()
     }
 
     /// True while the device is connected and reporting.
@@ -330,6 +337,7 @@ impl Tracker {
             let mut state = self.state.lock().expect("device state");
             state.config = None;
             state.config_sha256 = None;
+            state.config_section = None;
         }
         self.oldest_stored = hello.oldest_seq;
         if let Some(highest) = self.highest_seq {
@@ -363,6 +371,7 @@ impl Tracker {
             Ok(config) => {
                 state.config = Some(Arc::new(config));
                 state.config_sha256 = Some(digest);
+                state.config_section = Some(response.section.clone());
             }
             Err(err) => state.last_error = Some(format!("device configuration: {err}")),
         }

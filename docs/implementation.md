@@ -9,7 +9,7 @@ Milestone plan: `docs/handoff.md`.
 |---|---|---|
 | M0 | Baseline fixes and cleanup | Complete except on-body gravity check (TEST-014) |
 | M1 | Data-ready acquisition, protocol, Wi-Fi + USB links, backfill ring | Complete |
-| M2 | Dashboard foundation: backend, shell, LIVE, recording, SESSIONS | In progress (RAW view outstanding) |
+| M2 | Dashboard foundation: backend, shell, LIVE, RAW, recording, SESSIONS | Complete |
 | M3 | Calibration, Mahony orientation, mounting check, datasets | Not started |
 | M4 | Gait events + ZUPT, EVENTS/CYCLES/TRENDS | Not started |
 | M5 | Reference, error engine, session workflow | Not started |
@@ -90,9 +90,20 @@ Receive, verify and store the device's data, and serve the UI.
 - `dashboard/src-tauri/src/{protocol,link,device,store,live,app}.rs`
 - `dashboard/src/` — React UI (see below)
 
+### Raw view
+Stored frames are read back through one decimated query: frames are grouped into
+buckets and each bucket reports its minimum and maximum, so a single-frame impact
+survives decimation where sampling every Nth frame would drop it. The conversion
+from ADC counts to anatomical physical units happens in Rust, using the
+configuration stored with that session, so the view holds no knowledge of mount
+maps and a recording made under different settings still reads correctly.
+
+Summary tables were considered and deliberately not built: measurement showed a
+full-session query over an hour takes 309 ms and every zoomed view under 90 ms
+(TEST-024).
+
 ### Limitations
-The RAW view (doc 11) is not built yet, so stored frames can be inspected only
-through SQL. No export, no gait views.
+No export and no gait views (M4–M6).
 
 ### Verification
 23 Rust tests (`cargo test`), plus a hardware test run with the device attached

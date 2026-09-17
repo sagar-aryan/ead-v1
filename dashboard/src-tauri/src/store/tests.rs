@@ -146,6 +146,179 @@ fn session_ids_follow_the_documented_shape() {
 }
 
 #[test]
+fn schema_upgrades_from_version_1_without_losing_data() {
+    let dir = tempdir::TempDir::new();
+    let path = dir.path().join("ead.sqlite3");
+    {
+        // A version-1 store: sessions without the configuration column.
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE patients (patient_id TEXT PRIMARY KEY, name TEXT NOT NULL,
+                                        created_at TEXT NOT NULL);
+                 CREATE TABLE sessions (session_id TEXT PRIMARY KEY, patient_id TEXT NOT NULL,
+                                        kind TEXT NOT NULL, started_at TEXT NOT NULL,
+                                        stopped_at TEXT, firmware TEXT, config_sha256 TEXT,
+                                        device_mac TEXT, boot_id INTEGER);
+                 INSERT INTO patients VALUES ('P-OLD', 'Earlier study', '2026-01-01T00:00:00.000Z');
+                 INSERT INTO sessions (session_id, patient_id, kind, started_at)
+                   VALUES ('20260101-000000-abcd', 'P-OLD', 'recording', '2026-01-01T00:00:00.000Z');
+                 PRAGMA user_version = 1;",
+            )
+            .unwrap();
+    }
+
+    let store = Store::open(&path).expect("migrate");
+    let connection = store.reader().unwrap();
+    let version: i32 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+    assert_eq!(version, schema::SCHEMA_VERSION);
+    // The earlier rows survive, and the new column exists and reads as absent.
+    assert_eq!(store.patients().unwrap()[0].patient_id, "P-OLD");
+    assert_eq!(store.session_config("20260101-000000-abcd").unwrap(), None);
+}
+
+#[test]
+fn session_records_the_device_configuration() {
+    let (store, _dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let identity = DeviceIdentity {
+        firmware: Some("0.1.0+test".into()),
+        config_sha256: Some("abc123".into()),
+        mac: Some("44:B1:76:AF:FB:7C".into()),
+        boot_id: Some(7),
+        config_section: Some(vec![1, 2, 3, 4]),
+    };
+    let session = store.start_session("P-001", SessionKind::Recording, &identity).unwrap();
+    assert_eq!(store.session_config(&session.session_id).unwrap(), Some(vec![1, 2, 3, 4]));
+    assert_eq!(store.session(&session.session_id).unwrap().firmware.as_deref(), Some("0.1.0+test"));
+}
+
+#[test]
+fn raw_window_returns_every_frame_when_the_range_is_small() {
+    let (store, _dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let session =
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+    let frames: Vec<RawFrame> = (0..300).map(frame).collect();
+    store.record_frames(&frames);
+    store.flush();
+
+    let window = store
+        .raw_window(&session.session_id, SignalGroup::FootAccel, 0, 299, 1000)
+        .unwrap();
+    assert_eq!(window.bucket, 1);
+    assert_eq!(window.points, 300);
+    // Time is relative to the session's first frame; frames are 10 ms apart.
+    assert_eq!(window.time_s[0], 0.0);
+    assert!((window.time_s[299] - 2.99).abs() < 1e-9);
+    assert_eq!(window.axes.len(), 3);
+    // No stored configuration: raw counts in the sensor's own axes.
+    assert!(!window.anatomical);
+    assert_eq!(window.unit, "counts");
+    assert_eq!(window.axes[0].min[0], 1.0);
+    assert_eq!(window.axes[2].max[0], 8192.0);
+}
+
+#[test]
+fn decimation_preserves_a_single_sample_transient() {
+    let (store, _dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let session =
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+
+    // 20,000 quiet frames with one spike, the shape of a heel strike.
+    let mut frames: Vec<RawFrame> = (0..20_000).map(frame).collect();
+    frames[12_345].foot[0] = 30_000;
+    frames[12_345].status = 0x0008; // foot accel saturated
+    store.record_frames(&frames);
+    store.flush();
+
+    let window = store
+        .raw_window(&session.session_id, SignalGroup::FootAccel, 0, 19_999, 500)
+        .unwrap();
+    assert!(window.bucket > 1, "a 20,000-frame range must be decimated");
+    assert!(window.points <= 520, "returned {} points", window.points);
+    // Sampling every Nth frame would lose the spike; min/max cannot.
+    assert_eq!(window.axes[0].max.iter().copied().fold(f32::MIN, f32::max), 30_000.0);
+    assert!(window.status.iter().any(|s| s & 0x0008 != 0), "flagged frame must survive");
+
+    // Zooming in reaches the exact sample.
+    let zoom = store
+        .raw_window(&session.session_id, SignalGroup::FootAccel, 12_300, 12_400, 1000)
+        .unwrap();
+    assert_eq!(zoom.bucket, 1);
+    assert_eq!(zoom.axes[0].max[45], 30_000.0);
+    assert_eq!(zoom.frame_index[45], 12_345);
+}
+
+#[test]
+fn raw_window_rejects_a_backwards_range() {
+    let (store, _dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let session =
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+    assert!(matches!(
+        store.raw_window(&session.session_id, SignalGroup::FootAccel, 100, 10, 100),
+        Err(StoreError::Rejected(_))
+    ));
+}
+
+/// Decides whether precomputed summary tables are needed: if a full-session
+/// query over an hour of data is fast enough, they are not.
+#[test]
+#[ignore = "performance measurement; run with --ignored --nocapture"]
+fn raw_window_query_time_on_an_hour_of_data() {
+    let (store, _dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let session =
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+
+    // One hour at 100 Hz, with values that vary like real signals rather than
+    // compressing to a constant.
+    let total = 360_000u32;
+    let mut lcg: u32 = 99;
+    for chunk in 0..(total / 1000) {
+        let frames: Vec<RawFrame> = (0..1000)
+            .map(|i| {
+                let index = chunk * 1000 + i;
+                let mut f = frame(index);
+                lcg = lcg.wrapping_mul(1664525).wrapping_add(1013904223);
+                let noise = (lcg >> 20) as i16;
+                f.foot[0] = 8192 + noise % 400;
+                f.foot[2] = noise % 1200;
+                f.shank[1] = -8000 + noise % 600;
+                f
+            })
+            .collect();
+        store.record_frames(&frames);
+    }
+    let write_start = std::time::Instant::now();
+    store.flush();
+    println!("wrote {total} frames, flush took {} ms", write_start.elapsed().as_millis());
+
+    for (label, first, last) in [
+        ("whole session", 0i64, total as i64 - 1),
+        ("10 minutes", 0, 60_000),
+        ("1 minute", 100_000, 106_000),
+        ("10 seconds", 200_000, 201_000),
+    ] {
+        let window =
+            store.raw_window(&session.session_id, SignalGroup::FootAccel, first, last, 1400).unwrap();
+        println!(
+            "{label:14} {:>7} frames -> {:>5} points, bucket {:>4}, {} ms",
+            last - first + 1,
+            window.points,
+            window.bucket,
+            window.query_ms
+        );
+        assert!(window.query_ms < 1000, "{label} took {} ms", window.query_ms);
+    }
+
+    let size = std::fs::metadata(_dir.path().join("ead.sqlite3")).unwrap().len();
+    println!("database {} MB for one hour", size / 1_048_576);
+}
+
+#[test]
 fn civil_from_unix_matches_known_timestamps() {
     // Reference values from `date -u -d @<epoch>`, not from this code.
     assert_eq!(format_utc(0, 0), "1970-01-01T00:00:00.000Z");

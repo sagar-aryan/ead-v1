@@ -7,7 +7,7 @@ use rusqlite::{Connection, Result};
 
 use crate::protocol::RawFrame;
 
-pub const SCHEMA_VERSION: i32 = 1;
+pub const SCHEMA_VERSION: i32 = 2;
 
 pub fn migrate(connection: &mut Connection) -> Result<()> {
     // WAL keeps readers (UI queries) from blocking the writer thread.
@@ -16,18 +16,32 @@ pub fn migrate(connection: &mut Connection) -> Result<()> {
     connection.pragma_update(None, "foreign_keys", "ON")?;
     connection.pragma_update(None, "busy_timeout", 5000)?;
 
-    let version: i32 =
+    let mut version: i32 =
         connection.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap_or(0);
-    if version == SCHEMA_VERSION {
-        return Ok(());
-    }
     if version > SCHEMA_VERSION {
         // Refuse rather than risk misreading a newer layout.
         return Err(rusqlite::Error::InvalidQuery);
     }
+    // A new store is created at the current schema; CREATE_SCHEMA is always the
+    // latest layout, so the migrations below never run against it.
     if version == 0 {
-        connection.execute_batch(CREATE_SCHEMA)?;
-        connection.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(CREATE_SCHEMA)?;
+        transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        transaction.commit()?;
+        return Ok(());
+    }
+    // An existing store is upgraded one step at a time, so research data is
+    // never dropped to simplify a schema change.
+    while version < SCHEMA_VERSION {
+        let transaction = connection.transaction()?;
+        match version {
+            1 => transaction.execute_batch(MIGRATE_1_TO_2)?,
+            other => unreachable!("no migration from schema {other}"),
+        }
+        version += 1;
+        transaction.pragma_update(None, "user_version", version)?;
+        transaction.commit()?;
     }
     Ok(())
 }
@@ -48,7 +62,11 @@ CREATE TABLE sessions (
   firmware       TEXT,
   config_sha256  TEXT,
   device_mac     TEXT,
-  boot_id        INTEGER
+  boot_id        INTEGER,
+  -- The device's own configuration section as sent (docs/protocol.md §5.5).
+  -- Raw counts mean nothing without its scale factors and mount maps, so each
+  -- recording carries the description of the device that produced it.
+  config_section BLOB
 );
 
 CREATE INDEX sessions_by_patient ON sessions(patient_id, started_at DESC);
@@ -69,6 +87,10 @@ CREATE TABLE raw_frames (
   status INTEGER NOT NULL,
   PRIMARY KEY (session_id, frame_index)
 ) WITHOUT ROWID;
+"#;
+
+const MIGRATE_1_TO_2: &str = r#"
+ALTER TABLE sessions ADD COLUMN config_section BLOB;
 "#;
 
 pub const INSERT_FRAME: &str = r#"

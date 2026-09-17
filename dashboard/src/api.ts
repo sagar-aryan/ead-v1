@@ -137,6 +137,35 @@ export interface Session {
   frames_missing: number;
 }
 
+export type SignalGroup = "foot_accel" | "foot_gyro" | "shank_accel" | "shank_gyro";
+
+export interface AxisWindow {
+  /** Anatomical axis when converted, chip axis when not: X, Y or Z. */
+  axis: string;
+  min: number[];
+  max: number[];
+}
+
+export interface RawWindow {
+  session_id: string;
+  group: SignalGroup;
+  label: string;
+  sensor: string;
+  unit: string;
+  /** False when the session stored no configuration: values are raw counts. */
+  anatomical: boolean;
+  first_frame: number;
+  last_frame: number;
+  /** Frames per point; 1 means every frame is drawn exactly. */
+  bucket: number;
+  time_s: number[];
+  frame_index: number[];
+  axes: AxisWindow[];
+  status: number[];
+  points: number;
+  query_ms: number;
+}
+
 export const api = {
   listUsbPorts: () => invoke<UsbPortInfo[]>("list_usb_ports"),
   connect: (target: LinkTarget) => invoke<void>("connect_device", { target }),
@@ -154,6 +183,13 @@ export const api = {
   recordingSession: () => invoke<string | null>("recording_session"),
   sessions: () => invoke<Session[]>("sessions"),
   session: (sessionId: string) => invoke<Session>("session", { sessionId }),
+  rawWindow: (
+    sessionId: string,
+    group: SignalGroup,
+    firstFrame: number,
+    lastFrame: number,
+    maxPoints: number,
+  ) => invoke<RawWindow>("raw_window", { sessionId, group, firstFrame, lastFrame, maxPoints }),
 };
 
 export { Channel };

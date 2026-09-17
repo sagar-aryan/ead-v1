@@ -287,3 +287,48 @@ works against real hardware.
 ### Next Steps
 Build the RAW view over stored frames, then hand the dashboard to the user for
 the look-and-feel review the plan calls for before M3.
+
+## 2026-09-17 — M2 complete: raw-data view
+
+### Objective
+Read recorded sessions back: whole-session overview, zoom to individual samples,
+in physical units.
+
+### Approach
+One decimated query groups frames into buckets and reports each bucket's minimum
+and maximum, so a single-frame impact survives decimation; below 4,000 frames the
+rows are returned exactly.
+
+Measured before building machinery: a full-session query over an hour takes
+309 ms and zoomed views 42–89 ms (TEST-024), so the planned summary tables were
+not built. They would have cost write-path work and a rebuild after every
+backfill to save a third of a second once.
+
+### Changes
+- `store/raw.rs`: decimated window query and the counts-to-anatomical conversion.
+- `store/schema.rs`: schema 2 adds `sessions.config_section`, so a recording of
+  raw counts is self-describing; migration from schema 1 tested.
+- `views/Raw.tsx`, `api.ts`, `app.rs`, `main.rs`.
+
+### Problems
+Two defects found by looking at the rendered chart rather than by testing:
+1. The x axis was drawn as wall-clock dates from the epoch, because uPlot treats
+   the x scale as time by default. Elapsed seconds now declared explicitly.
+2. The counts-to-units conversion lived in the frontend, where the project has no
+   test runner, so the case that matters — a negative mount-map sign swapping a
+   bucket's minimum and maximum — could not be tested. Moved into Rust and tested.
+   The view is now a renderer with no domain logic.
+
+Also encountered: GUI automation under XWayland needs XTEST rather than synthetic
+events, and the client-area origin from `xwininfo` rather than the frame origin.
+Recorded in the handoff, since it cost an hour.
+
+### Verification
+30 Rust tests. TEST-024 (query time) and TEST-025 (the view over 30 minutes of
+real recorded data, cross-checked against SQL).
+
+### Current Status
+M2 complete.
+
+### Next Steps
+M3, starting with the guided mounting check so PROB-002 closes first.

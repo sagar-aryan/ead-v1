@@ -51,6 +51,8 @@ fn main() {
             app::recording_session,
             app::sessions,
             app::session,
+            app::raw_window,
+            app::session_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

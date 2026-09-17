@@ -25,6 +25,8 @@ A result is only recorded as PASS when it was run and checked.
 | TEST-021 | 2026-09-17 | Protocol golden vectors, three implementations | PASS |
 | TEST-022 | 2026-09-17 | Dashboard backend records from the device (hardware) | PASS |
 | TEST-023 | 2026-09-17 | Dashboard application end to end on hardware | PASS |
+| TEST-024 | 2026-09-17 | Raw-window query time on an hour of data | PASS |
+| TEST-025 | 2026-09-17 | Raw view over 30 minutes of recorded device data | PASS |
 
 ## TEST-008 — M0 firmware build
 
@@ -404,6 +406,72 @@ One defect was found and fixed during this test: the first updates arrive before
 the device configuration does, so their values are raw counts rather than
 physical units. The chart history now resets when the units change, instead of
 plotting both on one axis.
+
+### Result
+PASS
+
+
+## TEST-024 — Raw-window query time on an hour of data
+
+### Objective
+Decide whether precomputed summary tables are needed, by measuring the query
+that backs the raw view rather than assuming.
+
+### Environment
+`cargo test raw_window_query_time -- --ignored --nocapture`; SQLite (bundled),
+WAL, one hour of frames (360,000) with varying values.
+
+### Procedure
+Insert an hour of frames, then query a full-session view and three zoom levels,
+each asking for about 1,400 points.
+
+### Actual
+Writing 360,000 frames: 1,374 ms to flush. Database 30 MB per hour.
+
+| View | Frames | Points | Frames per point | Query |
+|---|---:|---:|---:|---:|
+| Whole session | 360,000 | 1,401 | 257 | 309 ms |
+| 10 minutes | 60,001 | 1,429 | 42 | 89 ms |
+| 1 minute | 6,001 | 1,501 | 4 | 46 ms |
+| 10 seconds | 1,001 | 1,001 | 1 | 42 ms |
+
+### Result
+PASS. Summary tables are not built: 309 ms happens once when a session is
+opened, and every interaction after that is under 90 ms. Precomputed summaries
+would add a write-path cost and a rebuild whenever backfill fills a gap, to save
+a third of a second once. Revisit if sessions grow beyond a few hours.
+
+## TEST-025 — Raw view over 30 minutes of recorded device data
+
+### Objective
+The raw view shows stored data correctly: right values, right units, right time
+axis, and decimation that does not hide flagged frames.
+
+### Environment
+The TEST-018 recording (180,250 real frames, 30 minutes) imported into the
+dashboard database with the device's configuration, then opened in the app.
+
+### Procedure
+Open the Raw view, select the session, and compare what is drawn against the
+same values queried directly with SQL.
+
+### Expected
+Three axis traces at the recorded means; physical units; elapsed seconds on the
+x axis; flagged buckets counted.
+
+### Actual
+180,250 frames drawn as 1,409 points (128 frames per point) in 158 ms.
+Traces sat at about 0.18, 0.68 and 0.74 g; SQL over the same rows gives axis
+means of +0.180, +0.683, +0.741 g, and |a| = 1.024 g — matching the 1.0241 g
+measured in TEST-018. Units read "g" because the session carries its
+configuration. 262 of 1,409 buckets flagged, consistent with the 487 repeated
+shank samples in that recording.
+
+Two defects were found by looking at the rendered chart and fixed: the x axis
+was being formatted as a date from the epoch rather than elapsed seconds, and
+the counts-to-units conversion was being done in the frontend where it could not
+be unit-tested. The conversion now happens in Rust, with a test for the case
+that matters — a negative mount-map sign swaps a bucket's minimum and maximum.
 
 ### Result
 PASS

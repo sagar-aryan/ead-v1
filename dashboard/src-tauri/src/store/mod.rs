@@ -5,6 +5,7 @@
 //! One writer thread owns the connection; readers open their own. Writes are
 //! batched into transactions so a 100 Hz stream costs a few commits per second.
 
+pub mod raw;
 mod schema;
 #[cfg(test)]
 mod tests;
@@ -17,6 +18,8 @@ use std::time::{Duration, Instant};
 use rusqlite::Connection;
 
 use crate::protocol::RawFrame;
+
+pub use raw::{RawWindow, SignalGroup};
 
 /// At most this long between a frame arriving and being durable.
 const COMMIT_INTERVAL: Duration = Duration::from_millis(250);
@@ -81,6 +84,9 @@ pub struct DeviceIdentity {
     pub config_sha256: Option<String>,
     pub mac: Option<String>,
     pub boot_id: Option<u32>,
+    /// The device's configuration section, stored so a recording of raw counts
+    /// is self-describing (`docs/protocol.md` §5.5).
+    pub config_section: Option<Vec<u8>>,
 }
 
 enum WriteCommand {
@@ -190,9 +196,10 @@ impl Store {
         let session_id = new_session_id(&connection)?;
         connection.execute(
             "INSERT INTO sessions
-               (session_id, patient_id, kind, started_at, firmware, config_sha256, device_mac, boot_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            (
+               (session_id, patient_id, kind, started_at, firmware, config_sha256, device_mac,
+                boot_id, config_section)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            rusqlite::params![
                 &session_id,
                 patient_id,
                 kind.as_str(),
@@ -201,7 +208,8 @@ impl Store {
                 &identity.config_sha256,
                 &identity.mac,
                 identity.boot_id.map(i64::from),
-            ),
+                &identity.config_section,
+            ],
         )?;
         *recording = Some(session_id.clone());
         drop(recording);
@@ -277,6 +285,44 @@ impl Store {
         if writer.send(WriteCommand::Flush(tx)).is_ok() {
             let _ = rx.recv_timeout(Duration::from_secs(10));
         }
+    }
+
+    /// Decimated signal window for the raw view, in anatomical physical units
+    /// when the session recorded the device configuration.
+    pub fn raw_window(
+        &self,
+        session_id: &str,
+        group: SignalGroup,
+        first_frame: i64,
+        last_frame: i64,
+        max_points: usize,
+    ) -> Result<RawWindow> {
+        let stored = self.session_config(session_id)?;
+        let config = match stored.as_deref() {
+            Some(bytes) => crate::protocol::parse_section(bytes).ok(),
+            None => None,
+        };
+        let connection = self.reader()?;
+        raw::read_window(
+            &connection,
+            session_id,
+            group,
+            first_frame,
+            last_frame,
+            max_points,
+            config.as_ref(),
+        )
+    }
+
+    /// The device configuration stored with a session, if the device reported
+    /// one when it started.
+    pub fn session_config(&self, session_id: &str) -> Result<Option<Vec<u8>>> {
+        let connection = self.reader()?;
+        Ok(connection.query_row(
+            "SELECT config_section FROM sessions WHERE session_id = ?1",
+            [session_id],
+            |row| row.get(0),
+        )?)
     }
 
     #[cfg(test)]

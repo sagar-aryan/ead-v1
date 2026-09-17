@@ -5,11 +5,12 @@ import { StateBar } from "./components/StateBar";
 import { useDevice } from "./useDevice";
 import { Device } from "./views/Device";
 import { Live } from "./views/Live";
+import { Raw } from "./views/Raw";
 import { Sessions } from "./views/Sessions";
 
 /** Views that exist today. The remaining doc 11 areas arrive with the
  *  measurements they display (gait events M4, error engine M5, export M6). */
-const VIEWS = ["Live", "Sessions", "Device"] as const;
+const VIEWS = ["Live", "Raw data", "Sessions", "Device"] as const;
 type View = (typeof VIEWS)[number];
 
 export default function App() {
@@ -49,6 +50,7 @@ export default function App() {
         </nav>
         <main>
           {view === "Live" && <Live device={device} />}
+          {view === "Raw data" && <Raw />}
           {view === "Sessions" && <Sessions device={device} />}
           {view === "Device" && <Device device={device} />}
         </main>

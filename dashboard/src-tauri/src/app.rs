@@ -8,7 +8,7 @@ use crate::device::{self, Device, Sink, Snapshot};
 use crate::link::{usb::UsbPortInfo, LinkTarget};
 use crate::live::{LiveHub, LiveTick};
 use crate::protocol::{config::DeviceConfigSection, RawFrame, Status};
-use crate::store::{DeviceIdentity, Patient, Session, SessionKind, Store};
+use crate::store::{DeviceIdentity, Patient, RawWindow, Session, SessionKind, SignalGroup, Store};
 
 /// Routes decoded telemetry to the store and the live view.
 struct Telemetry {
@@ -86,6 +86,7 @@ impl App {
             config_sha256: self.config_hash(),
             mac: snapshot.mac,
             boot_id: snapshot.boot_id,
+            config_section: self.device.config_section(),
         }
     }
 
@@ -208,3 +209,34 @@ pub fn sessions(app: tauri::State<'_, Arc<App>>) -> CommandResult<Vec<Session>> 
 pub fn session(app: tauri::State<'_, Arc<App>>, session_id: String) -> CommandResult<Session> {
     app.store.session(&session_id).map_err(failed)
 }
+
+/// Decimated signals over a frame range, in physical units, for the raw view.
+#[tauri::command]
+pub fn raw_window(
+    app: tauri::State<'_, Arc<App>>,
+    session_id: String,
+    group: SignalGroup,
+    first_frame: i64,
+    last_frame: i64,
+    max_points: usize,
+) -> CommandResult<RawWindow> {
+    app.store
+        .raw_window(&session_id, group, first_frame, last_frame, max_points)
+        .map_err(failed)
+}
+
+/// The configuration recorded with a session, so stored counts can be shown in
+/// physical units even when no device is connected.
+#[tauri::command]
+pub fn session_config(
+    app: tauri::State<'_, Arc<App>>,
+    session_id: String,
+) -> CommandResult<Option<DeviceConfigSection>> {
+    let section = app.store.session_config(&session_id).map_err(failed)?;
+    match section {
+        Some(bytes) => crate::protocol::parse_section(&bytes).map(Some).map_err(failed),
+        None => Ok(None),
+    }
+}
+
+

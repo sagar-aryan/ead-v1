@@ -22,9 +22,11 @@ placeholder or fake data, no features the spec doesn't need.
   USB ID, performs the handshake, verifies the device's configuration against the
   hash the device reports, shows live sensor traces, and records sessions into
   SQLite with every raw sample preserved (TEST-022, TEST-023).
-- **Not yet built:** the RAW view over stored frames; calibration, orientation,
-  gait analysis, the error engine and exports (M3–M6). The device answers
-  SESSION_* commands with NotSupported.
+- **Recordings can be read back.** The raw view draws a whole session as a
+  min/max envelope per bucket, in anatomical physical units taken from the
+  configuration stored with that session (TEST-025).
+- **Not yet built:** calibration, orientation, gait analysis, the error engine
+  and exports (M3–M6). The device answers SESSION_* commands with NotSupported.
 - On-body gravity check (TEST-014) is still pending: it needs the user to wear
   the device and stand still.
 - The Wi-Fi link is verified as far as this machine can go: the access point
@@ -63,25 +65,25 @@ and USB links → Rust backend with SQLite → React views and exports.
 - Full audit and V1 build plan (2026-09-17).
 - M0 baseline fixes and cleanup (2026-09-17).
 - M1 firmware acquisition, protocol and both links (2026-09-17).
-- M2 dashboard foundation, except the RAW view (2026-09-17).
+- M2 dashboard foundation including the raw view (2026-09-17).
 
 ## Current Work
-Finish M2: build the RAW view over stored frames, then stop for the user's
-look-and-feel review before starting M3.
+M2 is complete. Next is M3: the guided mounting check (which settles PROB-002),
+then calibration and orientation.
 
 ## Milestone Plan
 Every milestone ends with its verification actually run, measured numbers in
 `docs/testing.md`, docs updated, and a local commit. Push only when the user asks.
 
-1. **M2 (remaining) — RAW view.** Query stored frames by time or cycle range,
-   decimated for display, with the full-rate data one click away. Measure the
-   query time on an hour-long session before adding summary tables.
-2. **M3 — Calibration and orientation.**
-   - Build:
-     - Gyro bias + gravity alignment.
-     - Mahony, relative orientation, Canvas2D orientation view.
-     - Guided mounting check; host replay tool.
-   - Verify: host replay bit-exact with the device; doc 13 §2 checks.
+1. **M3 — Mounting check, calibration and orientation.**
+   - Build, in this order so the open risk closes first:
+     - Guided mounting check (stand still, raise toes, extend the knee) giving a
+       pass/fail per axis. This settles PROB-002 without asking the user to read
+       numbers aloud.
+     - 5 s static calibration: gyro bias and gravity alignment.
+     - Mahony orientation and relative foot/shank orientation; orientation view.
+     - Host replay tool.
+   - Verify: host replay reproduces device quaternions bit-exactly; doc 13 §2.
    - The user records walking datasets on a measured course.
 3. **M4 — Gait and ZUPT.**
    - Build:
@@ -150,8 +152,10 @@ Every milestone ends with its verification actually run, measured numbers in
   tracked by git. To test:
   `python3 tools/eadprobe.py --ws ws://192.168.4.1:8080/ws stats --seconds 300`.
 - Screenshotting the app needs `GDK_BACKEND=x11 WEBKIT_DISABLE_COMPOSITING_MODE=1`
-  and `xwd`; the XWD decoder must skip the colormap or the image comes out
-  shifted sideways.
+  and `xwd`; the XWD decoder must skip the colormap (`ncolors × 12` bytes) or the
+  image comes out shifted sideways. Driving it with `xdotool` needs XTEST (no
+  `--window`: WebKit ignores synthetic events) and the client-area origin from
+  `xwininfo`, not `xdotool getwindowgeometry`, which includes the title bar.
 
 ## How To Run
 - Firmware: `cd firmware && pio run` to build, `pio run -t upload` to flash.
@@ -183,12 +187,10 @@ Every milestone ends with its verification actually run, measured numbers in
   anatomical a ≈ (0, 0, +1) g (TEST-014).
 
 ## Next Steps
-1. Build the RAW view to finish M2, then hand the dashboard to the user for the
-   look-and-feel review.
-2. TEST-014: wear the device, stand still, and confirm anatomical gravity on both
-   sensors. This is the last open check on the mount maps.
-3. Ask the user to run the Wi-Fi link tests (command in Environment above).
-4. Start M3: calibration, Mahony orientation and the guided mounting check.
+1. Build the guided mounting check, then have the user run it. It replaces
+   TEST-014 and settles PROB-002, the last open question on the mount maps.
+2. Ask the user to run the Wi-Fi link tests (command in Environment above).
+3. Calibration and Mahony orientation; then walking recordings for M4.
 
 ## Warnings
 - Never modify `ead_agent_docs_v2/`. Contract values override library defaults.

@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use crate::device::{self, Device, LinkState, Sink};
 use crate::link::LinkTarget;
 use crate::protocol::{RawFrame, Status};
-use crate::store::{DeviceIdentity, SessionKind, Store};
+use crate::store::{DeviceIdentity, SessionKind, SignalGroup, Store};
 
 struct StoreSink(Arc<Store>);
 
@@ -102,6 +102,7 @@ fn records_a_session_from_a_real_device() {
             .map(|d| d.iter().map(|b| format!("{b:02x}")).collect()),
         mac: snapshot.mac.clone(),
         boot_id: snapshot.boot_id,
+        config_section: device.config_section(),
     };
     let session = store
         .start_session("HW-TEST", SessionKind::Recording, &identity)
@@ -156,4 +157,47 @@ fn records_a_session_from_a_real_device() {
         (0.8..1.2).contains(&magnitude),
         "|a| = {magnitude:.3} g at rest; expected about 1 g"
     );
+
+    // The raw view reads this session back through the same query the UI uses.
+    let first = stopped.first_frame_index.expect("frames");
+    let last = stopped.last_frame_index.expect("frames");
+    let window = store
+        .raw_window(&stopped.session_id, SignalGroup::FootAccel, first, last, 400)
+        .unwrap();
+    println!(
+        "raw window: {} frames -> {} points, bucket {}, {} ms",
+        last - first + 1,
+        window.points,
+        window.bucket,
+        window.query_ms
+    );
+    assert!(window.points > 0);
+    assert_eq!(window.axes.len(), 3);
+    assert!(window.anatomical, "the session must carry its configuration");
+    assert_eq!(window.unit, "g");
+    assert!(window.time_s[0] == 0.0, "time is relative to the session's first frame");
+
+    // Every bucket must bracket 1 g: the extremes of a still sensor are still
+    // about 1 g, which is the check that decimation preserves the signal.
+    for point in 0..window.points {
+        for extreme in [0usize, 1] {
+            let axes: Vec<f32> = (0..3)
+                .map(|axis| {
+                    let a = &window.axes[axis];
+                    if extreme == 0 { a.min[point] } else { a.max[point] }
+                })
+                .collect();
+            let m = (axes[0].powi(2) + axes[1].powi(2) + axes[2].powi(2)).sqrt();
+            assert!(
+                (0.7..1.3).contains(&m),
+                "bucket {point} extreme {extreme} gives |a| = {m:.3} g"
+            );
+        }
+    }
+
+    // The session carries the configuration that produced it, so it reads
+    // correctly with no device attached.
+    let stored = store.session_config(&stopped.session_id).unwrap().expect("stored configuration");
+    let reparsed = crate::protocol::parse_section(&stored).expect("parse stored configuration");
+    assert_eq!(reparsed.imu.shank_mount, config.imu.shank_mount);
 }
