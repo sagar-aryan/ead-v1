@@ -11,6 +11,10 @@ dashboard/node_modules/
 dashboard/src-tauri/target/
 dashboard/dist/
 dashboard/src-tauri/WixTools/
+dashboard/src-tauri/gen/
+
+# Python
+__pycache__/
 
 # Research session exports (raw/derived data stays out of git)
 *.ead

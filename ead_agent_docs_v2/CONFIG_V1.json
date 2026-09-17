@@ -1,0 +1,127 @@
+{
+  "device": {
+    "name": "EAD-V1",
+    "limb": "RIGHT_LEG_ONLY",
+    "footwear": "BAREFOOT"
+  },
+  "pins": {
+    "i2c_sda_gpio": 5,
+    "i2c_scl_gpio": 6,
+    "foot_imu_int_gpio": 7,
+    "shank_imu_int_gpio": 8,
+    "motor_pwm_gpio": {
+      "M1": 1,
+      "M2": 2,
+      "M3": 4,
+      "M4": 9,
+      "M5": 43,
+      "M6": 44
+    }
+  },
+  "mpu6050": {
+    "foot_address": "0x68",
+    "shank_address": "0x69",
+    "i2c_hz": 400000,
+    "sample_hz": 100,
+    "accelerometer_range_g": 4,
+    "gyroscope_range_dps": 500,
+    "dlpf_hz": 42,
+    "dlpf_cfg": 3,
+    "sample_rate_divider": 9,
+    "clock_source": "PLL_X_GYRO",
+    "interrupt": "DATA_READY",
+    "pullups": "ONBOARD_BREAKOUT_ONLY"
+  },
+  "coordinate_frame": {
+    "x_plus": "FORWARD_TOWARD_TOES",
+    "y_plus": "MEDIAL_LEFT_FOR_RIGHT_LEG",
+    "z_plus": "UP_AWAY_FROM_GROUND"
+  },
+  "calibration": {
+    "static_seconds": 5,
+    "alignment": "GRAVITY_BASED",
+    "orientation_filter": "MAHONY_6DOF",
+    "mahony_kp": 2.0,
+    "mahony_ki": 0.05
+  },
+  "gait": {
+    "min_cycle_s": 0.45,
+    "max_cycle_s": 3.0,
+    "gait_lowpass_hz": 6,
+    "event_path_lowpass_hz": 20,
+    "event_contact_guard_ms": 30,
+    "toeoff_guard_ms": 40,
+    "ic_candidate_window_ms": 120
+  },
+  "zupt": {
+    "accel_tolerance_g": 0.15,
+    "gyro_threshold_dps": 25,
+    "min_duration_ms": 60,
+    "entry_hysteresis_ms": 20,
+    "state": "FOOT_ONLY_ERROR_STATE_UPDATE"
+  },
+  "error": {
+    "score_min": 0.0,
+    "score_max": 1.0,
+    "class_activation_threshold": 0.35,
+    "haptic_on_threshold": 0.35,
+    "haptic_off_threshold": 0.25,
+    "confidence_haptic_threshold": 0.75,
+    "weights": {
+      "swing_dorsiflexion": 0.25,
+      "initial_contact_plantarflexion": 0.15,
+      "inversion_eversion": 0.15,
+      "timing": 0.15,
+      "stance_swing_ratio": 0.10,
+      "cycle_distance": 0.10,
+      "shank_dynamics": 0.10
+    },
+    "robust_z_clip": 3.0
+  },
+  "haptics": {
+    "pwm_hz": 200,
+    "resolution_bits": 8,
+    "min_duty": 51,
+    "max_duty": 204,
+    "intensity_exponent": 1.5,
+    "max_continuous_on_s": 5,
+    "rolling_window_s": 10,
+    "rolling_duty_limit": 0.50,
+    "motor_positions_deg": {
+      "M1": 0,
+      "M2": 60,
+      "M3": 120,
+      "M4": 180,
+      "M5": 240,
+      "M6": 300
+    }
+  },
+  "network": {
+    "mode": "AP",
+    "ip": "192.168.4.1",
+    "port": 8080,
+    "websocket_path": "/ws",
+    "sample_batch_frames": 10
+  },
+  "storage": {
+    "filesystem": "LittleFS",
+    "block_payload_bytes": 4096,
+    "flush_interval_ms": 500,
+    "free_space_floor": 0.15,
+    "retention": "LATEST_CURRENT_RECOVERABLE_SESSION_ONLY"
+  },
+  "reference": {
+    "minimum_valid_cycles": 30,
+    "preferred_valid_cycles": "50-100+",
+    "reference_check_cycles": 10,
+    "haptics_during_reference_capture": false,
+    "statistics": "MEDIAN_AND_MAD"
+  },
+  "power_software_scope": {
+    "battery_adc": false,
+    "battery_percentage": false,
+    "switch_status": false,
+    "charger_control": false,
+    "power_management": false
+  }
+}
