@@ -49,7 +49,7 @@ config registers; DIAG-on-demand (`c`) beats reboot-timing captures.
 
 ## PROB-002 — Shank anatomical mapping differs from placement image
 
-**Status:** Resolved in firmware (2026-09-17); on-body standing check pending
+**Status:** Corrected from on-body measurement (2026-09-17); re-check pending
 
 ### Symptoms
 With image-identity mapping, shank gravity did not sit on +Z.
@@ -101,8 +101,18 @@ the sign of a reflection. The one axis no measurement constrained (Y) was
 therefore derived with the wrong sign.
 
 ### Resolution
-Shank map `X = −chipZ, Y = +chipX, Z = −chipY`, enforced as a proper rotation at
-compile time.
+First attempt: `X = −chipZ, Y = +chipX, Z = −chipY`, derived from a bench capture
+and the user's statement that chip +Z faces the bone. Wrong on the leg.
+
+Measured with the mounting check (TEST-027): standing still put gravity on
+anatomical Y (+0.99 g) and a seated knee extension turned about anatomical Z
+(+43 °/s), so anatomical Y and Z were interchanged. The correction
+(`Z_true = Y_measured`, `Y_true = −Z_measured`) gives
+
+  `X = −chipZ, Y = +chipY, Z = +chipX`
+
+which is still a proper rotation and is what is flashed. The assumption that
+failed was that chip +Y points down the leg; chip +X does.
 
 ### Verification
 - Build-time: the committed map passes both static assertions. A copy of the
@@ -110,10 +120,10 @@ compile time.
   rotation" (g++ 13, `-std=gnu++17`, 2026-09-17).
 - Host check: chip (1, 2, 3) maps to anatomical (−3, 1, −2), and chip X = −32768
   maps without overflow.
-- On-body: pending. The Device view's mounting check (TEST-027) measures it
-  directly — standing still must read +Z on both sensors, raising the toes must
-  turn the foot about −Y and a seated knee extension must turn the shank about
-  −Y. A failure prints the measured vector, which says what the map should be.
+- On-body: the mounting check (TEST-027) found the error and gave the numbers the
+  correction was derived from. The device reports the new map
+  (`eadprobe config`: `shank_mount [0,0,-1, 0,1,0, 1,0,0]`). Re-running the check
+  on the leg is the outstanding confirmation.
 - On-body: pending. Standing still must read anatomical a ≈ (0, 0, +1) g on the
   shank. The M3 mounting check then verifies gyro signs with a toe raise and a
   seated knee extension.

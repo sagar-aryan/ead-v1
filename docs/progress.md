@@ -423,3 +423,42 @@ Implemented, awaiting a run on the leg (TEST-027).
 ### Next Steps
 User runs the check; the result decides whether PROB-002 closes or the shank map
 changes. Then static calibration and Mahony orientation.
+
+## 2026-09-17 — TEST-027: the mounting check finds the shank map error
+
+### Objective
+Run the mounting check on the leg and act on the result.
+
+### Investigation
+All three steps failed. Two shank measurements agreed: standing still put gravity
+on anatomical Y (+0.99 g) and a seated knee extension turned about anatomical Z
+(+43 °/s), i.e. anatomical Y and Z were interchanged. The foot read
+(−0.43, +0.35, +0.86) g: gravity dominant on +Z with the board tilted 33° on the
+instep — the map is right, the check was too strict. The foot rotation step
+captured only 4 °/s, so it says nothing yet.
+
+### Approach
+Correct the measurement rather than re-derive from assumptions: with
+`Z_true = Y_measured` and `Y_true = −Z_measured`, the new shank map is
+`X = −chipZ, Y = +chipY, Z = +chipX`, still a proper rotation. The assumption
+that failed in the earlier derivation was that chip +Y points down the leg; the
+board is strapped with chip +X up the leg.
+
+### Changes
+- `firmware/include/config_v1.h`: new shank map with the derivation from measured
+  values.
+- `protocol/vectors/generate.py` + regenerated vectors; `protocol/tests.rs`
+  expectations.
+- `dashboard/src/mounting.ts`: the still step now checks axis and sign and
+  reports the tilt angle (`tiltDegrees`), instead of demanding near-zero tilt.
+
+### Verification
+Firmware 20/20 native tests, Rust 31 pass, frontend 23 pass, all builds clean.
+Flashed, and the device reports the new map over USB
+(`eadprobe config`: `shank_mount [0,0,-1, 0,1,0, 1,0,0]`).
+
+### Current Status
+Corrected and flashed; the on-leg re-check is the confirmation.
+
+### Next Steps
+Re-run the mounting check. The foot rotation step needs a fuller toe lift.

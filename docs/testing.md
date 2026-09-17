@@ -28,7 +28,7 @@ A result is only recorded as PASS when it was run and checked.
 | TEST-024 | 2026-09-17 | Raw-window query time on an hour of data | PASS |
 | TEST-025 | 2026-09-17 | Raw view over 30 minutes of recorded device data | PASS |
 | TEST-026 | 2026-09-17 | Raw view load with four signals and overview; window arithmetic | PASS |
-| TEST-027 | — | Mounting check on a worn device | Pending (user) |
+| TEST-027 | 2026-09-17 | Mounting check on a worn device | FAIL → map corrected, re-check pending |
 
 ## TEST-008 — M0 firmware build
 
@@ -634,10 +634,24 @@ All three PASS. Standing still: both sensors near (0, 0, +1) g. Toes: foot peak
 on Y, negative. Knee: shank peak on Y, negative.
 
 ### Actual
-Not yet run.
+Run on the leg, 2026-09-17, all three steps FAIL:
+
+| Step | Measured | Reading |
+|---|---|---|
+| Stand still | foot (−0.43, +0.35, **+0.86**) g | gravity on +Z, board tilted 33° on the instep — correct axis, and my tilt threshold was too strict |
+| Stand still | shank (−0.07, **+0.99**, +0.12) g | gravity on anatomical Y: the shank map is wrong |
+| Raise toes | foot peak (+4, +2, +0) °/s | too small to judge; the move was not captured |
+| Extend knee | shank peak (+12, −0, **+43**) °/s | turned about anatomical Z, expected Y |
+
+The two shank results agree: anatomical Y and Z were interchanged. The map was
+corrected to `X = −chipZ, Y = +chipY, Z = +chipX` and flashed (PROB-002).
+
+The still step's tilt rule was relaxed afterwards: it now requires gravity to be
+dominant on +Z and reports the tilt angle, because a strap over the instep holds
+the board at a slope and calibration's gravity alignment removes it.
 
 ### Result
-Pending
+FAIL — which is what produced the correction. Re-check pending.
 
 ### Notes
 A FAIL is the useful outcome here: the panel prints the measured vector, which

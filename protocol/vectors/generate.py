@@ -43,7 +43,7 @@ GYRO_LSB_PER_DPS = {250: 131.0, 500: 65.5, 1000: 32.8, 2000: 16.4}
 
 # As-built mount maps (docs/hardware.md); not part of the contract JSON.
 FOOT_MOUNT = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
-SHANK_MOUNT = [[0, 0, -1], [1, 0, 0], [0, -1, 0]]
+SHANK_MOUNT = [[0, 0, -1], [0, 1, 0], [1, 0, 0]]
 HAPTICS_FITTED = 0  # DEC-006
 
 

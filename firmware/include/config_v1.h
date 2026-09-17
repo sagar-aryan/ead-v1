@@ -74,13 +74,18 @@ constexpr bool eadMountIsSignedPermutation(const EadMountMap& a) {
 // Foot (0x68): board flat on the dorsum, chip X toward the toes, chip Z up.
 constexpr EadMountMap kEadFootMount = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
 
-// Shank (0x69): board on the anterior shin. Chip +Z points toward the bone
-// (posterior; user-confirmed 2026-09-17) and standing still puts gravity on
-// chip -Y, so chip +Y points down the leg. Hence anatX = -chipZ and
-// anatZ = -chipY, and right-handedness forces anatY = anatZ x anatX = +chipX.
-// The shank board in reference_images/RIGHT_LEG_IMU_PLACEMENT.png does not
-// match this physical mounting; the anatomical convention it labels does.
-constexpr EadMountMap kEadShankMount = {{{0, 0, -1}, {1, 0, 0}, {0, -1, 0}}};
+// Shank (0x69): board on the anterior shin, derived from measurement on the leg
+// rather than from the placement image, which does not match how the board is
+// actually strapped (TEST-027, 2026-09-17).
+//
+// The earlier map (anatX = -chipZ, anatY = +chipX, anatZ = -chipY) put gravity
+// on anatomical Y (+0.99 g standing still) and put a knee extension on
+// anatomical Z (+43 deg/s), i.e. Y and Z were interchanged. Correcting that
+// measurement (Z_true = Y_measured, Y_true = -Z_measured) gives:
+//   anatX = -chipZ   chip +Z points posteriorly, toward the bone
+//   anatY = +chipY   chip +Y points medially
+//   anatZ = +chipX   chip +X points up the leg, so gravity reads +Z
+constexpr EadMountMap kEadShankMount = {{{0, 0, -1}, {0, 1, 0}, {1, 0, 0}}};
 
 static_assert(eadMountIsSignedPermutation(kEadFootMount) &&
                   eadMountDet(kEadFootMount) == 1,

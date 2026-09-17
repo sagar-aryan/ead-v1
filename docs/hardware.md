@@ -70,12 +70,15 @@ rejects anything else at compile time.
 | Sensor | Physical mounting | Map (anat = M · chip) |
 |---|---|---|
 | Foot | Flat on the dorsum, chip X toward the toes, chip Z up | Identity |
-| Shank | On the anterior shin; chip +Z toward the bone (posterior); chip +Y down the leg | `X = −chipZ`, `Y = +chipX`, `Z = −chipY` |
+| Shank | Strapped to the anterior shin; chip +Z toward the bone (posterior); chip +X up the leg | `X = −chipZ`, `Y = +chipY`, `Z = +chipX` |
 
-Derivation of the shank map: the user confirmed chip +Z points toward the bone
-(2026-09-17). An earlier still capture put gravity on chip −Y, so chip +Y points
-down the leg. That fixes `X = −chipZ` and `Z = −chipY`; right-handedness then forces
-`Y = Z × X = +chipX`.
+Derivation of the shank map: measured on the leg (TEST-027, 2026-09-17). Under the
+previous map (`X = −chipZ`, `Y = +chipX`, `Z = −chipY`) standing still put gravity
+on anatomical Y (+0.99 g) and a seated knee extension turned about anatomical Z
+(+43 °/s) — anatomical Y and Z were interchanged. Correcting the measurement
+(`Z_true = Y_measured`, `Y_true = −Z_measured`) gives the map above, which is still
+a proper rotation. The earlier derivation assumed chip +Y points down the leg; the
+board is in fact strapped with chip +X up the leg.
 
 **Placement image discrepancy.** `reference_images/RIGHT_LEG_IMU_PLACEMENT.png`
 draws the shank board with its axes labelled as if it matched the foot board. A
@@ -85,8 +88,10 @@ about the shank board and right about the anatomical convention. The contract
 file is left unmodified; this table is the as-built record (DEC-009).
 
 **Verification status.** Compile-time proper-rotation checks pass, including a
-negative test with the previous map. On-body check pending: standing still must
-read anatomical a ≈ (0, 0, +1) g on both sensors.
+negative test with a reflected map. The shank map above was measured on the leg
+(TEST-027) and flashed; re-running the mounting check with it is the confirmation
+step. The foot map was confirmed on the leg: gravity dominant on +Z, the board
+tilted about 33° on the instep, which calibration removes.
 
 ## Haptics
 

@@ -15,9 +15,14 @@ export type Vec3 = [number, number, number];
 
 export const AXIS_NAMES = ["X", "Y", "Z"] as const;
 
-/** Standing still: gravity along +Z, with the other axes near zero. */
-export const STILL_UP_G = 0.9;
-export const STILL_TILT_G = 0.3;
+/**
+ * Standing still: gravity must be dominant on +Z. It need not be exactly +Z —
+ * a board strapped over the instep sits at a slope, and calibration's gravity
+ * alignment removes that. What the check proves is the axis and the sign.
+ */
+export const STILL_UP_G = 0.5;
+/** Beyond this the strap is on wrong, not merely at an angle (about 60 deg). */
+export const STILL_TILT_G = 0.87;
 /** |a| away from 1 g means the sensor is moving or the scale is wrong. */
 export const STILL_MAGNITUDE_TOLERANCE_G = 0.12;
 /** Below this the move was too gentle to tell the axes apart. */
@@ -41,6 +46,10 @@ export interface RotationVerdict {
   dominance: number;
   reason: string;
 }
+
+/** How far the sensor sits from upright; calibration removes this. */
+export const tiltDegrees = (m: Vec3) =>
+  Math.round((Math.atan2(Math.hypot(m[0], m[1]), m[2]) * 180) / Math.PI);
 
 const mean = (samples: Vec3[], axis: number) =>
   samples.reduce((total, s) => total + s[axis], 0) / samples.length;
@@ -67,7 +76,7 @@ export function stillVerdict(samples: Vec3[]): StillVerdict {
   if (Math.abs(m[0]) > STILL_TILT_G || Math.abs(m[1]) > STILL_TILT_G) {
     return { pass: false, mean: m, magnitude, reason: "the sensor is tilted more than expected" };
   }
-  return { pass: true, mean: m, magnitude, reason: "gravity reads +Z" };
+  return { pass: true, mean: m, magnitude, reason: `gravity reads +Z, tilted ${tiltDegrees(m)}°` };
 }
 
 /**
