@@ -147,6 +147,9 @@ pub struct Vocabulary {
     pub raw_status_names: [&'static str; 9],
     /// Gait state names in device order (docs/protocol.md §6.6).
     pub gait_states: [&'static str; 7],
+    /// Feature order doc 06 §3 weighs, and the error classes it names.
+    pub feature_names: [&'static str; 7],
+    pub error_classes: [&'static str; 7],
     pub default_wifi_url: &'static str,
 }
 
@@ -157,6 +160,8 @@ pub fn vocabulary() -> Vocabulary {
         fault_names: crate::protocol::FAULT_NAMES,
         raw_status_names: crate::protocol::RAW_STATUS_NAMES,
         gait_states: crate::protocol::GAIT_STATES,
+        feature_names: crate::protocol::FEATURE_NAMES,
+        error_classes: crate::protocol::ERROR_CLASSES,
         default_wifi_url: crate::link::ws::DEFAULT_URL,
     }
 }
@@ -230,6 +235,57 @@ pub fn raw_window(
     app.store
         .raw_window(&session_id, &groups, first_frame, last_frame, max_points)
         .map_err(failed)
+}
+
+/// Starts collecting cycles for a new reference profile (doc 12 §2).
+#[tauri::command]
+pub fn start_reference_capture(app: tauri::State<'_, Arc<App>>) -> CommandResult<()> {
+    app.device.start_reference_capture().map_err(failed)
+}
+
+/// Ends the running session. A capture's profile arrives shortly after and is
+/// saved with `save_reference`.
+#[tauri::command]
+pub fn stop_device_session(app: tauri::State<'_, Arc<App>>) -> CommandResult<()> {
+    app.device.stop_session().map_err(failed)
+}
+
+/// Stores the profile the device just captured as the patient's next version.
+/// Returns null when the device has not sent one: the capture may have been
+/// refused for having fewer than thirty valid cycles, in which case the device
+/// replied with an error rather than a profile.
+#[tauri::command]
+pub fn save_reference(
+    app: tauri::State<'_, Arc<App>>,
+    patient_id: String,
+    session_id: Option<String>,
+) -> CommandResult<Option<crate::store::StoredReference>> {
+    let Some(profile) = app.device.take_reference() else { return Ok(None) };
+    app.store
+        .add_reference(&patient_id, session_id.as_deref(), &profile)
+        .map(Some)
+        .map_err(failed)
+}
+
+/// Starts a check (ten cycles to read) or an evaluation against a stored
+/// profile, locking it: once a profile has judged a session it is immutable.
+#[tauri::command]
+pub fn start_scored_session(
+    app: tauri::State<'_, Arc<App>>,
+    reference_id: String,
+    check: bool,
+) -> CommandResult<()> {
+    let reference = app.store.reference(&reference_id).map_err(failed)?;
+    app.device.start_scored_session(check, &reference.profile).map_err(failed)?;
+    app.store.lock_reference(&reference_id).map_err(failed)
+}
+
+#[tauri::command]
+pub fn references(
+    app: tauri::State<'_, Arc<App>>,
+    patient_id: String,
+) -> CommandResult<Vec<crate::store::StoredReference>> {
+    app.store.references(&patient_id).map_err(failed)
 }
 
 /// Every gait cycle stored for a session, in time order.

@@ -74,6 +74,8 @@ struct State {
     status: Option<Status>,
     status_at: Option<Instant>,
     calibration: Option<protocol::Calibration>,
+    /// The profile from the last completed capture, until it is saved.
+    reference: Option<protocol::ReferenceProfile>,
     frames_received: u64,
     missing_messages: u32,
     rejected_frames: u64,
@@ -151,6 +153,40 @@ impl Device {
     /// Cancels a running window; the partial record is discarded.
     pub fn cancel_calibration(&self) -> Result<(), String> {
         self.send_now(MsgType::SessionStop, &[])
+    }
+
+    /// Starts collecting valid cycles for a new reference profile.
+    pub fn start_reference_capture(&self) -> Result<(), String> {
+        let payload = protocol::session_start(protocol::SESSION_KIND_REFERENCE_CAPTURE, 0);
+        self.send_now(MsgType::SessionStart, &payload)
+    }
+
+    /// Starts a check or an evaluation against a locked profile. The profile
+    /// travels with the command, so the device judges against the one the
+    /// operator chose rather than whatever it saw last.
+    pub fn start_scored_session(
+        &self,
+        check: bool,
+        profile: &protocol::ReferenceProfile,
+    ) -> Result<(), String> {
+        let kind = if check {
+            protocol::SESSION_KIND_REFERENCE_CHECK
+        } else {
+            protocol::SESSION_KIND_EVALUATION
+        };
+        let payload = protocol::session_start_with_reference(kind, profile);
+        self.send_now(MsgType::SessionStart, &payload)
+    }
+
+    /// Ends the running session. A capture answers with its profile, which
+    /// arrives later and is collected with `take_reference`.
+    pub fn stop_session(&self) -> Result<(), String> {
+        self.send_now(MsgType::SessionStop, &[])
+    }
+
+    /// Takes the profile from the last completed capture, clearing it.
+    pub fn take_reference(&self) -> Option<protocol::ReferenceProfile> {
+        self.state.lock().expect("device state").reference.take()
     }
 
     /// Queues one command on the link task. Commands carry sequence 0: only
@@ -352,14 +388,22 @@ impl Tracker {
             },
             MsgType::ConfigGet => self.on_config(payload),
             MsgType::SessionStop => {
-                // The device sends this once per completed calibration window.
-                match protocol::parse_calibration(payload) {
-                    Ok(record) => {
-                        self.state.lock().expect("device state").calibration = Some(record)
+                // Two things arrive here, told apart by length: a calibration
+                // record when a still window completes, and a reference profile
+                // when a capture ends.
+                if payload.len() == protocol::REFERENCE_PAYLOAD_SIZE {
+                    match protocol::parse_reference(payload) {
+                        Ok(profile) => {
+                            self.state.lock().expect("device state").reference = Some(profile)
+                        }
+                        Err(e) => self.note_error(format!("reference profile: {e}")),
                     }
-                    Err(e) => {
-                        self.state.lock().expect("device state").last_error =
-                            Some(format!("calibration record: {e}"))
+                } else {
+                    match protocol::parse_calibration(payload) {
+                        Ok(record) => {
+                            self.state.lock().expect("device state").calibration = Some(record)
+                        }
+                        Err(e) => self.note_error(format!("calibration record: {e}")),
                     }
                 }
             }

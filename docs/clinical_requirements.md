@@ -6,17 +6,16 @@ folded these into `ead_agent_docs_v2/SOURCE_REQUIREMENTS.md`; this file maps eac
 one to the specification that defines it, the code that implements it, and the
 test that proves it.
 
-**Status summary (2026-09-17):** the data foundation every requirement depends on
-is built and verified. The clinical analysis itself — drift correction, the error
-score, the patient baseline — is specified but **not yet implemented**. Nothing
-in the document is missing from the plan; three of the four are scheduled work.
+**Status summary (2026-09-18):** three of the four are implemented, two of them
+verified on hardware against measured ground truth. The fourth — the export files
+— is the remaining milestone.
 
 | # | Requirement | Specified in | Implemented | Verified |
 |---|---|---|---|---|
-| 1 | ZUPT drift correction so speed and distance stay trustworthy for a whole session | doc 05 §6–§8 | No — milestone M4 | — |
-| 2 | One deviation number per step, driving vibration strength, with a hard safety limit | doc 06 §1–§5, §10–§12 | No — M5; vibration itself deferred (DEC-006) | — |
-| 3 | Compare each patient to their own baseline from a short calibration walk, saved between sessions | doc 12 §2–§3, §6 | No — M5 | — |
-| 4 | Export full raw accelerometer, gyroscope and orientation at native rate, timestamped per sample | doc 09 §6, doc 10 §2 | Capture: yes. Export files: no — M6 | TEST-018, TEST-022 |
+| 1 | ZUPT drift correction so speed and distance stay trustworthy for a whole session | doc 05 §6–§8 | Yes | TEST-030: 6.39 m measured on a 6.00 m course, ZUPT quality 0.22–0.29 per cycle |
+| 2 | One deviation number per step, driving vibration strength, with a hard safety limit | doc 06 §1–§5 | Yes, except the vibration itself (DEC-006, no drivers fitted) | TEST-031, hand-computed cases only |
+| 3 | Compare each patient to their own baseline from a short calibration walk, saved between sessions | doc 12 §2–§3, §6 | Device builds it, dashboard versions and locks it | TEST-031 and four store tests; never yet captured from a person |
+| 4 | Export full raw accelerometer, gyroscope and orientation at native rate, timestamped per sample | doc 09 §6, doc 10 §2 | Capture: yes, with real orientation. Export files: no — M6 | TEST-018, TEST-022, TEST-029 |
 
 ## 1. Drift correction (ZUPT)
 
@@ -30,8 +29,17 @@ velocity substate rather than a hard reset (doc 05 §6–§7). Speed is reported
 cycle with a quality figure, and flagged low-confidence rather than fabricated
 when ZUPT quality is poor (doc 05 §8).
 
-**Built so far:** nothing of the detector. What exists is the requirement it
-depends on: a sample stream with no gaps and real device timestamps. Drift
+**Built (2026-09-18):** the detector, the zero-velocity windows and the distance
+estimate, measured against a 6 m course: 6.39 m, +6.5 % (TEST-030). Cycles whose
+ZUPT quality is inadequate report distance as low-confidence rather than
+corrected, which is what this requirement asks for. Two orientation errors that
+made distance untrustworthy were found and fixed by that measurement (PROB-012).
+
+**Also true, and worth stating:** the thresholds were fitted to one recording of
+one person's walking. They are named constants, overridable at run time, and doc
+05 §3 wants them adaptive per patient.
+
+**What it depends on, verified earlier:** a sample stream with no gaps and real device timestamps. Drift
 correction integrates acceleration over time, so a dropped or mistimed sample
 becomes a permanent position error. The 30-minute run (TEST-018) lost none of
 180,250 frames and held a 9985.5 µs period with 0.5 µs standard deviation.
@@ -51,7 +59,13 @@ of seven robust per-feature deviations (doc 06 §2–§3); an independent confid
 score gating feedback (§5); intensity `51 + 153·error^1.5·confidence` clamped to
 20–80 % duty, 5 s maximum continuous on-time and 50 % duty over any 10 s (§10–§12).
 
-**Built so far:** nothing. This needs gait events (M4) before it can exist.
+**Built (2026-09-18):** the score, the six classes and the five confidence
+subscores, in `ead_core/error_engine.cpp`, tested against hand-computed cases
+(TEST-031). Confidence is reported beside the score and never folded into it: a
+cycle can deviate a great deal and be worth little.
+
+Doc 06 leaves four values undefined; they are chosen and justified in DEC-013
+rather than invented silently.
 
 **Important:** the vibration itself cannot be delivered on the current hardware —
 no ERM driver channels are fitted, which is why there is no haptic code (DEC-006,
@@ -70,9 +84,16 @@ stored as a versioned, immutable profile per patient; each later session runs a
 10-cycle check against it; the profile is locked during evaluation so a bad
 session can never teach the device bad gait (doc 12 §2–§3, §6).
 
-**Built so far:** the storage side only — patients and sessions exist in the
-database, and every session records the firmware version and configuration hash
-that produced it. Reference profiles themselves are M5.
+**Built (2026-09-18):** the whole path. The device collects valid cycles during a
+REFERENCE_CAPTURE session and refuses to produce a profile from fewer than
+thirty; the dashboard assigns a per-patient version, stores the profile exactly
+as the device sent it, and locks it the moment it is used to judge a session.
+The lock is enforced by the database itself — a trigger refuses the update — so a
+reference cannot be edited after an evaluation has been made against it, by any
+code path.
+
+Profiles persist between sessions in the patient's record, which is the "saves it
+for next time" half of the requirement.
 
 **Decision already taken:** the profile is computed on the device and versioned
 by the dashboard (DEC-012), so there is one implementation of the median/MAD

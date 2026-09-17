@@ -1,6 +1,7 @@
 #include "link.h"
 
 #include "calibration_service.h"
+#include "session_service.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -92,18 +93,41 @@ void Link::onMessage(const uint8_t* msg, size_t len, int64_t nowUs) {
                    "SESSION_START is {u8 kind, u8 reserved, u16 duration_ms}", nowUs);
         return;
       }
-      if (kind != uint8_t(ead::SessionKind::Calibration)) {
-        queueError(h.sequence, h.type, ErrorCode::NotSupported,
-                   "schema 2 supports session kind CALIBRATION only", nowUs);
+      const ead::SessionKind sessionKind = ead::SessionKind(kind);
+      if (sessionKind == ead::SessionKind::Calibration) {
+        if (durationMs < ead::kCalibMinDurationMs || durationMs > ead::kCalibMaxDurationMs) {
+          queueError(h.sequence, h.type, ErrorCode::BadPayload, "duration_ms must be 2000..30000",
+                     nowUs);
+          return;
+        }
+        if (!calibration::start(durationMs)) {
+          queueError(h.sequence, h.type, ErrorCode::InvalidState, "a calibration window is running",
+                     nowUs);
+        }
         return;
       }
-      if (durationMs < ead::kCalibMinDurationMs || durationMs > ead::kCalibMaxDurationMs) {
-        queueError(h.sequence, h.type, ErrorCode::BadPayload, "duration_ms must be 2000..30000",
-                   nowUs);
+      if (sessionKind != ead::SessionKind::ReferenceCapture &&
+          sessionKind != ead::SessionKind::ReferenceCheck &&
+          sessionKind != ead::SessionKind::Evaluation) {
+        queueError(h.sequence, h.type, ErrorCode::NotSupported, "unknown session kind", nowUs);
         return;
       }
-      if (!calibration::start(durationMs)) {
-        queueError(h.sequence, h.type, ErrorCode::InvalidState, "a calibration window is running",
+      // A check or an evaluation is meaningless without the profile it judges
+      // against, so the reference travels with the command rather than being
+      // assumed to be the last one seen.
+      ead::ReferenceProfile reference{};
+      const bool needsReference = sessionKind != ead::SessionKind::ReferenceCapture;
+      if (needsReference) {
+        if (h.length != ead::kSessionStartPayloadSize + ead::kReferencePayloadSize ||
+            !ead::decodeReferenceProfile(payload + ead::kSessionStartPayloadSize,
+                                         ead::kReferencePayloadSize, &reference)) {
+          queueError(h.sequence, h.type, ErrorCode::BadPayload,
+                     "a check or evaluation needs a valid reference profile", nowUs);
+          return;
+        }
+      }
+      if (!session::start(sessionKind, needsReference ? &reference : nullptr)) {
+        queueError(h.sequence, h.type, ErrorCode::InvalidState, "a session is already running",
                    nowUs);
       }
       return;
@@ -115,6 +139,19 @@ void Link::onMessage(const uint8_t* msg, size_t len, int64_t nowUs) {
         return;
       }
       calibration::cancel();
+      ead::ReferenceProfile profile{};
+      bool wasCapture = false;
+      const bool built = session::stop(&profile, &wasCapture);
+      if (wasCapture) {
+        if (!built) {
+          queueError(h.sequence, h.type, ErrorCode::Rejected,
+                     "a reference needs at least 30 valid cycles", nowUs);
+          return;
+        }
+        uint8_t body[ead::kReferencePayloadSize];
+        const size_t n = ead::encodeReferenceProfile(profile, body, sizeof body);
+        queueReply(MsgType::SessionStop, body, n, nowUs);
+      }
       return;
     }
     case MsgType::BackfillRequest: {

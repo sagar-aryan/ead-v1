@@ -9,7 +9,9 @@
 #include "../vectors.h"
 #include "ead/config_section.h"
 #include "ead/calibration.h"
+#include "ead/error_engine.h"
 #include "ead/gait.h"
+#include "ead/reference.h"
 #include "ead/protocol.h"
 
 using ead::MsgType;
@@ -324,16 +326,75 @@ static void test_step_batch_matches_the_vector() {
   cycle.zuptQuality = 0.58f;
   cycle.valid = true;
 
+  // The scored fields, as the error engine would have produced them.
+  ead::ErrorResult score{};
+  score.score = 0.42f;
+  score.confidence = 0.86f;
+  score.activeClasses = ead::errorClassBit(ead::ErrorClass::InsufficientDorsiflexion);
+  score.primaryClass = ead::ErrorClass::InsufficientDorsiflexion;
+  const float subscores[5] = {1.0f, 1.0f, 1.0f, 0.75f, 0.58f};
+  for (int i = 0; i < 5; ++i) score.subscores[i] = subscores[i];
+  const float deviations[7] = {0.91f, 0.12f, 0.05f, 0.10f, 0.08f, 0.22f, 0.30f};
+  for (size_t f = 0; f < ead::kFeatureCount; ++f) score.deviations[f] = deviations[f];
+
   uint8_t payload[2 + ead::kCycleRecordSize];
-  const size_t n = ead::encodeStepBatchPayload(&cycle, 1, payload, sizeof payload);
+  const size_t n = ead::encodeStepBatchPayload(&cycle, &score, 1, payload, sizeof payload);
   TEST_ASSERT_EQUAL_size_t(sizeof payload, n);
   assertBytes(loadVector("step_batch.hex"),
               message(MsgType::StepBatch, 52, 12'000'000, payload, n).data(),
               ead::kHeaderSize + n);
 }
 
+static void test_reference_profile_round_trip() {
+  const auto v = loadVector("reference_profile.hex");
+  const uint8_t* payload = v.data() + ead::kHeaderSize + ead::kSessionStartPayloadSize;
+  const size_t len = v.size() - ead::kHeaderSize - ead::kSessionStartPayloadSize;
+  TEST_ASSERT_EQUAL_size_t(ead::kReferencePayloadSize, len);
+
+  ead::ReferenceProfile profile{};
+  TEST_ASSERT_TRUE(ead::decodeReferenceProfile(payload, len, &profile));
+  TEST_ASSERT_EQUAL_UINT16(34, profile.cycles);
+  TEST_ASSERT_EQUAL_UINT16(2, profile.version);
+  TEST_ASSERT_FLOAT_WITHIN(1e-4f, 16.0f,
+                           profile.features[size_t(ead::GaitFeature::SwingDorsiflexion)].median);
+  TEST_ASSERT_FLOAT_WITHIN(1e-4f, 1.6f,
+                           profile.features[size_t(ead::GaitFeature::SwingDorsiflexion)].spread);
+  TEST_ASSERT_FLOAT_WITHIN(1e-4f, 400.0f,
+                           profile.features[size_t(ead::GaitFeature::ShankDynamics)].median);
+
+  uint8_t out[ead::kReferencePayloadSize];
+  const size_t n = ead::encodeReferenceProfile(profile, out, sizeof out);
+  TEST_ASSERT_EQUAL_size_t(ead::kReferencePayloadSize, n);
+  TEST_ASSERT_EQUAL_HEX8_ARRAY(payload, out, n);
+}
+
+static void test_a_reference_with_a_zero_spread_is_refused() {
+  ead::ReferenceProfile profile{};
+  profile.cycles = 40;
+  for (size_t f = 0; f < ead::kFeatureCount; ++f) {
+    profile.features[f] = ead::ReferenceFeature{1.0f, 1.0f};
+  }
+  uint8_t encoded[ead::kReferencePayloadSize];
+  ead::encodeReferenceProfile(profile, encoded, sizeof encoded);
+  ead::ReferenceProfile decoded{};
+  TEST_ASSERT_TRUE(ead::decodeReferenceProfile(encoded, sizeof encoded, &decoded));
+
+  // A zero spread would divide by zero in the error engine.
+  profile.features[3].spread = 0.0f;
+  ead::encodeReferenceProfile(profile, encoded, sizeof encoded);
+  TEST_ASSERT_FALSE(ead::decodeReferenceProfile(encoded, sizeof encoded, &decoded));
+
+  // So would a profile built from too few cycles.
+  profile.features[3].spread = 1.0f;
+  profile.cycles = 12;
+  ead::encodeReferenceProfile(profile, encoded, sizeof encoded);
+  TEST_ASSERT_FALSE(ead::decodeReferenceProfile(encoded, sizeof encoded, &decoded));
+}
+
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_reference_profile_round_trip);
+  RUN_TEST(test_a_reference_with_a_zero_spread_is_refused);
   RUN_TEST(test_event_batch_matches_the_vector);
   RUN_TEST(test_step_batch_matches_the_vector);
   RUN_TEST(test_session_start_round_trip);

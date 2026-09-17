@@ -90,7 +90,7 @@ pub struct DeviceIdentity {
 }
 
 /// A gait cycle as stored, in physical units (doc 05 §11).
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct StoredCycle {
     pub start_frame: i64,
     pub end_frame: i64,
@@ -109,6 +109,30 @@ pub struct StoredCycle {
     pub speed_mps: f32,
     pub zupt_quality: f32,
     pub valid: bool,
+    /// All zero when the cycle was not scored: no reference was loaded. That is
+    /// not the same as agreeing with the reference, and a reader must not treat
+    /// a zero score as a good cycle.
+    pub error_score: f32,
+    pub confidence: f32,
+    pub confidence_subscores: Vec<f32>,
+    pub deviations: Vec<f32>,
+    pub active_classes: u16,
+    pub primary_class: u8,
+}
+
+/// A versioned reference profile (doc 12 §2–§3).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct StoredReference {
+    pub reference_id: String,
+    pub patient_id: String,
+    pub version: i64,
+    pub created_at: String,
+    /// The capture session it was built from, when that session is still stored.
+    pub session_id: Option<String>,
+    pub cycles: i64,
+    /// Locked profiles are immutable: they have been used to judge a session.
+    pub locked: bool,
+    pub profile: crate::protocol::ReferenceProfile,
 }
 
 /// A gait event as stored. `kind` is the protocol's name for it.
@@ -330,10 +354,14 @@ impl Store {
         let mut statement = connection.prepare(
             "SELECT start_frame, end_frame, start_us, cycle_time_s, stance_time_s, swing_time_s,
                     stance_ratio, swing_ratio, cadence, peak_shank_dps, peak_dorsi_deg,
-                    contact_sag_deg, peak_inv_deg, distance_m, speed_mps, zupt_quality, valid
+                    contact_sag_deg, peak_inv_deg, distance_m, speed_mps, zupt_quality, valid,
+                    confidence_subscores, deviations, error_score, confidence,
+                    active_classes, primary_class
              FROM cycles WHERE session_id = ?1 ORDER BY start_frame",
         )?;
         let rows = statement.query_map([session_id], |row| {
+            let subscores: String = row.get(17)?;
+            let deviations: String = row.get(18)?;
             Ok(StoredCycle {
                 start_frame: row.get(0)?,
                 end_frame: row.get(1)?,
@@ -352,6 +380,12 @@ impl Store {
                 speed_mps: row.get(14)?,
                 zupt_quality: row.get(15)?,
                 valid: row.get::<_, i64>(16)? != 0,
+                confidence_subscores: serde_json::from_str(&subscores).unwrap_or_default(),
+                deviations: serde_json::from_str(&deviations).unwrap_or_default(),
+                error_score: row.get(19)?,
+                confidence: row.get(20)?,
+                active_classes: row.get::<_, i64>(21)? as u16,
+                primary_class: row.get::<_, i64>(22)? as u8,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -372,6 +406,111 @@ impl Store {
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Stores a profile the device built, as the next version for that patient.
+    ///
+    /// Versions are per patient and never reused, so an evaluation can always
+    /// name the profile it was judged against even after a newer capture.
+    pub fn add_reference(
+        &self,
+        patient_id: &str,
+        session_id: Option<&str>,
+        profile: &crate::protocol::ReferenceProfile,
+    ) -> Result<StoredReference> {
+        if profile.cycles < crate::protocol::REFERENCE_MIN_CYCLES {
+            return Err(StoreError::Rejected(format!(
+                "a reference needs at least {} valid cycles, got {}",
+                crate::protocol::REFERENCE_MIN_CYCLES,
+                profile.cycles
+            )));
+        }
+        let connection = self.reader()?;
+        let version: i64 = connection.query_row(
+            "SELECT COALESCE(MAX(version), 0) + 1 FROM reference_profiles WHERE patient_id = ?1",
+            [patient_id],
+            |row| row.get(0),
+        )?;
+        let created_at = now_utc();
+        let reference_id = format!("{patient_id}-v{version}");
+        let mut stored = *profile;
+        stored.version = version as u16;
+        connection.execute(
+            "INSERT INTO reference_profiles
+               (reference_id, patient_id, version, created_at, session_id, cycles, locked, payload)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7)",
+            rusqlite::params![
+                reference_id,
+                patient_id,
+                version,
+                created_at,
+                session_id,
+                stored.cycles as i64,
+                crate::protocol::encode_reference(&stored),
+            ],
+        )?;
+        Ok(StoredReference {
+            reference_id,
+            patient_id: patient_id.to_string(),
+            version,
+            created_at,
+            session_id: session_id.map(str::to_string),
+            cycles: stored.cycles as i64,
+            locked: false,
+            profile: stored,
+        })
+    }
+
+    pub fn references(&self, patient_id: &str) -> Result<Vec<StoredReference>> {
+        let connection = self.reader()?;
+        let mut statement = connection.prepare(
+            "SELECT reference_id, patient_id, version, created_at, session_id, cycles, locked,
+                    payload
+             FROM reference_profiles WHERE patient_id = ?1 ORDER BY version DESC",
+        )?;
+        let rows = statement.query_map([patient_id], |row| {
+            let payload: Vec<u8> = row.get(7)?;
+            Ok(StoredReference {
+                reference_id: row.get(0)?,
+                patient_id: row.get(1)?,
+                version: row.get(2)?,
+                created_at: row.get(3)?,
+                session_id: row.get(4)?,
+                cycles: row.get(5)?,
+                locked: row.get::<_, i64>(6)? != 0,
+                profile: crate::protocol::parse_reference(&payload).unwrap_or_default(),
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn reference(&self, reference_id: &str) -> Result<StoredReference> {
+        let connection = self.reader()?;
+        let patient: String = connection
+            .query_row(
+                "SELECT patient_id FROM reference_profiles WHERE reference_id = ?1",
+                [reference_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| StoreError::Rejected(format!("no reference {reference_id}")))?;
+        self.references(&patient)?
+            .into_iter()
+            .find(|r| r.reference_id == reference_id)
+            .ok_or_else(|| StoreError::Rejected(format!("no reference {reference_id}")))
+    }
+
+    /// Locks a profile. Called when it is first used to judge a session, after
+    /// which the database itself refuses to change it.
+    pub fn lock_reference(&self, reference_id: &str) -> Result<()> {
+        let connection = self.reader()?;
+        let changed = connection.execute(
+            "UPDATE reference_profiles SET locked = 1 WHERE reference_id = ?1",
+            [reference_id],
+        )?;
+        if changed == 0 {
+            return Err(StoreError::Rejected(format!("no reference {reference_id}")));
+        }
+        Ok(())
     }
 
     /// Blocks until every queued write is committed.
@@ -539,6 +678,10 @@ fn commit(
                         c.swing_ratio, c.cadence_steps_per_min, c.peak_shank_rate_dps,
                         c.peak_dorsiflexion_deg, c.contact_sagittal_deg, c.peak_inversion_deg,
                         c.distance_m, c.speed_mps, c.zupt_quality, c.valid as i64,
+                        c.error_score, c.confidence, c.active_classes as i64,
+                        c.primary_class as i64,
+                        serde_json::to_string(&c.confidence_subscores).unwrap_or_default(),
+                        serde_json::to_string(&c.deviations).unwrap_or_default(),
                     ])?;
                 }
                 for e in events {

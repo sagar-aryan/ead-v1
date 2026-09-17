@@ -10,7 +10,7 @@
 namespace ead {
 
 constexpr uint16_t kProtocolVersion = 1;  // doc 08 header field
-constexpr uint16_t kSchemaVersion = 3;    // payload layouts, docs/protocol.md
+constexpr uint16_t kSchemaVersion = 4;    // payload layouts, docs/protocol.md
 constexpr size_t kHeaderSize = 20;
 constexpr size_t kRawFrameSize = 54;
 constexpr size_t kMaxRawFramesPerBatch = 10;
@@ -178,8 +178,13 @@ constexpr size_t kStatusPayloadSize = 58;
 /// STATUS calibration_state (docs/protocol.md §5.3).
 enum class CalibrationState : uint8_t { None = 0, Collecting = 1, Ready = 2, Rejected = 3 };
 
-/// Session kinds. Schema 2 accepts CALIBRATION only.
-enum class SessionKind : uint8_t { Calibration = 1 };
+/// Doc 07 §6 session kinds (docs/protocol.md §6.8).
+enum class SessionKind : uint8_t {
+  Calibration = 1,
+  ReferenceCapture = 2,
+  ReferenceCheck = 3,
+  Evaluation = 4,
+};
 
 constexpr size_t kSessionStartPayloadSize = 4;
 constexpr size_t kCalibrationPayloadSize = 128;
@@ -193,18 +198,28 @@ size_t encodeSessionStart(uint8_t kind, uint16_t durationMs, uint8_t* out, size_
 struct CalibrationRecord;  // ead/calibration.h
 struct GaitEvent;          // ead/gait.h
 struct GaitCycle;          // ead/gait.h
+struct ReferenceProfile;   // ead/reference.h
+struct ErrorResult;        // ead/error_engine.h
+
+/// The reference profile as carried in SESSION_START and SESSION_STOP (§5.13).
+constexpr size_t kReferencePayloadSize = 64;
+size_t encodeReferenceProfile(const ReferenceProfile& profile, uint8_t* out, size_t cap);
+bool decodeReferenceProfile(const uint8_t* payload, size_t len, ReferenceProfile* out);
 
 // ---- gait (schema 3) -------------------------------------------------------
 
 constexpr size_t kEventRecordSize = 14;
-constexpr size_t kCycleRecordSize = 72;
+constexpr size_t kCycleRecordSize = 132;
 constexpr size_t kMaxEventsPerBatch = 20;
 constexpr size_t kMaxCyclesPerBatch = 8;
 /// Bit 0 of a cycle record's flags: the cycle passed the temporal guards.
 constexpr uint16_t kCycleValid = 1u << 0;
 
 size_t encodeEventBatchPayload(const GaitEvent* events, size_t count, uint8_t* out, size_t cap);
-size_t encodeStepBatchPayload(const GaitCycle* cycles, size_t count, uint8_t* out, size_t cap);
+/// `scores` may be null when no reference is loaded; the error fields are then
+/// zero, which a host reads as "not scored" rather than as agreement.
+size_t encodeStepBatchPayload(const GaitCycle* cycles, const ErrorResult* scores, size_t count,
+                              uint8_t* out, size_t cap);
 
 /// SESSION_STOP, device → host: the calibration record.
 size_t encodeCalibrationPayload(uint8_t kind, const CalibrationRecord& record, uint8_t* out,
@@ -222,6 +237,8 @@ enum class ErrorCode : uint16_t {
   InvalidState = 4,
   BadPayload = 5,
   BackfillUnavailable = 6,
+  /// The command was understood and refused: its precondition does not hold.
+  Rejected = 7,
 };
 
 size_t encodeErrorPayload(uint32_t cmdSeq, uint8_t cmdType, ErrorCode code, const char* detail,

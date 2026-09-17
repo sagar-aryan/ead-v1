@@ -1,7 +1,9 @@
 #include "ead/protocol.h"
 
 #include "ead/calibration.h"
+#include "ead/error_engine.h"
 #include "ead/gait.h"
+#include "ead/reference.h"
 
 #include "ead/cobs.h"
 #include "ead/crc32.h"
@@ -300,7 +302,39 @@ size_t encodeEventBatchPayload(const GaitEvent* events, size_t count, uint8_t* o
   return w.ok() ? w.size() : 0;
 }
 
-size_t encodeStepBatchPayload(const GaitCycle* cycles, size_t count, uint8_t* out, size_t cap) {
+size_t encodeReferenceProfile(const ReferenceProfile& profile, uint8_t* out, size_t cap) {
+  ByteWriter w(out, cap);
+  w.u16(profile.cycles);
+  w.u16(profile.version);
+  for (size_t f = 0; f < kFeatureCount; ++f) {
+    w.f32(profile.features[f].median);
+    w.f32(profile.features[f].spread);
+  }
+  w.u32(0);
+  return w.ok() ? w.size() : 0;
+}
+
+bool decodeReferenceProfile(const uint8_t* payload, size_t len, ReferenceProfile* out) {
+  if (len != kReferencePayloadSize) return false;
+  ByteReader r(payload, len);
+  *out = ReferenceProfile{};
+  out->cycles = r.u16();
+  out->version = r.u16();
+  for (size_t f = 0; f < kFeatureCount; ++f) {
+    out->features[f].median = r.f32();
+    out->features[f].spread = r.f32();
+  }
+  r.u32();
+  // A spread of zero would divide by zero downstream: refuse the profile rather
+  // than let it produce infinite deviations.
+  for (size_t f = 0; f < kFeatureCount; ++f) {
+    if (!(out->features[f].spread > 0.0f)) return false;
+  }
+  return r.ok() && out->cycles >= kReferenceMinCycles;
+}
+
+size_t encodeStepBatchPayload(const GaitCycle* cycles, const ErrorResult* scores, size_t count,
+                              uint8_t* out, size_t cap) {
   if (count == 0 || count > kMaxCyclesPerBatch) return 0;
   ByteWriter w(out, cap);
   w.u8(uint8_t(count));
@@ -324,6 +358,16 @@ size_t encodeStepBatchPayload(const GaitCycle* cycles, size_t count, uint8_t* ou
     w.f32(c.speedMps);
     w.f32(c.zuptQuality);
     w.u16(c.valid ? kCycleValid : 0);
+    const ErrorResult* score = scores == nullptr ? nullptr : &scores[i];
+    w.u16(score == nullptr ? 0 : score->activeClasses);
+    w.f32(score == nullptr ? 0.0f : score->score);
+    w.f32(score == nullptr ? 0.0f : score->confidence);
+    for (int s = 0; s < 5; ++s) w.f32(score == nullptr ? 0.0f : score->subscores[s]);
+    for (size_t f = 0; f < kFeatureCount; ++f) {
+      w.f32(score == nullptr ? 0.0f : score->deviations[f]);
+    }
+    w.u8(score == nullptr ? 0 : uint8_t(score->primaryClass));
+    w.u8(0);
     w.u16(0);
   }
   return w.ok() ? w.size() : 0;

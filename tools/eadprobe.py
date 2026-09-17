@@ -43,7 +43,7 @@ RAW_FLAGS = ["foot_read_fail", "shank_read_fail", "shank_repeated", "foot_accel_
              "foot_gyro_saturated", "shank_accel_saturated", "shank_gyro_saturated",
              "foot_repeated"]
 ERROR_CODES = {1: "BadFrame", 2: "SchemaMismatch", 3: "NotSupported", 4: "InvalidState",
-               5: "BadPayload", 6: "BackfillUnavailable"}
+               5: "BadPayload", 6: "BackfillUnavailable", 7: "Rejected"}
 
 USB_VID, USB_PID = 0x303A, 0x1001
 RAW_FRAME = struct.Struct("<QI6h6h4h4hH")

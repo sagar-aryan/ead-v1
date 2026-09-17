@@ -8,6 +8,7 @@
 #include "ead/gait.h"
 #include "ead/mahony.h"
 #include "orientation.h"
+#include "session_service.h"
 #include "telemetry.h"
 
 namespace gait {
@@ -24,6 +25,8 @@ uint32_t s_cycles = 0;
 ead::GaitEvent s_events[ead::kMaxEventsPerBatch];
 size_t s_eventCount = 0;
 ead::GaitCycle s_cycles_[ead::kMaxCyclesPerBatch];
+ead::ErrorResult s_scores[ead::kMaxCyclesPerBatch];
+bool s_scored = false;
 size_t s_cycleCount = 0;
 
 /// Q15 back to float: the frame carries the estimate the device just made.
@@ -78,7 +81,18 @@ void consume(const ead::RawFrame& frame) {
   }
   ead::GaitCycle cycle;
   while (s_engine.takeCycle(&cycle)) {
-    if (s_cycleCount < ead::kMaxCyclesPerBatch) s_cycles_[s_cycleCount++] = cycle;
+    // The session decides what a cycle means: a capture collects it, a check or
+    // an evaluation scores it against the locked reference.
+    const ead::ErrorResult* score = session::consume(cycle);
+    if (s_cycleCount < ead::kMaxCyclesPerBatch) {
+      if (score != nullptr) {
+        s_scores[s_cycleCount] = *score;
+        s_scored = true;
+      } else {
+        s_scores[s_cycleCount] = ead::ErrorResult{};
+      }
+      s_cycles_[s_cycleCount++] = cycle;
+    }
     portENTER_CRITICAL(&s_mux);
     ++s_cycles;
     portEXIT_CRITICAL(&s_mux);
@@ -94,10 +108,11 @@ void publish() {
   }
   if (s_cycleCount > 0) {
     uint8_t payload[2 + ead::kMaxCyclesPerBatch * ead::kCycleRecordSize];
-    const size_t len =
-        ead::encodeStepBatchPayload(s_cycles_, s_cycleCount, payload, sizeof payload);
+    const size_t len = ead::encodeStepBatchPayload(s_cycles_, s_scored ? s_scores : nullptr,
+                                                   s_cycleCount, payload, sizeof payload);
     telemetry::append(ead::MsgType::StepBatch, s_cycles_[0].startUs, payload, len);
     s_cycleCount = 0;
+    s_scored = false;
   }
 }
 

@@ -15,7 +15,9 @@ use reader::Reader;
 pub use config::parse_section;
 
 pub const PROTOCOL_VERSION: u16 = 1;
-pub const SCHEMA_VERSION: u16 = 3;
+use std::cmp::Ordering;
+
+pub const SCHEMA_VERSION: u16 = 4;
 pub const HEADER_SIZE: usize = 20;
 pub const RAW_FRAME_SIZE: usize = 54;
 /// Largest message the device will send (`docs/protocol.md` §7).
@@ -285,7 +287,7 @@ pub const GAIT_STATES: [&str; 7] =
     ["init", "swing", "contact_transition", "stance", "foot_flat_zv", "pre_swing", "fault"];
 
 pub const EVENT_RECORD_SIZE: usize = 14;
-pub const CYCLE_RECORD_SIZE: usize = 72;
+pub const CYCLE_RECORD_SIZE: usize = 132;
 /// Bit 0 of a cycle's flags: it passed the temporal guards (doc 05 §4).
 pub const CYCLE_VALID: u16 = 1 << 0;
 
@@ -352,7 +354,7 @@ pub fn parse_event_batch(payload: &[u8]) -> Result<Vec<GaitEvent>> {
     Ok(out)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize)]
 pub struct GaitCycle {
     pub start_frame: u32,
     pub end_frame: u32,
@@ -371,6 +373,14 @@ pub struct GaitCycle {
     pub speed_mps: f32,
     pub zupt_quality: f32,
     pub valid: bool,
+    /// Zero in a session with no reference: not agreement, but not scored.
+    pub error_score: f32,
+    pub confidence: f32,
+    /// Sensor, event, feature completeness, reference stability, ZUPT.
+    pub confidence_subscores: [f32; 5],
+    pub deviations: [f32; 7],
+    pub active_classes: u16,
+    pub primary_class: u8,
 }
 
 pub fn parse_step_batch(payload: &[u8]) -> Result<Vec<GaitCycle>> {
@@ -400,7 +410,22 @@ pub fn parse_step_batch(payload: &[u8]) -> Result<Vec<GaitCycle>> {
             speed_mps: r.f32()?,
             zupt_quality: r.f32()?,
             valid: r.u16()? & CYCLE_VALID != 0,
+            active_classes: r.u16()?,
+            error_score: r.f32()?,
+            confidence: r.f32()?,
+            confidence_subscores: [r.f32()?, r.f32()?, r.f32()?, r.f32()?, r.f32()?],
+            deviations: [
+                r.f32()?,
+                r.f32()?,
+                r.f32()?,
+                r.f32()?,
+                r.f32()?,
+                r.f32()?,
+                r.f32()?,
+            ],
+            primary_class: r.u8()?,
         };
+        r.u8()?; // reserved
         r.u16()?; // reserved
         r.bytes(size - CYCLE_RECORD_SIZE)?;
         out.push(cycle);
@@ -412,8 +437,92 @@ pub fn parse_step_batch(payload: &[u8]) -> Result<Vec<GaitCycle>> {
 
 pub const SESSION_START_PAYLOAD_SIZE: usize = 4;
 pub const CALIBRATION_PAYLOAD_SIZE: usize = 128;
-/// The only session kind schema 2 accepts.
+/// Session kinds, `docs/protocol.md` §6.8.
 pub const SESSION_KIND_CALIBRATION: u8 = 1;
+pub const SESSION_KIND_REFERENCE_CAPTURE: u8 = 2;
+pub const SESSION_KIND_REFERENCE_CHECK: u8 = 3;
+pub const SESSION_KIND_EVALUATION: u8 = 4;
+
+/// Features in the order doc 06 §3 weighs them.
+pub const FEATURE_NAMES: [&str; 7] = [
+    "swing_dorsiflexion",
+    "contact_plantarflexion",
+    "inversion",
+    "cycle_time",
+    "stance_ratio",
+    "cycle_distance",
+    "shank_dynamics",
+];
+
+/// Error classes, `docs/protocol.md` §6.10.
+pub const ERROR_CLASSES: [&str; 7] = [
+    "none",
+    "insufficient_dorsiflexion",
+    "excess_plantarflexion",
+    "inversion_deviation",
+    "eversion_deviation",
+    "timing_deviation",
+    "overall_deviation",
+];
+
+pub const REFERENCE_PAYLOAD_SIZE: usize = 64;
+/// Doc 12 §2: a reference rests on at least this many valid cycles.
+pub const REFERENCE_MIN_CYCLES: u16 = 30;
+
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub struct ReferenceFeature {
+    pub median: f32,
+    /// 1.4826 × MAD with a per-feature floor; never zero (doc 06 §2).
+    pub spread: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub struct ReferenceProfile {
+    pub cycles: u16,
+    /// Assigned by this dashboard; the device leaves it 0.
+    pub version: u16,
+    pub features: [ReferenceFeature; 7],
+}
+
+pub fn parse_reference(payload: &[u8]) -> Result<ReferenceProfile> {
+    if payload.len() != REFERENCE_PAYLOAD_SIZE {
+        return Err(ProtocolError::BadPayload("REFERENCE"));
+    }
+    let mut r = Reader::new(payload);
+    let mut profile = ReferenceProfile { cycles: r.u16()?, version: r.u16()?, ..Default::default() };
+    for feature in &mut profile.features {
+        feature.median = r.f32()?;
+        feature.spread = r.f32()?;
+    }
+    if profile.cycles < REFERENCE_MIN_CYCLES
+        || profile.features.iter().any(|f| f.spread.partial_cmp(&0.0) != Some(Ordering::Greater))
+    {
+        // A spread of zero divides by zero downstream, and a profile under the
+        // documented minimum is not a reference.
+        return Err(ProtocolError::BadPayload("REFERENCE"));
+    }
+    Ok(profile)
+}
+
+pub fn encode_reference(profile: &ReferenceProfile) -> Vec<u8> {
+    let mut out = Vec::with_capacity(REFERENCE_PAYLOAD_SIZE);
+    out.extend_from_slice(&profile.cycles.to_le_bytes());
+    out.extend_from_slice(&profile.version.to_le_bytes());
+    for feature in &profile.features {
+        out.extend_from_slice(&feature.median.to_le_bytes());
+        out.extend_from_slice(&feature.spread.to_le_bytes());
+    }
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out
+}
+
+/// SESSION_START for a check or an evaluation: the kind and the profile it
+/// judges against, which travels with the command rather than being assumed.
+pub fn session_start_with_reference(kind: u8, profile: &ReferenceProfile) -> Vec<u8> {
+    let mut out = session_start(kind, 0);
+    out.extend_from_slice(&encode_reference(profile));
+    out
+}
 
 /// SESSION_START payload: start a still window of `duration_ms`.
 pub fn session_start(kind: u8, duration_ms: u16) -> Vec<u8> {
@@ -611,6 +720,7 @@ impl std::fmt::Display for DeviceError {
             4 => "InvalidState",
             5 => "BadPayload",
             6 => "BackfillUnavailable",
+            7 => "Rejected",
             _ => "Unknown",
         };
         write!(

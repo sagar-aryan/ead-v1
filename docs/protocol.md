@@ -1,4 +1,4 @@
-# Device Protocol (schema 3)
+# Device Protocol (schema 4)
 
 Wire protocol between the EAD-V1 device and host software (dashboard, `tools/eadprobe.py`).
 The frame header and message type numbers are fixed by
@@ -72,9 +72,9 @@ unknown schema.
 the timestamp of the batch's first frame; for other device messages, the time the message
 was built; host messages send 0. Host time is never substituted for device time (doc 08 §6).
 
-## 4. Message catalogue (schema 3)
+## 4. Message catalogue (schema 4)
 
-| Type | Name | Direction | Schema 3 behaviour |
+| Type | Name | Direction | Schema 4 behaviour |
 |---:|---|---|---|
 | 0x01 | HELLO | both | Host identifies; device replies with identity and starts streaming |
 | 0x02 | CONFIG_GET | both | Host request (empty); device reply with configuration |
@@ -96,9 +96,9 @@ was built; host messages send 0. Host time is never substituted for device time 
 | 0x12 | SERVICE_TEST | host → device | ERROR NotSupported (no haptics) |
 
 Schema 2 added the calibration window (SESSION_START / SESSION_STOP, §5.9–5.10) and the
-calibration fields in STATUS. Schema 3 adds gait events and cycles (§5.11–5.12) and the
-gait fields in STATUS. The remaining session kinds and the error engine arrive with
-milestone M5.
+calibration fields in STATUS. Schema 3 added gait events and cycles (§5.11–5.12). Schema 4
+adds the remaining session kinds, the reference profile they carry (§5.13) and the error
+fields in STEP_BATCH.
 
 ## 5. Payloads
 
@@ -259,6 +259,7 @@ The SHA-256 is the configuration hash that doc 18 requires with every session.
 | 4 | InvalidState | Command not allowed in the current device state |
 | 5 | BadPayload | Payload length or content invalid |
 | 6 | BackfillUnavailable | Part or all of a requested range is no longer stored; `detail` names the range served |
+| 7 | Rejected | The command was understood and refused because its precondition does not hold, e.g. stopping a reference capture that collected fewer than 30 valid cycles |
 
 ### 5.7 BACKFILL_REQUEST (host → device, 8 bytes)
 
@@ -285,20 +286,30 @@ the next chunk starts at the oldest stored sequence.
 
 | Offset | Type | Field |
 |---:|---|---|
-| 0 | u8 | `kind`: 1 CALIBRATION. Any other value is ERROR NotSupported in schema 2 |
+| 0 | u8 | `kind` (§6.8) |
 | 1 | u8 | reserved, 0 |
-| 2 | u16 | `duration_ms`: length of the still window, 2000–30000 |
+| 2 | u16 | `duration_ms`: length of the still window, 2000–30000. CALIBRATION only |
+| 4 | … | for REFERENCE_CHECK and EVALUATION, the reference profile (§5.13) |
 
-The device collects for `duration_ms`, then emits SESSION_STOP with the record. Starting
-a window while one is running is ERROR Rejected. The samples are the same frames sent in
-RAW_SAMPLE_BATCH; calibration does not interrupt streaming.
+CALIBRATION collects for `duration_ms` and then emits SESSION_STOP with the calibration
+record; the samples are the frames already being sent, so it does not interrupt streaming.
+
+REFERENCE_CAPTURE accumulates valid gait cycles until the host stops it; SESSION_STOP then
+carries the profile built from them (§5.13), or ERROR Rejected when fewer than 30 valid
+cycles were collected (doc 12 §2).
+
+REFERENCE_CHECK and EVALUATION take a locked profile in the payload and score every cycle
+against it, filling the error fields of STEP_BATCH. They differ only in intent: a check is
+ten cycles the operator reads before deciding to evaluate.
+
+Starting a session while one is running is ERROR InvalidState.
 
 ### 5.10 SESSION_STOP
 
 Host → device: empty payload. Cancels a running window; the partial record is discarded
 and `calibration_state` returns to its previous value.
 
-Device → host (128 bytes), emitted once when a window completes:
+Device → host (128 bytes), emitted once when a calibration window completes:
 
 | Offset | Type | Field |
 |---:|---|---|
@@ -323,6 +334,21 @@ Each sensor record is 60 bytes: thirteen little-endian float32 values and 8 rese
 
 A record with any `reject` bit set must not be used. The device keeps the last record in
 RAM and reports it in STATUS; it is not stored in flash (no storage until M7).
+
+### 5.13 Reference profile (64 bytes)
+
+Carried inside SESSION_START for a check or an evaluation, and returned inside
+SESSION_STOP when a capture ends. Seven features, each a median and a spread, in the
+order doc 06 §3 weighs them.
+
+| Offset | Type | Field |
+|---:|---|---|
+| 0 | u16 | `cycles` the profile was built from, at least 30 |
+| 2 | u16 | `version`, assigned by the dashboard; 0 from the device |
+| 4 | 7 × (f32, f32) | `median`, `spread` per feature (§6.9) |
+| 60 | u32 | reserved, 0 |
+
+`spread` is 1.4826 × MAD with a per-feature floor, so it is never zero (doc 06 §2).
 
 ### 5.11 EVENT_BATCH (device → host, durable)
 
@@ -352,7 +378,7 @@ One record per completed gait cycle: right initial contact to the next (doc 05 �
 | Offset | Type | Field |
 |---:|---|---|
 | 0 | u8 | `count`, 1–8 |
-| 1 | u8 | `record_size` = 72 |
+| 1 | u8 | `record_size` = 132 |
 | 2 | … | `count` records |
 
 Each record:
@@ -376,10 +402,19 @@ Each record:
 | 60 | f32 | `speed_mps` = distance / cycle time |
 | 64 | f32 | `zupt_quality`, fraction of the cycle in an accepted zero-velocity window |
 | 68 | u16 | `flags`: bit 0 `valid` (passed the temporal guards, doc 05 §4) |
-| 70 | u16 | reserved, 0 |
+| 70 | u16 | `active_classes`: bit per error class (§6.10), 0 when no reference is loaded |
+| 72 | f32 | `error_score` in [0,1] (doc 06 §1); 0 with no reference |
+| 76 | f32 | `confidence` in [0,1] (doc 06 §5) |
+| 80 | 5 × f32 | confidence subscores: sensor, event, feature completeness, reference stability, ZUPT |
+| 100 | 7 × f32 | per-feature deviations `d`, in feature order (§6.9) |
+| 128 | u8 | `primary_class` (§6.10) |
+| 129 | u8 | reserved, 0 |
+| 130 | u16 | reserved, 0 |
 
 Distance and speed are only meaningful where `zupt_quality` is adequate; a host must show
-them as low-confidence rather than correcting them (doc 05 §8).
+them as low-confidence rather than correcting them (doc 05 §8). The error fields are zero
+in a session with no reference loaded, and a host must not read a zero score as agreement:
+`active_classes` and `confidence` are zero there too.
 
 ## 6. Enumerations
 
@@ -444,6 +479,22 @@ Retention and flow control:
   with more than 2880 bytes of its 5760-byte send buffer free, and no message exceeds
   2800 bytes, so the device never blocks on a slow client.
 - **USB.** A frame is written only when the CDC transmit buffer (16 KB) can take it whole.
+
+### 6.8 Session kinds
+
+`1 CALIBRATION, 2 REFERENCE_CAPTURE, 3 REFERENCE_CHECK, 4 EVALUATION`
+
+### 6.9 Feature order (doc 06 §3)
+
+`0 swing dorsiflexion, 1 initial-contact plantarflexion, 2 inversion/eversion, 3 cycle
+time, 4 stance ratio, 5 cycle distance, 6 shank dynamics`. Weights, in the same order:
+0.25, 0.15, 0.15, 0.15, 0.10, 0.10, 0.10.
+
+### 6.10 Error classes (doc 06 §4)
+
+`0 NONE, 1 INSUFFICIENT_DORSIFLEXION, 2 EXCESS_PLANTARFLEXION, 3 INVERSION_DEVIATION,
+4 EVERSION_DEVIATION, 5 TIMING_DEVIATION, 6 OVERALL_DEVIATION`. In `active_classes`,
+bit *n* is class *n*.
 
 ### 6.6 Gait state (doc 05 §2)
 

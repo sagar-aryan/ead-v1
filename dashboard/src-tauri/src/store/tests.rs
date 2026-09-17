@@ -440,6 +440,12 @@ fn gait_cycles_and_events_round_trip() {
         speed_mps: 0.68,
         zupt_quality: 0.22,
         valid: true,
+        error_score: 0.42,
+        confidence: 0.86,
+        confidence_subscores: [1.0, 1.0, 1.0, 0.75, 0.58],
+        deviations: [0.91, 0.12, 0.05, 0.10, 0.08, 0.22, 0.30],
+        active_classes: 0b10,
+        primary_class: 1,
     };
     let events = [
         GaitEvent {
@@ -495,6 +501,7 @@ fn gait_is_only_stored_while_recording() {
             speed_mps: 0.0,
             zupt_quality: 0.0,
             valid: true,
+            ..Default::default()
         }],
         &[GaitEvent {
             event_type: GaitEventType::FootFlat,
@@ -521,7 +528,15 @@ fn schema_upgrades_from_version_2_keeping_frames() {
         store.flush();
         let connection = store.reader().unwrap();
         // Pretend this store predates the gait tables.
-        connection.execute_batch("DROP TABLE events; DROP TABLE cycles; PRAGMA user_version = 2;")
+        // Everything schemas 3 and 4 added, so the store really looks like a v2.
+        connection
+            .execute_batch(
+                "DROP TRIGGER reference_profiles_locked;
+                 DROP TABLE reference_profiles;
+                 DROP TABLE events;
+                 DROP TABLE cycles;
+                 PRAGMA user_version = 2;",
+            )
             .unwrap();
         drop(connection);
         assert_eq!(store.frame_count(&session.session_id).unwrap(), 2);
@@ -534,4 +549,84 @@ fn schema_upgrades_from_version_2_keeping_frames() {
     assert_eq!(sessions.len(), 1);
     assert_eq!(store.frame_count(&sessions[0].session_id).unwrap(), 2, "frames survive");
     assert!(store.cycles(&sessions[0].session_id).unwrap().is_empty());
+}
+
+fn sample_profile(cycles: u16) -> crate::protocol::ReferenceProfile {
+    use crate::protocol::{ReferenceFeature, ReferenceProfile};
+    let mut profile = ReferenceProfile { cycles, version: 0, ..Default::default() };
+    // The medians measured on the 6 m walk, with plausible spreads.
+    let values = [
+        (16.0, 1.6),
+        (-4.0, 1.2),
+        (3.0, 0.9),
+        (1.70, 0.05),
+        (0.52, 0.02),
+        (1.10, 0.08),
+        (400.0, 22.0),
+    ];
+    for (feature, (median, spread)) in profile.features.iter_mut().zip(values) {
+        *feature = ReferenceFeature { median, spread };
+    }
+    profile
+}
+
+#[test]
+fn reference_versions_count_up_per_patient() {
+    let (store, _dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    store.create_patient("P-002", "Another").unwrap();
+
+    let first = store.add_reference("P-001", None, &sample_profile(34)).unwrap();
+    let second = store.add_reference("P-001", None, &sample_profile(41)).unwrap();
+    let other = store.add_reference("P-002", None, &sample_profile(30)).unwrap();
+    assert_eq!((first.version, second.version, other.version), (1, 2, 1));
+    assert_eq!(second.profile.version, 2, "the stored profile carries its version");
+    assert_eq!(store.references("P-001").unwrap().len(), 2);
+    // Newest first, so the view offers the current one.
+    assert_eq!(store.references("P-001").unwrap()[0].version, 2);
+}
+
+#[test]
+fn a_reference_below_the_minimum_is_refused() {
+    let (store, _dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let thin = store.add_reference("P-001", None, &sample_profile(29));
+    assert!(matches!(thin, Err(StoreError::Rejected(_))), "29 cycles is not a reference");
+    assert!(store.references("P-001").unwrap().is_empty());
+}
+
+#[test]
+fn a_locked_reference_cannot_be_changed() {
+    let (store, _dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let reference = store.add_reference("P-001", None, &sample_profile(34)).unwrap();
+    assert!(!reference.locked);
+    store.lock_reference(&reference.reference_id).unwrap();
+    assert!(store.reference(&reference.reference_id).unwrap().locked);
+
+    // The database refuses the edit itself, not just the code paths that know
+    // to check: an evaluation's reference must mean the same thing forever.
+    let connection = store.reader().unwrap();
+    let changed = connection.execute(
+        "UPDATE reference_profiles SET payload = ?1 WHERE reference_id = ?2",
+        rusqlite::params![vec![0u8; 64], reference.reference_id],
+    );
+    assert!(changed.is_err(), "a locked profile must be immutable");
+    assert_eq!(
+        store.reference(&reference.reference_id).unwrap().profile,
+        reference.profile,
+        "and must still read back unchanged"
+    );
+}
+
+#[test]
+fn a_reference_round_trips_through_its_stored_bytes() {
+    let (store, _dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let saved = store.add_reference("P-001", None, &sample_profile(34)).unwrap();
+    let read_back = store.reference(&saved.reference_id).unwrap();
+    // What goes back to the device for an evaluation is what was captured.
+    assert_eq!(read_back.profile, saved.profile);
+    assert_eq!(read_back.profile.features[0].median, 16.0);
+    assert_eq!(read_back.profile.features[6].spread, 22.0);
 }

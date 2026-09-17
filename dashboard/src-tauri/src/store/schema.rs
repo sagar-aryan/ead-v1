@@ -7,7 +7,7 @@ use rusqlite::{Connection, Result};
 
 use crate::protocol::RawFrame;
 
-pub const SCHEMA_VERSION: i32 = 3;
+pub const SCHEMA_VERSION: i32 = 4;
 
 pub fn migrate(connection: &mut Connection) -> Result<()> {
     // WAL keeps readers (UI queries) from blocking the writer thread.
@@ -38,6 +38,7 @@ pub fn migrate(connection: &mut Connection) -> Result<()> {
         match version {
             1 => transaction.execute_batch(MIGRATE_1_TO_2)?,
             2 => transaction.execute_batch(MIGRATE_2_TO_3)?,
+            3 => transaction.execute_batch(MIGRATE_3_TO_4)?,
             other => unreachable!("no migration from schema {other}"),
         }
         version += 1;
@@ -124,10 +125,86 @@ CREATE TABLE events (
   kind         TEXT NOT NULL,
   PRIMARY KEY (session_id, frame_index, kind)
 ) WITHOUT ROWID;
+
+-- Error engine output, added in schema 4. The score, confidence and class are
+-- columns because they are what a reader filters and plots on; the subscores
+-- and per-feature deviations are JSON because they are only ever read whole.
+-- All zero means the cycle was not scored — no reference was loaded — which is
+-- not the same as agreeing with the reference.
+ALTER TABLE cycles ADD COLUMN error_score REAL NOT NULL DEFAULT 0;
+ALTER TABLE cycles ADD COLUMN confidence REAL NOT NULL DEFAULT 0;
+ALTER TABLE cycles ADD COLUMN active_classes INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE cycles ADD COLUMN primary_class INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE cycles ADD COLUMN confidence_subscores TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE cycles ADD COLUMN deviations TEXT NOT NULL DEFAULT '[]';
+
+-- Versioned, patient-specific reference profiles (doc 12 §2-§3). A profile is
+-- immutable once locked: a trigger refuses the update rather than trusting
+-- every caller to remember, because a reference edited after use would silently
+-- invalidate every evaluation made against it.
+CREATE TABLE reference_profiles (
+  reference_id TEXT PRIMARY KEY,
+  patient_id   TEXT NOT NULL REFERENCES patients(patient_id),
+  version      INTEGER NOT NULL,
+  created_at   TEXT NOT NULL,
+  session_id   TEXT REFERENCES sessions(session_id),
+  cycles       INTEGER NOT NULL,
+  locked       INTEGER NOT NULL DEFAULT 0,
+  -- The 64-byte profile exactly as the device sent it (docs/protocol.md §5.13),
+  -- so what is sent back for an evaluation is what was captured.
+  payload      BLOB NOT NULL,
+  UNIQUE (patient_id, version)
+);
+
+CREATE TRIGGER reference_profiles_locked
+BEFORE UPDATE ON reference_profiles
+WHEN old.locked = 1 AND (new.payload IS NOT old.payload OR new.cycles IS NOT old.cycles)
+BEGIN
+  SELECT RAISE(ABORT, 'a locked reference profile cannot be modified');
+END;
 "#;
 
 const MIGRATE_1_TO_2: &str = r#"
 ALTER TABLE sessions ADD COLUMN config_section BLOB;
+"#;
+
+const MIGRATE_3_TO_4: &str = r#"
+-- Error engine output, added in schema 4. The score, confidence and class are
+-- columns because they are what a reader filters and plots on; the subscores
+-- and per-feature deviations are JSON because they are only ever read whole.
+-- All zero means the cycle was not scored — no reference was loaded — which is
+-- not the same as agreeing with the reference.
+ALTER TABLE cycles ADD COLUMN error_score REAL NOT NULL DEFAULT 0;
+ALTER TABLE cycles ADD COLUMN confidence REAL NOT NULL DEFAULT 0;
+ALTER TABLE cycles ADD COLUMN active_classes INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE cycles ADD COLUMN primary_class INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE cycles ADD COLUMN confidence_subscores TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE cycles ADD COLUMN deviations TEXT NOT NULL DEFAULT '[]';
+
+-- Versioned, patient-specific reference profiles (doc 12 §2-§3). A profile is
+-- immutable once locked: a trigger refuses the update rather than trusting
+-- every caller to remember, because a reference edited after use would silently
+-- invalidate every evaluation made against it.
+CREATE TABLE reference_profiles (
+  reference_id TEXT PRIMARY KEY,
+  patient_id   TEXT NOT NULL REFERENCES patients(patient_id),
+  version      INTEGER NOT NULL,
+  created_at   TEXT NOT NULL,
+  session_id   TEXT REFERENCES sessions(session_id),
+  cycles       INTEGER NOT NULL,
+  locked       INTEGER NOT NULL DEFAULT 0,
+  -- The 64-byte profile exactly as the device sent it (docs/protocol.md §5.13),
+  -- so what is sent back for an evaluation is what was captured.
+  payload      BLOB NOT NULL,
+  UNIQUE (patient_id, version)
+);
+
+CREATE TRIGGER reference_profiles_locked
+BEFORE UPDATE ON reference_profiles
+WHEN old.locked = 1 AND (new.payload IS NOT old.payload OR new.cycles IS NOT old.cycles)
+BEGIN
+  SELECT RAISE(ABORT, 'a locked reference profile cannot be modified');
+END;
 "#;
 
 const MIGRATE_2_TO_3: &str = r#"
@@ -203,8 +280,11 @@ INSERT OR REPLACE INTO cycles
   (session_id, start_frame, end_frame, start_us,
    cycle_time_s, stance_time_s, swing_time_s, stance_ratio, swing_ratio, cadence,
    peak_shank_dps, peak_dorsi_deg, contact_sag_deg, peak_inv_deg,
-   distance_m, speed_mps, zupt_quality, valid)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+   distance_m, speed_mps, zupt_quality, valid,
+   error_score, confidence, active_classes, primary_class,
+   confidence_subscores, deviations)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+        ?19, ?20, ?21, ?22, ?23, ?24)
 "#;
 
 pub const INSERT_EVENT: &str = r#"

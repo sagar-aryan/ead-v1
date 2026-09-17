@@ -20,7 +20,7 @@ ROOT = HERE.parent.parent
 CONFIG_JSON = ROOT / "ead_agent_docs_v2" / "CONFIG_V1.json"
 
 PROTOCOL_VERSION = 1
-SCHEMA = 3
+SCHEMA = 4
 
 # Message types (doc 08 §3).
 HELLO, CONFIG_GET, STATUS, ERROR = 0x01, 0x02, 0x0C, 0x0E
@@ -158,7 +158,7 @@ def main():
     cfg = json.loads(CONFIG_JSON.read_text())
 
     hello_request = message(HELLO, struct.pack("<H", SCHEMA), seq=7, time_us=0)
-    write("hello_request.hex", "Host HELLO, schema 3, command sequence 7.", hello_request)
+    write("hello_request.hex", "Host HELLO, schema 4, command sequence 7.", hello_request)
 
     fw = "0.1.0+test"
     sha = hashlib.sha256(b"ead").digest()
@@ -215,16 +215,38 @@ def main():
           "Header sequence 51, time 12000000.",
           message(EVENT_BATCH, struct.pack("<BB", 3, 14) + events, seq=51, time_us=12_000_000))
 
+    # Error fields: an under-dorsiflexed cycle scored against a reference.
+    CLASS_INSUFFICIENT_DORSIFLEXION = 1
     cycle = (struct.pack("<IIQ", 1200, 1300, 12_000_000)
              + struct.pack("<13f", 1.02, 0.63, 0.39, 0.6176, 0.3824, 117.65,
                            412.5, 14.2, -6.8, 3.1, 1.41, 1.382, 0.58)
-             + struct.pack("<HH", 1, 0))
-    assert len(cycle) == 72
+             + struct.pack("<HH", 1, 1 << CLASS_INSUFFICIENT_DORSIFLEXION)
+             + struct.pack("<2f", 0.42, 0.86)
+             + struct.pack("<5f", 1.0, 1.0, 1.0, 0.75, 0.58)
+             + struct.pack("<7f", 0.91, 0.12, 0.05, 0.10, 0.08, 0.22, 0.30)
+             + struct.pack("<BBH", CLASS_INSUFFICIENT_DORSIFLEXION, 0, 0))
+    assert len(cycle) == 132, len(cycle)
     write("step_batch.hex",
           "STEP_BATCH: one valid cycle of 1.02 s, stance 0.63 s, cadence 117.65 steps/min,\n"
           "peak shank rate 412.5 deg/s, distance 1.41 m at 1.382 m/s, ZUPT quality 0.58.\n"
+          "Scored against a reference: error 0.42, confidence 0.86, primary class\n"
+          "INSUFFICIENT_DORSIFLEXION with a dorsiflexion deviation of 0.91.\n"
           "Header sequence 52, time 12000000.",
-          message(STEP_BATCH, struct.pack("<BB", 1, 72) + cycle, seq=52, time_us=12_000_000))
+          message(STEP_BATCH, struct.pack("<BB", 1, 132) + cycle, seq=52, time_us=12_000_000))
+
+    # A reference profile: the medians measured on the 6 m walk (TEST-030), with
+    # spreads a consistent walker would produce.
+    reference = (struct.pack("<HH", 34, 2)
+                 + struct.pack("<14f", 16.0, 1.6, -4.0, 1.2, 3.0, 0.9,
+                               1.70, 0.05, 0.52, 0.02, 1.10, 0.08, 400.0, 22.0)
+                 + struct.pack("<I", 0))
+    assert len(reference) == 64, len(reference)
+    write("reference_profile.hex",
+          "Reference profile from 34 cycles, dashboard version 2: dorsiflexion 16.0 +/- 1.6 deg,\n"
+          "contact -4.0 +/- 1.2 deg, inversion 3.0 +/- 0.9 deg, cycle 1.70 +/- 0.05 s,\n"
+          "stance ratio 0.52 +/- 0.02, distance 1.10 +/- 0.08 m, shank 400 +/- 22 deg/s.\n"
+          "Sent inside SESSION_START for an evaluation; header sequence 13.",
+          message(SESSION_START, struct.pack("<BBH", 4, 0, 0) + reference, seq=13, time_us=0))
 
     write("session_start.hex",
           "Host SESSION_START, kind CALIBRATION (1), 5000 ms window. Command sequence 12.",
