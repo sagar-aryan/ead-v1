@@ -212,7 +212,7 @@ def gui_loop(args):
             "4)push fwd->X jumps 5)twist->yaw drifts (ok)")
         return []
 
-    FuncAnimation(fig, update, interval=100, blit=False)
+    _anim = FuncAnimation(fig, update, interval=100, blit=False)
     plt.show()
 
     if ser:
