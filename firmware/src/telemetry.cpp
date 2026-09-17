@@ -1,5 +1,7 @@
 #include "telemetry.h"
 
+#include "calibration_service.h"
+
 #include <new>
 
 #include <esp_heap_caps.h>
@@ -37,6 +39,7 @@ void processingTask(void* arg) {
   size_t count = 0;
   for (;;) {
     xQueueReceive(frames, &batch[count], portMAX_DELAY);
+    calibration::consume(batch[count]);
     if (++count < EAD_SAMPLE_BATCH_FRAMES) continue;
     const size_t len = ead::encodeRawBatchPayload(batch, count, payload, sizeof payload);
     {

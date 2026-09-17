@@ -1,5 +1,7 @@
 #include "ead/protocol.h"
 
+#include "ead/calibration.h"
+
 #include "ead/cobs.h"
 #include "ead/crc32.h"
 
@@ -114,7 +116,76 @@ size_t encodeStatusPayload(const StatusInfo& s, uint8_t* out, size_t cap) {
   w.u16(s.stack_free_processing);
   w.u16(s.stack_free_usb);
   w.u16(s.stack_free_wifi);
+  w.u8(s.calibration_state);
+  w.u32(s.calibration_samples);
+  w.u16(s.calibration_reject);
   return w.ok() ? w.size() : 0;
+}
+
+bool decodeSessionStart(const uint8_t* payload, size_t len, uint8_t* kind, uint16_t* durationMs) {
+  if (len != kSessionStartPayloadSize) return false;
+  ByteReader r(payload, len);
+  *kind = r.u8();
+  r.u8();  // reserved
+  *durationMs = r.u16();
+  return r.ok();
+}
+
+size_t encodeSessionStart(uint8_t kind, uint16_t durationMs, uint8_t* out, size_t cap) {
+  ByteWriter w(out, cap);
+  w.u8(kind);
+  w.u8(0);
+  w.u16(durationMs);
+  return w.ok() ? w.size() : 0;
+}
+
+namespace {
+
+void writeSensor(ByteWriter& w, const CalibrationSensor& s) {
+  for (int i = 0; i < 3; ++i) w.f32(s.gyroBiasDps[i]);
+  for (int i = 0; i < 3; ++i) w.f32(s.up[i]);
+  for (int i = 0; i < 4; ++i) w.f32(s.alignment[i]);
+  w.f32(s.tiltDeg);
+  w.f32(s.accelMagnitudeG);
+  w.f32(s.gyroStdDps);
+  for (int i = 0; i < 8; ++i) w.u8(0);  // reserved
+}
+
+void readSensor(ByteReader& r, CalibrationSensor* s) {
+  for (int i = 0; i < 3; ++i) s->gyroBiasDps[i] = r.f32();
+  for (int i = 0; i < 3; ++i) s->up[i] = r.f32();
+  for (int i = 0; i < 4; ++i) s->alignment[i] = r.f32();
+  s->tiltDeg = r.f32();
+  s->accelMagnitudeG = r.f32();
+  s->gyroStdDps = r.f32();
+  for (int i = 0; i < 8; ++i) r.u8();
+}
+
+}  // namespace
+
+size_t encodeCalibrationPayload(uint8_t kind, const CalibrationRecord& record, uint8_t* out,
+                                size_t cap) {
+  ByteWriter w(out, cap);
+  w.u8(kind);
+  w.u8(0);
+  w.u16(record.reject);
+  w.u32(record.samples);
+  writeSensor(w, record.foot);
+  writeSensor(w, record.shank);
+  return w.ok() ? w.size() : 0;
+}
+
+bool decodeCalibrationPayload(const uint8_t* payload, size_t len, uint8_t* kind,
+                              CalibrationRecord* record) {
+  if (len != kCalibrationPayloadSize) return false;
+  ByteReader r(payload, len);
+  *kind = r.u8();
+  r.u8();
+  record->reject = r.u16();
+  record->samples = r.u32();
+  readSensor(r, &record->foot);
+  readSensor(r, &record->shank);
+  return r.ok();
 }
 
 size_t encodeErrorPayload(uint32_t cmdSeq, uint8_t cmdType, ErrorCode code, const char* detail,

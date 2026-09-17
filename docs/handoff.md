@@ -164,6 +164,7 @@ Every milestone ends with its verification actually run, measured numbers in
   - `python3 tools/eadprobe.py hello` — identity and sequence window
   - `python3 tools/eadprobe.py config` — configuration, hash-verified
   - `python3 tools/eadprobe.py stats --seconds 1800 --record run.eadlog`
+  - `python3 tools/eadprobe.py calibrate --seconds 5` — still window, prints the record
   - `python3 tools/eadprobe.py reopen --cycles 20` — port reopen must not reset
   - add `--ws ws://192.168.4.1:8080/ws` for the Wi-Fi link
 - Regenerate the protocol vectors after a protocol change:
@@ -189,9 +190,10 @@ Every milestone ends with its verification actually run, measured numbers in
   anatomical a ≈ (0, 0, +1) g (TEST-014).
 
 ## Next Steps
-1. Static calibration (gyro bias + gravity alignment), then Mahony orientation.
-   The mount maps are settled: TEST-027 passed on the leg after the shank map was
-   corrected from measurement, closing PROB-002.
+1. Mahony orientation on the device, using the calibration record (gyro bias and
+   gravity alignment) that schema 2 now produces. The mount maps are settled
+   (TEST-027, PROB-002 closed) and calibration is measured and repeatable
+   (TEST-028).
 2. Ask the user to run the Wi-Fi link tests (command in Environment above).
 3. Calibration and Mahony orientation; then walking recordings for M4.
 

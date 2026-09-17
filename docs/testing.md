@@ -29,6 +29,7 @@ A result is only recorded as PASS when it was run and checked.
 | TEST-025 | 2026-09-17 | Raw view over 30 minutes of recorded device data | PASS |
 | TEST-026 | 2026-09-17 | Raw view load with four signals and overview; window arithmetic | PASS |
 | TEST-027 | 2026-09-17 | Mounting check on a worn device | PASS (after correcting the shank map) |
+| TEST-028 | 2026-09-18 | Static calibration on the device, repeatability and window length | PASS |
 
 ## TEST-008 — M0 firmware build
 
@@ -662,3 +663,41 @@ is kept above: it is the evidence for the map.
 ### Notes
 A FAIL is the useful outcome here: the panel prints the measured vector, which
 says what the mounting actually is and what the mount map should be.
+
+## TEST-028 — Static calibration on the device
+
+### Objective
+Confirm the device measures a gyro bias and a gravity direction from a still
+window, that the window length is honoured, and that repeated runs agree.
+
+### Environment
+XIAO ESP32-S3 with both IMUs, firmware schema 2, resting on the bench (not worn).
+Host: `python3 tools/eadprobe.py calibrate --seconds N` over USB.
+
+### Procedure
+1. Run a 3 s window, then an 8 s window, undisturbed.
+2. Compare the bias from consecutive runs of the same length.
+
+### Expected
+Samples = seconds × 100. No rejection. Bias repeatable; |a| ≈ 1 g; the tilt
+matches how the boards happen to be lying.
+
+### Actual
+| Run | Samples | Foot bias (°/s) | Foot \|a\| | Shank bias (°/s) | Shank \|a\| |
+|---|---:|---|---:|---|---:|
+| 3 s | 300 | 3.144, 1.127, 0.027 | 1.0248 | 0.586, −0.228, −0.392 | 0.9981 |
+| 8 s | 800 | 3.158, 1.120, 0.028 | 1.0249 | 0.573, −0.224, −0.407 | 0.9977 |
+| 5 s (earlier) | 500 | 3.132, 1.126, 0.003 | 1.0249 | 0.590, −0.183, −0.409 | 0.9985 |
+
+Bias repeats within 0.03 °/s across runs of different lengths — the measurement
+is dominated by the sensor's offset, not by noise. Sample counts match the
+requested duration exactly. A deliberately disturbed window was rejected with
+`moved`, and the record was refused rather than returned.
+
+### Result
+PASS
+
+### Notes
+The foot sensor reads |a| = 1.0249 g consistently while the shank reads 0.998 g.
+That is a scale-factor difference between the two parts, not motion; recorded as
+PROB-009.

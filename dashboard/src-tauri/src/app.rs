@@ -225,6 +225,18 @@ pub fn raw_window(
         .map_err(failed)
 }
 
+/// Starts a still window on the device. The record arrives in a later STATUS
+/// and in `device_snapshot`; five seconds is the documented default.
+#[tauri::command]
+pub fn start_calibration(app: tauri::State<'_, Arc<App>>, duration_ms: u16) -> CommandResult<()> {
+    app.device.start_calibration(duration_ms).map_err(failed)
+}
+
+#[tauri::command]
+pub fn cancel_calibration(app: tauri::State<'_, Arc<App>>) -> CommandResult<()> {
+    app.device.cancel_calibration().map_err(failed)
+}
+
 /// The configuration recorded with a session, so stored counts can be shown in
 /// physical units even when no device is connected.
 #[tauri::command]

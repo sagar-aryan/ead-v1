@@ -8,6 +8,7 @@
 
 #include "../vectors.h"
 #include "ead/config_section.h"
+#include "ead/calibration.h"
 #include "ead/protocol.h"
 
 using ead::MsgType;
@@ -43,7 +44,7 @@ static void test_host_hello_request() {
 
 static void test_device_hello() {
   ead::HelloInfo info{};
-  info.schema = 1;
+  info.schema = ead::kSchemaVersion;
   info.device_state = ead::kStateReady;
   info.reset_reason = 1;
   info.boot_id = 0xA1B2C3D4u;
@@ -84,6 +85,9 @@ static void test_device_status() {
   s.stack_free_processing = 2600;
   s.stack_free_usb = 3100;
   s.stack_free_wifi = 4200;
+  s.calibration_state = uint8_t(ead::CalibrationState::Ready);
+  s.calibration_samples = 500;
+  s.calibration_reject = 0;
   uint8_t payload[ead::kStatusPayloadSize];
   const size_t n = ead::encodeStatusPayload(s, payload, sizeof payload);
   TEST_ASSERT_EQUAL_size_t(ead::kStatusPayloadSize, n);
@@ -240,8 +244,51 @@ static void test_usb_decoder_skips_noise_and_corruption() {
   delete decoder;
 }
 
+static void test_session_start_round_trip() {
+  const auto v = loadVector("session_start.hex");
+  uint8_t payload[ead::kSessionStartPayloadSize];
+  const size_t n = ead::encodeSessionStart(uint8_t(ead::SessionKind::Calibration), 5000, payload,
+                                           sizeof payload);
+  const auto msg = message(MsgType::SessionStart, 12, 0, payload, n);
+  assertBytes(v, msg.data(), msg.size());
+
+  uint8_t kind = 0;
+  uint16_t durationMs = 0;
+  TEST_ASSERT_TRUE(ead::decodeSessionStart(payload, n, &kind, &durationMs));
+  TEST_ASSERT_EQUAL_UINT8(1, kind);
+  TEST_ASSERT_EQUAL_UINT16(5000, durationMs);
+  // A payload of the wrong length is rejected rather than read short.
+  TEST_ASSERT_FALSE(ead::decodeSessionStart(payload, n - 1, &kind, &durationMs));
+}
+
+static void test_calibration_record_round_trip() {
+  const auto v = loadVector("calibration_record.hex");
+  const uint8_t* payload = v.data() + ead::kHeaderSize;
+  const size_t len = v.size() - ead::kHeaderSize;
+  TEST_ASSERT_EQUAL_size_t(ead::kCalibrationPayloadSize, len);
+
+  uint8_t kind = 0;
+  ead::CalibrationRecord record{};
+  TEST_ASSERT_TRUE(ead::decodeCalibrationPayload(payload, len, &kind, &record));
+  TEST_ASSERT_EQUAL_UINT8(1, kind);
+  TEST_ASSERT_EQUAL_UINT16(0, record.reject);
+  TEST_ASSERT_EQUAL_UINT32(500, record.samples);
+  TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.5f, record.foot.gyroBiasDps[0]);
+  TEST_ASSERT_FLOAT_WITHIN(1e-6f, -0.5f, record.foot.gyroBiasDps[1]);
+  TEST_ASSERT_FLOAT_WITHIN(1e-4f, 33.0f, record.foot.tiltDeg);
+  TEST_ASSERT_FLOAT_WITHIN(1e-6f, -0.75f, record.shank.gyroBiasDps[0]);
+  TEST_ASSERT_FLOAT_WITHIN(1e-4f, 1.3f, record.shank.tiltDeg);
+
+  uint8_t out[ead::kCalibrationPayloadSize];
+  const size_t n = ead::encodeCalibrationPayload(kind, record, out, sizeof out);
+  assertBytes(v, message(MsgType::SessionStop, 43, 987654321, out, n).data(),
+              ead::kHeaderSize + n);
+}
+
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_session_start_round_trip);
+  RUN_TEST(test_calibration_record_round_trip);
   RUN_TEST(test_host_hello_request);
   RUN_TEST(test_device_hello);
   RUN_TEST(test_device_status);

@@ -1,4 +1,4 @@
-# Device Protocol (schema 1)
+# Device Protocol (schema 2)
 
 Wire protocol between the EAD-V1 device and host software (dashboard, `tools/eadprobe.py`).
 The frame header and message type numbers are fixed by
@@ -72,15 +72,15 @@ unknown schema.
 the timestamp of the batch's first frame; for other device messages, the time the message
 was built; host messages send 0. Host time is never substituted for device time (doc 08 §6).
 
-## 4. Message catalogue (schema 1)
+## 4. Message catalogue (schema 2)
 
-| Type | Name | Direction | Schema 1 behaviour |
+| Type | Name | Direction | Schema 2 behaviour |
 |---:|---|---|---|
 | 0x01 | HELLO | both | Host identifies; device replies with identity and starts streaming |
 | 0x02 | CONFIG_GET | both | Host request (empty); device reply with configuration |
 | 0x03 | CONFIG_SET | host → device | ERROR NotSupported |
-| 0x04 | SESSION_START | host → device | ERROR NotSupported |
-| 0x05 | SESSION_STOP | host → device | ERROR NotSupported |
+| 0x04 | SESSION_START | host → device | Starts a calibration window (kind CALIBRATION only) |
+| 0x05 | SESSION_STOP | both | Host: cancel. Device: the calibration record when the window completes |
 | 0x06 | PAUSE | host → device | ERROR NotSupported |
 | 0x07 | RESUME | host → device | ERROR NotSupported |
 | 0x08 | RAW_SAMPLE_BATCH | device → host | Durable; up to 10 frames |
@@ -95,8 +95,9 @@ was built; host messages send 0. Host time is never substituted for device time 
 | 0x11 | BACKFILL_DATA | device → host | Chunks of stored durable messages |
 | 0x12 | SERVICE_TEST | host → device | ERROR NotSupported (no haptics) |
 
-Session control arrives with calibration and gait processing (milestones M3–M5) as a new
-schema version.
+Schema 2 adds the calibration window (SESSION_START / SESSION_STOP, §5.9–5.10) and the
+calibration fields in STATUS. The remaining session kinds, gait events and steps arrive
+with milestones M4–M5 as further schema versions.
 
 ## 5. Payloads
 
@@ -117,7 +118,7 @@ schema version.
 | 8 | u8[6] | `mac` |
 | 14 | u8 | `who_foot` (0x70 MPU6500, 0x68 MPU6050, 0 no answer) |
 | 15 | u8 | `who_shank` |
-| 16 | u8 | `capabilities` (§6.4) |
+| 16 | u8 | `capabilities` (§6.5) |
 | 17 | u8[32] | `config_sha256`: SHA-256 of the CONFIG_GET section (§5.5) |
 | 49 | u32 | `oldest_seq` stored (0 if empty) |
 | 53 | u32 | `last_seq` stored (0 if none) |
@@ -131,7 +132,7 @@ Host → device: empty payload, sent at least once per second while connected. A
 host message counts as activity. A link streams only while the host has been active
 within 3 s.
 
-Device → host (46 bytes), every 200 ms while streaming:
+Device → host (53 bytes), every 200 ms while streaming:
 
 | Offset | Type | Field |
 |---:|---|---|
@@ -152,8 +153,12 @@ Device → host (46 bytes), every 200 ms while streaming:
 | 40 | u16 | `stack_free_processing` |
 | 42 | u16 | `stack_free_usb` |
 | 44 | u16 | `stack_free_wifi` (0 until a Wi-Fi client has been served) |
+| 46 | u8 | `calibration_state`: 0 none, 1 collecting, 2 ready, 3 rejected |
+| 47 | u32 | `calibration_samples`: frames collected in the current or last window |
+| 51 | u16 | `calibration_reject`: reason bits (§6.5), 0 while collecting or when ready |
 
-Counters are cumulative since boot.
+Counters are cumulative since boot. The calibration fields describe the record held in
+RAM; it is lost on reset, and `calibration_state` returns to 0.
 
 ### 5.4 RAW_SAMPLE_BATCH (durable)
 
@@ -180,7 +185,7 @@ Notes on the frame:
   and are signed everywhere (DEC-007).
 - Physical units use the CONFIG_GET values: `accel_g = counts / accel_lsb_per_g`,
   `gyro_dps = counts / gyro_lsb_per_dps`, then the sensor's mount map for anatomical axes.
-- In schema 1 the quaternions are identity (`32767, 0, 0, 0`); orientation is not yet
+- In schema 2 the quaternions are identity (`32767, 0, 0, 0`); orientation is not yet
   estimated.
 
 `status_flags`:
@@ -269,12 +274,55 @@ Each BACKFILL_DATA message is at most 2800 bytes. That is the largest message lw
 accepts without blocking (§7). If messages are evicted while a request is being served,
 the next chunk starts at the oldest stored sequence.
 
+### 5.9 SESSION_START (host → device, 4 bytes)
+
+| Offset | Type | Field |
+|---:|---|---|
+| 0 | u8 | `kind`: 1 CALIBRATION. Any other value is ERROR NotSupported in schema 2 |
+| 1 | u8 | reserved, 0 |
+| 2 | u16 | `duration_ms`: length of the still window, 2000–30000 |
+
+The device collects for `duration_ms`, then emits SESSION_STOP with the record. Starting
+a window while one is running is ERROR Rejected. The samples are the same frames sent in
+RAW_SAMPLE_BATCH; calibration does not interrupt streaming.
+
+### 5.10 SESSION_STOP
+
+Host → device: empty payload. Cancels a running window; the partial record is discarded
+and `calibration_state` returns to its previous value.
+
+Device → host (128 bytes), emitted once when a window completes:
+
+| Offset | Type | Field |
+|---:|---|---|
+| 0 | u8 | `kind`, echoing SESSION_START |
+| 1 | u8 | reserved, 0 |
+| 2 | u16 | `reject`: reason bits (§6.5), 0 when the record is usable |
+| 4 | u32 | `samples` |
+| 8 | 60 B | foot sensor record (below) |
+| 68 | 60 B | shank sensor record |
+
+Each sensor record is 60 bytes: thirteen little-endian float32 values and 8 reserved:
+
+| Offset | Type | Field |
+|---:|---|---|
+| 0 | 3 × f32 | `gyro_bias_dps`, chip frame; subtract from a reading |
+| 12 | 3 × f32 | `up`, anatomical frame, unit length: gravity as measured |
+| 24 | 4 × f32 | `alignment` quaternion (w, x, y, z) taking `up` to anatomical +Z |
+| 40 | f32 | `tilt_deg`: angle between `up` and +Z |
+| 44 | f32 | `accel_magnitude_g`: 1.00 confirms the scale factor as well as stillness |
+| 48 | f32 | `gyro_std_dps`: largest axis standard deviation during the window |
+| 52 | 8 B | reserved, 0 |
+
+A record with any `reject` bit set must not be used. The device keeps the last record in
+RAM and reports it in STATUS; it is not stored in flash (no storage until M7).
+
 ## 6. Enumerations
 
 ### 6.1 Device state (doc 07 §6)
 `0 BOOT, 1 SELF_TEST, 2 CALIBRATING, 3 REFERENCE_CAPTURE, 4 READY, 5 RUNNING, 6 PAUSED,
-7 FAULT, 8 RECOVERY`. Schema 1 reports SELF_TEST until boot completes, then READY while no
-fault bit is set, otherwise FAULT.
+7 FAULT, 8 RECOVERY`. Schema 2 reports SELF_TEST until boot completes, CALIBRATING while a
+calibration window is running, FAULT while any fault bit is set, and READY otherwise.
 
 ### 6.2 Fault bits
 
@@ -297,6 +345,18 @@ active within 3 s.
 
 ### 6.4 Capabilities
 Bit 0 `haptics_fitted`, bit 1 `flash_storage`, bit 2 `psram_ring`.
+
+### 6.5 Calibration reject bits
+
+| Bit | Name | Meaning |
+|---:|---|---|
+| 0 | TOO_FEW_SAMPLES | fewer than 200 frames collected (2 s at 100 Hz) |
+| 1 | MOVED | a gyro axis varied by more than 2 °/s: the sensor was not still |
+| 2 | NOT_GRAVITY | mean \|a\| differed from 1 g by more than 0.05 g |
+| 3 | UPSIDE_DOWN | gravity was less than half way up the anatomical +Z axis |
+
+Bits are per record, set if either sensor failed; the per-sensor numbers in the record
+say which. Any bit set means the record must not be used.
 
 ## 7. Streaming and backfill
 

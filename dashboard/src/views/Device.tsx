@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 
 import { api, type LinkTarget, type UsbPortInfo } from "../api";
 import type { DeviceApi } from "../useDevice";
+import { Calibration } from "./Calibration";
 import { MountingCheck } from "./MountingCheck";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -192,6 +193,8 @@ export function Device({ device }: { device: DeviceApi }) {
       )}
 
       <MountingCheck device={device} />
+
+      <Calibration device={device} />
 
       {connected && config && (
         <div className="panel">

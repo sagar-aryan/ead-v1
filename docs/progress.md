@@ -464,3 +464,59 @@ PROB-002 is closed and both mount maps are confirmed against the hardware.
 ### Next Steps
 Static calibration: gyro bias and gravity alignment from five seconds of
 stillness, which is what removes the 33° instep tilt from the measurements.
+
+## 2026-09-18 — Static calibration on the device (schema 2)
+
+### Objective
+Measure each gyroscope's resting bias and the direction of gravity, so drift and
+mounting tilt can be removed from everything that follows.
+
+### Approach
+On the device, not the host: the firmware already has every sample, and the
+orientation estimator that will consume the record runs there too. Computing it
+on the host would mean writing it twice and keeping two implementations
+bit-identical.
+
+The samples are the frames already being acquired, so calibration adds no I2C
+traffic and does not interrupt streaming. This is the documented path
+(SESSION_START kind CALIBRATION), so no new message types were invented; it does
+require payload schema 2, which is what `docs/protocol.md` said session control
+would need.
+
+### Changes
+- `ead_core`: `calibration.{h,cpp}` — accumulator, rejection rules, and the
+  quaternion that takes measured gravity to anatomical +Z. Seven native tests.
+- `protocol.{h,cpp}`: schema 2 — STATUS gains calibration state/samples/reject,
+  plus SESSION_START and the 128-byte record payload.
+- `firmware/src/calibration_service.{h,cpp}`: runs the window, guarded by a
+  critical section because frames arrive on one task and the record is read by
+  another. `link.cpp` handles the commands and emits the record.
+- `protocol/vectors`: `session_start.hex`, `calibration_record.hex`; Rust and
+  firmware both test against them.
+- Dashboard: `protocol/mod.rs` parsing, `device.rs` state, two Tauri commands,
+  and a Calibration panel in the Device view.
+- `tools/eadprobe.py`: `calibrate` subcommand.
+
+### Problems
+1. The first hardware run returned a record for the *previous* window: a
+   completion that finished while no host was listening was delivered to the
+   next host to connect, which then read it as the answer to its own request.
+   The device now discards an unsent completion when a host says HELLO; STATUS
+   still reports that a record is held, so nothing is hidden.
+2. Then no record arrived at all for windows longer than three seconds. The
+   device stops streaming to a host that has been quiet for 3 s (by design), and
+   `eadprobe`'s request helper sent nothing while waiting. The probe now sends
+   the 1 Hz keepalive the protocol requires while a window runs. The dashboard
+   was never affected: it keepalives already.
+
+### Verification
+TEST-028 on hardware: 3 s → 300 samples, 8 s → 800 samples, bias repeatable
+within 0.03 °/s across runs, a disturbed window rejected as `moved`.
+Firmware 29 native tests, Rust 34, frontend 23; clippy clean.
+
+### Current Status
+Calibration works end to end over USB and is visible in the dashboard, which the
+user has not yet looked at.
+
+### Next Steps
+Mahony orientation on the device using the record, then the orientation view.

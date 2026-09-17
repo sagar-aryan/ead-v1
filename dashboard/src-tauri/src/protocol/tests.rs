@@ -98,6 +98,9 @@ fn device_status_decodes() {
     assert_eq!(status.ap_rssi_dbm, -47);
     assert_eq!(status.heap_free_min, 201_000);
     assert_eq!(status.stack_free_wifi, 4200);
+    assert_eq!(status.calibration_state, 2, "ready");
+    assert_eq!(status.calibration_samples, 500);
+    assert_eq!(status.calibration_reject, 0);
     assert_eq!(parse_status(&payload[..10]), Err(ProtocolError::BadPayload("STATUS")));
 }
 
@@ -175,7 +178,7 @@ fn config_section_decodes_every_documented_field() {
     // As-built values (docs/hardware.md, DEC-006/009).
     assert!(!config.haptics.fitted);
     assert_eq!(config.imu.foot_mount, [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
-    assert_eq!(config.imu.shank_mount, [[0, 0, -1], [1, 0, 0], [0, -1, 0]]);
+    assert_eq!(config.imu.shank_mount, [[0, 0, -1], [0, 1, 0], [1, 0, 0]]);
 
     // Trailing bytes mean a layout this build does not know.
     let mut longer = section.clone();
@@ -192,11 +195,14 @@ fn mount_maps_produce_anatomical_units() {
     assert_eq!(accel, [0.0, 0.0, 1.0]);
     assert_eq!(gyro, [0.0, 0.0, 10.0]);
 
-    // Shank: anatomical X = -chipZ, Y = +chipX, Z = -chipY (PROB-002).
-    let (accel, _) = config.shank_anatomical(&[0, -8192, 0, 0, 0, 0]);
-    assert_eq!(accel, [0.0, 0.0, 1.0], "gravity on chip -Y reads as anatomical +Z");
+    // Shank: anatomical X = -chipZ, Y = +chipY, Z = +chipX, measured on the leg
+    // (TEST-027, PROB-002).
     let (accel, _) = config.shank_anatomical(&[8192, 0, 0, 0, 0, 0]);
-    assert_eq!(accel, [0.0, 1.0, 0.0], "chip +X is anatomical +Y (medial)");
+    assert_eq!(accel, [0.0, 0.0, 1.0], "gravity on chip +X reads as anatomical +Z");
+    let (accel, _) = config.shank_anatomical(&[0, 8192, 0, 0, 0, 0]);
+    assert_eq!(accel, [0.0, 1.0, 0.0], "chip +Y is anatomical +Y (medial)");
+    let (accel, _) = config.shank_anatomical(&[0, 0, 8192, 0, 0, 0]);
+    assert_eq!(accel, [-1.0, 0.0, 0.0], "chip +Z points posteriorly");
 }
 
 #[test]
@@ -262,4 +268,35 @@ fn parse_rejects_bad_headers() {
     ));
     msg[0] = 2;
     assert_eq!(parse(&msg), Err(ProtocolError::Version(2)));
+}
+
+#[test]
+fn session_start_matches_the_vector() {
+    let msg = vector("session_start.hex");
+    let (header, payload) = parse(&msg).unwrap();
+    assert_eq!(header.msg_type, MsgType::SessionStart as u8);
+    assert_eq!(payload, session_start(SESSION_KIND_CALIBRATION, 5000));
+}
+
+#[test]
+fn calibration_record_decodes() {
+    let msg = vector("calibration_record.hex");
+    let (header, payload) = parse(&msg).unwrap();
+    assert_eq!(header.msg_type, MsgType::SessionStop as u8);
+    let record = parse_calibration(payload).unwrap();
+    assert!(record.usable());
+    assert_eq!(record.samples, 500);
+    assert_eq!(record.foot.gyro_bias_dps, [1.5, -0.5, 0.25]);
+    assert_eq!(record.shank.gyro_bias_dps, [-0.75, 0.5, 0.125]);
+    // The foot board sits tilted on the instep; the shank board nearly upright.
+    assert_eq!(record.foot.tilt_deg, 33.0);
+    assert_eq!(record.shank.tilt_deg, 1.3);
+    assert_eq!(parse_calibration(&payload[..10]), Err(ProtocolError::BadPayload("SESSION_STOP")));
+}
+
+#[test]
+fn rejection_bits_name_every_reason() {
+    assert!(calibration_rejections(0).is_empty());
+    assert_eq!(calibration_rejections(0b1010), vec!["the sensor moved", "gravity was not upward"]);
+    assert_eq!(calibration_rejections(0b1111).len(), 4);
 }

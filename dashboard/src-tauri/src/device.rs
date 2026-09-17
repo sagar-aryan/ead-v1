@@ -57,6 +57,10 @@ pub struct Snapshot {
     pub rejected_frames: u64,
     pub frames_received: u64,
     pub status_age_ms: Option<u64>,
+    /// Latest calibration record the device has reported, if any.
+    pub calibration: Option<protocol::Calibration>,
+    /// Why that record was rejected, in words; empty when it is usable.
+    pub calibration_rejections: Vec<&'static str>,
 }
 
 #[derive(Default)]
@@ -67,6 +71,7 @@ struct State {
     hello: Option<Hello>,
     status: Option<Status>,
     status_at: Option<Instant>,
+    calibration: Option<protocol::Calibration>,
     frames_received: u64,
     missing_messages: u32,
     rejected_frames: u64,
@@ -123,10 +128,41 @@ impl Device {
             } else {
                 None
             },
+            calibration: if connected { state.calibration } else { None },
+            calibration_rejections: match state.calibration {
+                Some(record) if connected && !record.usable() => {
+                    protocol::calibration_rejections(record.reject)
+                }
+                _ => Vec::new(),
+            },
         }
     }
 
     /// The device's own configuration, once CONFIG_GET has been answered.
+    /// Asks the device to start a still window. The record arrives later as a
+    /// SESSION_STOP message; progress is visible in STATUS meanwhile.
+    pub fn start_calibration(&self, duration_ms: u16) -> Result<(), String> {
+        let payload = protocol::session_start(protocol::SESSION_KIND_CALIBRATION, duration_ms);
+        self.send_now(MsgType::SessionStart, &payload)
+    }
+
+    /// Cancels a running window; the partial record is discarded.
+    pub fn cancel_calibration(&self) -> Result<(), String> {
+        self.send_now(MsgType::SessionStop, &[])
+    }
+
+    /// Queues one command on the link task. Commands carry sequence 0: only
+    /// backfill and HELLO need a sequence the device echoes.
+    fn send_now(&self, msg_type: MsgType, payload: &[u8]) -> Result<(), String> {
+        let commands = self.commands.lock().expect("commands");
+        let Some(sender) = commands.as_ref() else {
+            return Err("not connected".into());
+        };
+        sender
+            .try_send(protocol::encode(msg_type, 0, 0, payload))
+            .map_err(|_| "the device link is busy".to_string())
+    }
+
     pub fn config(&self) -> Option<Arc<DeviceConfigSection>> {
         self.state.lock().expect("device state").config.clone()
     }
@@ -305,6 +341,18 @@ impl Tracker {
             MsgType::Hello => self.on_hello(payload),
             MsgType::Status => self.on_status(payload),
             MsgType::ConfigGet => self.on_config(payload),
+            MsgType::SessionStop => {
+                // The device sends this once per completed calibration window.
+                match protocol::parse_calibration(payload) {
+                    Ok(record) => {
+                        self.state.lock().expect("device state").calibration = Some(record)
+                    }
+                    Err(e) => {
+                        self.state.lock().expect("device state").last_error =
+                            Some(format!("calibration record: {e}"))
+                    }
+                }
+            }
             MsgType::BackfillData => {
                 if let Ok(chunk) = protocol::parse_backfill_data(payload) {
                     for message in chunk.messages {

@@ -52,6 +52,8 @@ fn main() {
             app::sessions,
             app::session,
             app::raw_window,
+            app::start_calibration,
+            app::cancel_calibration,
             app::session_config,
         ])
         .run(tauri::generate_context!())

@@ -26,10 +26,11 @@ import time
 import zlib
 
 PROTOCOL_VERSION = 1
-SCHEMA = 1
+SCHEMA = 2
 HEADER = struct.Struct("<HBBIIQ")
 
 HELLO, CONFIG_GET, RAW_SAMPLE_BATCH, STATUS, ERROR = 0x01, 0x02, 0x08, 0x0C, 0x0E
+SESSION_START, SESSION_STOP = 0x04, 0x05
 BACKFILL_REQUEST, BACKFILL_DATA = 0x10, 0x11
 DURABLE = {0x08, 0x09, 0x0A, 0x0B}
 
@@ -45,7 +46,7 @@ ERROR_CODES = {1: "BadFrame", 2: "SchemaMismatch", 3: "NotSupported", 4: "Invali
 
 USB_VID, USB_PID = 0x303A, 0x1001
 RAW_FRAME = struct.Struct("<QI6h6h4h4hH")
-STATUS_PAYLOAD = struct.Struct("<BBHIIIIIIIbBIHHHH")
+STATUS_PAYLOAD = struct.Struct("<BBHIIIIIIIbBIHHHHBIH")
 ACCEL_LSB_PER_G = 8192.0  # +-4 g (datasheet)
 
 
@@ -289,12 +290,37 @@ def decode_status(p):
     names = ["state", "links", "faults", "frame_index", "frames_dropped", "shank_repeated",
              "i2c_errors", "imu_reinits", "oldest_seq", "last_seq", "ap_rssi_dbm", "ap_stations",
              "heap_free_min", "stack_free_acquisition", "stack_free_processing", "stack_free_usb",
-             "stack_free_wifi"]
+             "stack_free_wifi", "calibration_state", "calibration_samples",
+             "calibration_reject"]
     s = dict(zip(names, STATUS_PAYLOAD.unpack(p)))
     s["state"] = STATES[s["state"]]
     s["faults"] = flag_names(s["faults"], FAULTS)
     s["links"] = [n for bit, n in enumerate(["usb", "wifi"]) if s["links"] & (1 << bit)]
+    s["calibration_state"] = CALIB_STATES[s["calibration_state"]]
+    s["calibration_reject"] = flag_names(s["calibration_reject"], CALIB_REJECTS)
     return s
+
+
+CALIB_STATES = ["none", "collecting", "ready", "rejected"]
+CALIB_REJECTS = ["too_few_samples", "moved", "not_gravity", "upside_down"]
+CALIB_SENSOR = struct.Struct("<13f8x")
+
+
+def decode_calibration(p):
+    """SESSION_STOP from the device: the calibration record (docs/protocol.md §5.10)."""
+    kind, _, reject, samples = struct.unpack_from("<BBHI", p)
+    out = {"kind": kind, "reject": flag_names(reject, CALIB_REJECTS), "samples": samples}
+    for index, name in enumerate(("foot", "shank")):
+        v = CALIB_SENSOR.unpack_from(p, 8 + index * 60)
+        out[name] = {
+            "gyro_bias_dps": [round(x, 3) for x in v[0:3]],
+            "up": [round(x, 4) for x in v[3:6]],
+            "alignment": [round(x, 5) for x in v[6:10]],
+            "tilt_deg": round(v[10], 2),
+            "accel_magnitude_g": round(v[11], 4),
+            "gyro_std_dps": round(v[12], 3),
+        }
+    return out
 
 
 def decode_error(p):
@@ -398,6 +424,41 @@ def cmd_hello(args):
     for k, v in s.hello().items():
         print(f"{k:16} {v}")
     s.transport.close()
+
+
+def cmd_calibrate(args):
+    """Runs a still window on the device and prints the record it produces."""
+    s = Session(args)
+    s.open()
+    s.hello()
+    duration_ms = int(args.seconds * 1000)
+    print(f"hold still for {args.seconds:.0f} s ...")
+    s.send(SESSION_START, struct.pack("<BBH", 1, 0, duration_ms))
+    # The device stops streaming to a host that has gone quiet for 3 s, so the
+    # keepalive has to continue while the window runs (docs/protocol.md §5.3).
+    deadline = time.monotonic() + args.seconds + 5
+    next_keepalive = time.monotonic() + 1.0
+    payload = None
+    while payload is None and time.monotonic() < deadline:
+        if time.monotonic() >= next_keepalive:
+            s.send(STATUS, b"")
+            next_keepalive += 1.0
+        for msg in s.transport.poll(0.05):
+            t, _, _, p = parse(msg)
+            if t == SESSION_STOP:
+                payload = p
+            elif t == ERROR:
+                print(decode_error(p), file=sys.stderr)
+    if payload is None:
+        raise TimeoutError("the device sent no calibration record")
+    record = decode_calibration(payload)
+    print(f"samples {record['samples']}  reject {', '.join(record['reject'])}")
+    for name in ("foot", "shank"):
+        v = record[name]
+        print(f"{name:6} bias {v['gyro_bias_dps']} deg/s  tilt {v['tilt_deg']}  "
+              f"|a| {v['accel_magnitude_g']} g  sigma {v['gyro_std_dps']} deg/s")
+    s.transport.close()
+    return 0 if record["reject"] == ["none"] else 1
 
 
 def cmd_config(args):
@@ -632,11 +693,14 @@ def main():
     st = sub.add_parser("stats")
     st.add_argument("--seconds", type=float, default=60)
     st.add_argument("--record", metavar="FILE")
+    cal = sub.add_parser("calibrate")
+    cal.add_argument("--seconds", type=float, default=5.0)
     ro = sub.add_parser("reopen")
     ro.add_argument("--cycles", type=int, default=20)
     ro.add_argument("--pause", type=float, default=0.5)
     args = ap.parse_args()
-    {"hello": cmd_hello, "config": cmd_config, "stats": cmd_stats, "reopen": cmd_reopen}[args.command](args)
+    {"hello": cmd_hello, "config": cmd_config, "stats": cmd_stats, "reopen": cmd_reopen,
+     "calibrate": cmd_calibrate}[args.command](args)
 
 
 if __name__ == "__main__":

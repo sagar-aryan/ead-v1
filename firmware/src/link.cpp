@@ -1,5 +1,7 @@
 #include "link.h"
 
+#include "calibration_service.h"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -58,6 +60,11 @@ void Link::onMessage(const uint8_t* msg, size_t len, int64_t nowUs) {
       }
       helloReceived_ = true;
       backfillActive_ = false;
+      // A record completed while no host was listening belongs to the previous
+      // session: discard it, or this host would receive it as though it were
+      // the answer to its own SESSION_START. STATUS still reports that a record
+      // is held, so nothing is hidden.
+      calibration::takeCompletion();
       cursor_ = latestSequence() + 1;
       nextStatusUs_ = nowUs;
       ead::HelloInfo info;
@@ -75,6 +82,39 @@ void Link::onMessage(const uint8_t* msg, size_t len, int64_t nowUs) {
     case MsgType::ConfigGet: {
       uint8_t body[kReplyCap - ead::kHeaderSize];
       queueReply(MsgType::ConfigGet, body, device::encodeConfigResponse(body, sizeof body), nowUs);
+      return;
+    }
+    case MsgType::SessionStart: {
+      uint8_t kind = 0;
+      uint16_t durationMs = 0;
+      if (!ead::decodeSessionStart(payload, h.length, &kind, &durationMs)) {
+        queueError(h.sequence, h.type, ErrorCode::BadPayload,
+                   "SESSION_START is {u8 kind, u8 reserved, u16 duration_ms}", nowUs);
+        return;
+      }
+      if (kind != uint8_t(ead::SessionKind::Calibration)) {
+        queueError(h.sequence, h.type, ErrorCode::NotSupported,
+                   "schema 2 supports session kind CALIBRATION only", nowUs);
+        return;
+      }
+      if (durationMs < ead::kCalibMinDurationMs || durationMs > ead::kCalibMaxDurationMs) {
+        queueError(h.sequence, h.type, ErrorCode::BadPayload, "duration_ms must be 2000..30000",
+                   nowUs);
+        return;
+      }
+      if (!calibration::start(durationMs)) {
+        queueError(h.sequence, h.type, ErrorCode::InvalidState, "a calibration window is running",
+                   nowUs);
+      }
+      return;
+    }
+    case MsgType::SessionStop: {
+      if (h.length != 0) {
+        queueError(h.sequence, h.type, ErrorCode::BadPayload, "SESSION_STOP takes no payload",
+                   nowUs);
+        return;
+      }
+      calibration::cancel();
       return;
     }
     case MsgType::BackfillRequest: {
@@ -143,6 +183,23 @@ size_t Link::peek(uint8_t* out, size_t cap, int64_t nowUs) {
     return r.len;
   }
   if (!streaming(nowUs)) return 0;
+
+  if (calibration::takeCompletion()) {
+    ead::CalibrationRecord record;
+    if (calibration::record(&record)) {
+      uint8_t body[ead::kCalibrationPayloadSize];
+      const size_t n = ead::encodeCalibrationPayload(uint8_t(ead::SessionKind::Calibration), record,
+                                                     body, sizeof body);
+      // Not durable: the record is held in RAM and can be asked for again by
+      // reading STATUS, so a missed one is not a gap in the data.
+      const size_t len =
+          ead::encodeMessage(MsgType::SessionStop, 0, uint64_t(nowUs), body, n, out, cap);
+      if (len > 0) {
+        pending_ = Source::Status;
+        return len;
+      }
+    }
+  }
 
   if (nowUs >= nextStatusUs_) {
     ead::StatusInfo status;

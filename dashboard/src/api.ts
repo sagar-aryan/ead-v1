@@ -34,6 +34,10 @@ export interface DeviceStatus {
   stack_free_processing: number;
   stack_free_usb: number;
   stack_free_wifi: number;
+  /** 0 none, 1 collecting, 2 ready, 3 rejected. */
+  calibration_state: number;
+  calibration_samples: number;
+  calibration_reject: number;
 }
 
 export interface Snapshot {
@@ -53,6 +57,9 @@ export interface Snapshot {
   rejected_frames: number;
   frames_received: number;
   status_age_ms: number | null;
+  calibration: Calibration | null;
+  /** Why the record was rejected, in words; empty when it is usable. */
+  calibration_rejections: string[];
 }
 
 export interface MountMap extends Array<[number, number, number]> {}
@@ -137,6 +144,27 @@ export interface Session {
   frames_missing: number;
 }
 
+export interface CalibrationSensor {
+  /** Mean rate while still, chip frame, deg/s: subtract from a reading. */
+  gyro_bias_dps: [number, number, number];
+  /** Gravity as measured, anatomical frame, unit length. */
+  up: [number, number, number];
+  /** Rotation taking `up` to anatomical +Z (w, x, y, z). */
+  alignment: [number, number, number, number];
+  tilt_deg: number;
+  accel_magnitude_g: number;
+  gyro_std_dps: number;
+}
+
+export interface Calibration {
+  kind: number;
+  /** Reject bits; 0 means the record is usable. */
+  reject: number;
+  samples: number;
+  foot: CalibrationSensor;
+  shank: CalibrationSensor;
+}
+
 export type SignalGroup = "foot_accel" | "foot_gyro" | "shank_accel" | "shank_gyro";
 
 export interface AxisWindow {
@@ -188,6 +216,9 @@ export const api = {
   recordingSession: () => invoke<string | null>("recording_session"),
   sessions: () => invoke<Session[]>("sessions"),
   session: (sessionId: string) => invoke<Session>("session", { sessionId }),
+  startCalibration: (durationMs: number) =>
+    invoke<void>("start_calibration", { durationMs }),
+  cancelCalibration: () => invoke<void>("cancel_calibration"),
   rawWindow: (
     sessionId: string,
     groups: SignalGroup[],

@@ -10,7 +10,7 @@
 namespace ead {
 
 constexpr uint16_t kProtocolVersion = 1;  // doc 08 header field
-constexpr uint16_t kSchemaVersion = 1;    // payload layouts, docs/protocol.md
+constexpr uint16_t kSchemaVersion = 2;    // payload layouts, docs/protocol.md
 constexpr size_t kHeaderSize = 20;
 constexpr size_t kRawFrameSize = 54;
 constexpr size_t kMaxRawFramesPerBatch = 10;
@@ -164,9 +164,35 @@ struct StatusInfo {
   uint16_t stack_free_processing;
   uint16_t stack_free_usb;
   uint16_t stack_free_wifi;
+  uint8_t calibration_state;
+  uint32_t calibration_samples;
+  uint16_t calibration_reject;
 };
 
-constexpr size_t kStatusPayloadSize = 46;
+constexpr size_t kStatusPayloadSize = 53;
+
+/// STATUS calibration_state (docs/protocol.md §5.3).
+enum class CalibrationState : uint8_t { None = 0, Collecting = 1, Ready = 2, Rejected = 3 };
+
+/// Session kinds. Schema 2 accepts CALIBRATION only.
+enum class SessionKind : uint8_t { Calibration = 1 };
+
+constexpr size_t kSessionStartPayloadSize = 4;
+constexpr size_t kCalibrationPayloadSize = 128;
+constexpr uint16_t kCalibMinDurationMs = 2000;
+constexpr uint16_t kCalibMaxDurationMs = 30000;
+
+/// SESSION_START, host → device.
+bool decodeSessionStart(const uint8_t* payload, size_t len, uint8_t* kind, uint16_t* durationMs);
+size_t encodeSessionStart(uint8_t kind, uint16_t durationMs, uint8_t* out, size_t cap);
+
+struct CalibrationRecord;  // ead/calibration.h
+
+/// SESSION_STOP, device → host: the calibration record.
+size_t encodeCalibrationPayload(uint8_t kind, const CalibrationRecord& record, uint8_t* out,
+                                size_t cap);
+bool decodeCalibrationPayload(const uint8_t* payload, size_t len, uint8_t* kind,
+                              CalibrationRecord* record);
 size_t encodeStatusPayload(const StatusInfo& s, uint8_t* out, size_t cap);
 
 // ---- ERROR -----------------------------------------------------------------

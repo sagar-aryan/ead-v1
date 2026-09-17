@@ -453,3 +453,36 @@ How the fix was confirmed.
 
 ### Lessons
 What should be remembered to avoid the problem again.
+
+## PROB-009 — Foot accelerometer reads 2.5 % high
+
+**Status:** Open, measured, not yet corrected
+
+### Symptoms
+With the device still, the foot sensor reports |a| = 1.0249 g while the shank
+sensor reports 0.998 g. Both use the same configured range (±4 g, 8192 LSB/g).
+
+### Environment
+Both MPU6500 (WHO 0x70), firmware schema 2, bench, 2026-09-18 (TEST-028).
+
+### Investigation
+Three calibration windows of different lengths agree to within 0.0002 g, so it
+is a constant scale error rather than motion or noise. The MPU6500 datasheet
+allows ±3 % initial sensitivity tolerance, so 2.5 % is within specification for
+the part; the two boards simply differ.
+
+### Root cause
+Per-part accelerometer sensitivity tolerance. Not established beyond that: the
+possibility of a supply-voltage or temperature contribution has not been ruled
+out.
+
+### Resolution
+None yet, deliberately. Nothing downstream depends on absolute acceleration
+magnitude today: orientation uses the direction of gravity, and the gait work
+uses thresholds that will be set from recorded walks. If a measurement ever
+depends on the magnitude, the calibration record is the right place to carry a
+per-sensor scale factor, since it already carries `accel_magnitude_g`.
+
+### Lessons
+The calibration's `accel_magnitude_g` field earns its place: it is what made a
+2.5 % scale error visible, and it would equally catch a wrong range setting.

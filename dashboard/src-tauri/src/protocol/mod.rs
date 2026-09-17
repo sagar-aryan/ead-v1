@@ -15,7 +15,7 @@ use reader::Reader;
 pub use config::parse_section;
 
 pub const PROTOCOL_VERSION: u16 = 1;
-pub const SCHEMA_VERSION: u16 = 1;
+pub const SCHEMA_VERSION: u16 = 2;
 pub const HEADER_SIZE: usize = 20;
 pub const RAW_FRAME_SIZE: usize = 54;
 /// Largest message the device will send (`docs/protocol.md` §7).
@@ -217,7 +217,7 @@ pub fn hello_request() -> Vec<u8> {
 
 // ---- STATUS ----------------------------------------------------------------
 
-pub const STATUS_PAYLOAD_SIZE: usize = 46;
+pub const STATUS_PAYLOAD_SIZE: usize = 53;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
 pub struct Status {
@@ -238,6 +238,10 @@ pub struct Status {
     pub stack_free_processing: u16,
     pub stack_free_usb: u16,
     pub stack_free_wifi: u16,
+    /// 0 none, 1 collecting, 2 ready, 3 rejected (docs/protocol.md §5.3).
+    pub calibration_state: u8,
+    pub calibration_samples: u32,
+    pub calibration_reject: u16,
 }
 
 pub fn parse_status(payload: &[u8]) -> Result<Status> {
@@ -263,7 +267,101 @@ pub fn parse_status(payload: &[u8]) -> Result<Status> {
         stack_free_processing: r.u16()?,
         stack_free_usb: r.u16()?,
         stack_free_wifi: r.u16()?,
+        calibration_state: r.u8()?,
+        calibration_samples: r.u32()?,
+        calibration_reject: r.u16()?,
     })
+}
+
+// ---- session control and calibration (schema 2) -----------------------------
+
+pub const SESSION_START_PAYLOAD_SIZE: usize = 4;
+pub const CALIBRATION_PAYLOAD_SIZE: usize = 128;
+/// The only session kind schema 2 accepts.
+pub const SESSION_KIND_CALIBRATION: u8 = 1;
+
+/// SESSION_START payload: start a still window of `duration_ms`.
+pub fn session_start(kind: u8, duration_ms: u16) -> Vec<u8> {
+    let mut out = Vec::with_capacity(SESSION_START_PAYLOAD_SIZE);
+    out.push(kind);
+    out.push(0);
+    out.extend_from_slice(&duration_ms.to_le_bytes());
+    out
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize)]
+pub struct CalibrationSensor {
+    /// Mean rate while still, chip frame, deg/s: subtract from a reading.
+    pub gyro_bias_dps: [f32; 3],
+    /// Gravity as measured, anatomical frame, unit length.
+    pub up: [f32; 3],
+    /// Rotation taking `up` to anatomical +Z (w, x, y, z).
+    pub alignment: [f32; 4],
+    pub tilt_deg: f32,
+    pub accel_magnitude_g: f32,
+    pub gyro_std_dps: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize)]
+pub struct Calibration {
+    pub kind: u8,
+    /// Reject bits (docs/protocol.md §6.5); 0 means the record is usable.
+    pub reject: u16,
+    pub samples: u32,
+    pub foot: CalibrationSensor,
+    pub shank: CalibrationSensor,
+}
+
+impl Calibration {
+    pub fn usable(&self) -> bool {
+        self.reject == 0
+    }
+}
+
+fn parse_calibration_sensor(r: &mut Reader) -> Result<CalibrationSensor> {
+    let mut sensor = CalibrationSensor::default();
+    for value in &mut sensor.gyro_bias_dps {
+        *value = r.f32()?;
+    }
+    for value in &mut sensor.up {
+        *value = r.f32()?;
+    }
+    for value in &mut sensor.alignment {
+        *value = r.f32()?;
+    }
+    sensor.tilt_deg = r.f32()?;
+    sensor.accel_magnitude_g = r.f32()?;
+    sensor.gyro_std_dps = r.f32()?;
+    r.bytes(8)?; // reserved
+    Ok(sensor)
+}
+
+/// SESSION_STOP payload from the device: the calibration record.
+pub fn parse_calibration(payload: &[u8]) -> Result<Calibration> {
+    if payload.len() != CALIBRATION_PAYLOAD_SIZE {
+        return Err(ProtocolError::BadPayload("SESSION_STOP"));
+    }
+    let mut r = Reader::new(payload);
+    let kind = r.u8()?;
+    r.u8()?; // reserved
+    Ok(Calibration {
+        kind,
+        reject: r.u16()?,
+        samples: r.u32()?,
+        foot: parse_calibration_sensor(&mut r)?,
+        shank: parse_calibration_sensor(&mut r)?,
+    })
+}
+
+/// Why a record was rejected, for the operator rather than the log.
+pub fn calibration_rejections(bits: u16) -> Vec<&'static str> {
+    const REASONS: [(u16, &str); 4] = [
+        (1 << 0, "too few samples"),
+        (1 << 1, "the sensor moved"),
+        (1 << 2, "acceleration was not 1 g"),
+        (1 << 3, "gravity was not upward"),
+    ];
+    REASONS.iter().filter(|(bit, _)| bits & bit != 0).map(|(_, text)| *text).collect()
 }
 
 /// Device states, doc 07 §6 order.

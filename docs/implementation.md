@@ -246,3 +246,43 @@ confirms axis and sign, not range of motion.
 
 ### Verification
 11 unit tests. Not yet run on a worn device (TEST-027).
+
+## Static calibration (M3)
+
+### Objective
+Remove the two constant errors a strapped-on IMU has: the gyroscope's resting
+offset, which integrates into drift, and the mounting tilt, which would otherwise
+appear as a permanently flexed joint.
+
+### Design
+Five seconds of stillness (2–30 s accepted). Per sensor the device computes the
+mean angular rate (the bias, kept in the chip frame because it belongs to the
+part, not to the anatomy), the mean acceleration direction (gravity, in the
+anatomical frame), and the quaternion taking that direction to +Z. It also
+reports the mean |a| and the largest per-axis standard deviation, which are what
+make a bad window visible: a record is rejected when the sensor moved, when |a|
+is not 1 g, when gravity is not upward, or when too few frames were collected.
+
+### Implementation
+- `firmware/lib/ead_core/src/ead/calibration.{h,cpp}` — pure, float32, no
+  Arduino headers, so device and host replay agree.
+- `firmware/src/calibration_service.{h,cpp}` — window state, fed from the
+  processing task with the frames already being acquired.
+- Protocol schema 2: SESSION_START (kind, duration) and a 128-byte record in
+  SESSION_STOP, with calibration state and progress in STATUS.
+- `dashboard/src/views/Calibration.tsx` — start, progress, and the numbers.
+
+### Edge cases
+- A completion that finishes while no host is listening is discarded when the
+  next host says HELLO, so a record cannot be mistaken for the answer to a later
+  request.
+- A host that stops sending keepalives stops the stream, and with it the record;
+  the 1 Hz keepalive is part of the protocol, not an optimisation.
+
+### Limitations
+The record lives in RAM and is lost on reset (no flash storage until M7). Nothing
+consumes it yet — orientation is the next step.
+
+### Verification
+Seven native unit tests, golden-vector tests in firmware and Rust, and TEST-028
+on hardware.

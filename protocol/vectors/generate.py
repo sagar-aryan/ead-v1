@@ -20,11 +20,16 @@ ROOT = HERE.parent.parent
 CONFIG_JSON = ROOT / "ead_agent_docs_v2" / "CONFIG_V1.json"
 
 PROTOCOL_VERSION = 1
-SCHEMA = 1
+SCHEMA = 2
 
 # Message types (doc 08 §3).
 HELLO, CONFIG_GET, STATUS, ERROR = 0x01, 0x02, 0x0C, 0x0E
 RAW_SAMPLE_BATCH, BACKFILL_REQUEST, BACKFILL_DATA = 0x08, 0x10, 0x11
+SESSION_START, SESSION_STOP = 0x04, 0x05
+
+# Calibration states and reject bits (docs/protocol.md §5.3, §6.5).
+CALIB_READY = 2
+CALIB_MOVED = 1 << 1
 
 # RAW frame status bits (docs/protocol.md).
 RAW_FOOT_READ_FAIL, RAW_SHANK_READ_FAIL, RAW_SHANK_REPEATED = 1 << 0, 1 << 1, 1 << 2
@@ -151,7 +156,7 @@ def main():
     cfg = json.loads(CONFIG_JSON.read_text())
 
     hello_request = message(HELLO, struct.pack("<H", SCHEMA), seq=7, time_us=0)
-    write("hello_request.hex", "Host HELLO, schema 1, command sequence 7.", hello_request)
+    write("hello_request.hex", "Host HELLO, schema 2, command sequence 7.", hello_request)
 
     fw = "0.1.0+test"
     sha = hashlib.sha256(b"ead").digest()
@@ -166,15 +171,16 @@ def main():
           message(HELLO, hello_info_payload, seq=42, time_us=123456789))
 
     status_payload = struct.pack(
-        "<BBHIIIIIIIbBIHHHH", STATE_READY, LINK_USB_ACTIVE,
+        "<BBHIIIIIIIbBIHHHHBIH", STATE_READY, LINK_USB_ACTIVE,
         FAULT_SHANK_FROZEN | FAULT_ACQUISITION_STALLED, 123456, 3, 17, 2, 1, 1, 42, -47, 1, 201000,
-        1500, 2600, 3100, 4200)
-    assert len(status_payload) == 46
+        1500, 2600, 3100, 4200, CALIB_READY, 500, 0)
+    assert len(status_payload) == 53
     write("status.hex",
           "Device STATUS: READY, USB link active, faults 0x0300 (shank frozen + acquisition\n"
           "stalled), frame 123456, dropped 3, shank repeated 17, I2C errors 2, reinits 1,\n"
           "sequence window 1..42, RSSI -47 dBm, 1 station, heap min 201000,\n"
-          "stack free 1500/2600/3100/4200. Header sequence 42, time 987654321.",
+          "stack free 1500/2600/3100/4200, calibration ready from 500 samples.\n"
+          "Header sequence 42, time 987654321.",
           message(STATUS, status_payload, seq=42, time_us=987654321))
 
     frames = [
@@ -198,6 +204,29 @@ def main():
 
     write("backfill_request.hex", "Host BACKFILL_REQUEST for sequences 100..250, command sequence 11.",
           message(BACKFILL_REQUEST, struct.pack("<II", 100, 250), seq=11, time_us=0))
+
+    write("session_start.hex",
+          "Host SESSION_START, kind CALIBRATION (1), 5000 ms window. Command sequence 12.",
+          message(SESSION_START, struct.pack("<BBH", 1, 0, 5000), seq=12, time_us=0))
+
+    # A record measured the way the hardware actually reads: the foot board sits
+    # tilted on the instep, the shank board close to upright (TEST-027).
+    def sensor(bias, up, quat, tilt, magnitude, std):
+        return (struct.pack("<3f", *bias) + struct.pack("<3f", *up) + struct.pack("<4f", *quat)
+                + struct.pack("<3f", tilt, magnitude, std) + bytes(8))
+
+    calibration_payload = (
+        struct.pack("<BBHI", 1, 0, 0, 500)
+        + sensor((1.5, -0.5, 0.25), (-0.42, 0.34, 0.84), (0.968, 0.166, 0.205, 0.0),
+                 33.0, 1.0, 0.1)
+        + sensor((-0.75, 0.5, 0.125), (0.02, -0.01, 0.9997), (0.99999, -0.005, -0.01, 0.0),
+                 1.3, 1.0, 0.2))
+    assert len(calibration_payload) == 128
+    write("calibration_record.hex",
+          "Device SESSION_STOP: calibration record, kind CALIBRATION, accepted (reject 0),\n"
+          "500 samples. Foot bias (1.5, -0.5, 0.25) deg/s tilted 33 deg; shank bias\n"
+          "(-0.75, 0.5, 0.125) deg/s tilted 1.3 deg. Header sequence 43, time 987654321.",
+          message(SESSION_STOP, calibration_payload, seq=43, time_us=987654321))
 
     raw_batch_4 = message(RAW_SAMPLE_BATCH, raw_batch_payload(frames[1:]), seq=4, time_us=1_010_000)
     backfill_payload = struct.pack("<IIIB", 11, 3, 4, 0) + raw_batch + raw_batch_4

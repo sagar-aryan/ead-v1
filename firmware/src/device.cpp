@@ -1,5 +1,7 @@
 #include "device.h"
 
+#include "calibration_service.h"
+
 #include <algorithm>
 
 #include <esp_heap_caps.h>
@@ -38,7 +40,9 @@ TaskHandle_t s_tasks[3] = {};
 
 uint8_t currentState(uint16_t faults) {
   if (!s_booted) return ead::kStateSelfTest;
-  return faults ? ead::kStateFault : ead::kStateReady;
+  if (faults) return ead::kStateFault;
+  if (calibration::state() == ead::CalibrationState::Collecting) return ead::kStateCalibrating;
+  return ead::kStateReady;
 }
 
 uint16_t stackFree(TaskRole role) {
@@ -120,6 +124,9 @@ void fillStatus(ead::StatusInfo* s) {
 
   s->heap_free_min = uint32_t(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
   s->stack_free_acquisition = stackFree(TaskRole::Acquisition);
+  s->calibration_state = uint8_t(calibration::state());
+  s->calibration_samples = calibration::samples();
+  s->calibration_reject = calibration::reject();
   s->stack_free_processing = stackFree(TaskRole::Processing);
   s->stack_free_usb = stackFree(TaskRole::Usb);
   s->stack_free_wifi = s_wifiStackFree.load();
