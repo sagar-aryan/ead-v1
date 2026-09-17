@@ -931,3 +931,34 @@ reports what was written rather than announcing success.
 Everything left needs the device and somebody to walk. Nothing in M5 or M6 has
 been exercised against real data: the reference workflow, the error scores, the
 segments and every one of these files have only ever seen synthetic cycles.
+
+## 2026-09-18 — Documentation brought back to the actual state
+
+### Objective
+`docs/handoff.md` still said "after M1 and most of M2" while M6 was finished. A
+handoff that describes an idealised state is worse than none.
+
+### Changes
+- `docs/handoff.md`: current state rewritten for M0–M6, with the honest headline
+  that nobody has walked thirty cycles yet; important files, decisions, known
+  problems, how-to-run and next steps updated. The milestone plan collapsed to
+  what actually remains.
+- `docs/clinical_requirements.md`: requirement 4 marked implemented with its
+  evidence; the status summary now says which two requirements have never seen a
+  patient.
+- `docs/implementation.md`: host-side segmentation, the symmetry proxy and the
+  export package.
+- `docs/architecture.md`: the export path added to the data-flow diagram.
+
+### Verification
+Full suite, all clean: 60 firmware native tests, 55 Rust tests, 28 frontend
+tests, 18 protocol vectors, zero clippy warnings, firmware and dashboard build.
+
+### Current Status
+V1 is code-complete except M7. Everything remaining needs the device and somebody
+to walk.
+
+### Next Steps
+`docs/handoff.md` → Next Steps. In short: a walk recorded through the dashboard,
+then a one-minute reference capture, then a check and an evaluation, then the
+export read end to end.

@@ -6,16 +6,18 @@ folded these into `ead_agent_docs_v2/SOURCE_REQUIREMENTS.md`; this file maps eac
 one to the specification that defines it, the code that implements it, and the
 test that proves it.
 
-**Status summary (2026-09-18):** three of the four are implemented, two of them
-verified on hardware against measured ground truth. The fourth — the export files
-— is the remaining milestone.
+**Status summary (2026-09-18):** all four are implemented. Two are verified on
+hardware against measured ground truth; the other two have only been exercised
+against synthetic data, because nobody has yet walked the thirty cycles a real
+reference profile needs. Until that walk happens, requirements 2 and 3 are code
+that has never seen a patient.
 
 | # | Requirement | Specified in | Implemented | Verified |
 |---|---|---|---|---|
 | 1 | ZUPT drift correction so speed and distance stay trustworthy for a whole session | doc 05 §6–§8 | Yes | TEST-030: 6.39 m measured on a 6.00 m course, ZUPT quality 0.22–0.29 per cycle |
 | 2 | One deviation number per step, driving vibration strength, with a hard safety limit | doc 06 §1–§5 | Yes, except the vibration itself (DEC-006, no drivers fitted) | TEST-031, hand-computed cases only |
 | 3 | Compare each patient to their own baseline from a short calibration walk, saved between sessions | doc 12 §2–§3, §6 | Device builds it, dashboard versions and locks it | TEST-031 and four store tests; never yet captured from a person |
-| 4 | Export full raw accelerometer, gyroscope and orientation at native rate, timestamped per sample | doc 09 §6, doc 10 §2 | Capture: yes, with real orientation. Export files: no — M6 | TEST-018, TEST-022, TEST-029 |
+| 4 | Export full raw accelerometer, gyroscope and orientation at native rate, timestamped per sample | doc 09 §6, doc 10 | Yes: capture with real orientation, and the whole doc 10 package | TEST-018, TEST-022, TEST-029, TEST-035, TEST-036, TEST-037 |
 
 ## 1. Drift correction (ZUPT)
 
@@ -118,14 +120,25 @@ Evidence: 180,250 of 180,250 frames over 30 minutes with zero missing and zero
 corrupted (TEST-018); the dashboard storing a session from the device with zero
 missing (TEST-022).
 
-**Not yet built:** the export files themselves — `raw.csv`, `gait.csv`,
-`events.csv`, `haptics.csv`, `metadata.json`, MATLAB `session.mat` and the PDF
-report (doc 10). That is milestone M6. Today the data can only be read out of the
-SQLite store directly.
+**Export — built (2026-09-18).** The whole doc 10 package: `raw.csv` with one row
+per IMU sample and the frame's timestamp on both, `gait.csv`, `events.csv`,
+`haptics.csv`, `metadata.json`, `session.mat` and `report.pdf`. The EXPORT view
+reports the row counts it wrote rather than announcing success.
 
-**Gap to close in M3:** the orientation quaternions in each frame are still
-identity, because orientation is not estimated yet. The export is not complete
-against this requirement until they are real.
+Raw values are exported as the stored ADC counts, not physical units (DEC-007),
+with the scale factors and both mount maps in `metadata.json`. That is what the
+requirement asks for — the device's own output, checkable against a reference
+system — and it is what keeps doc 10 §7's rule, that the raw integers survive
+into the `.mat`, true of the CSV as well.
+
+Evidence: TEST-035 (the package matches the database, row for row), TEST-036
+(`scipy.io.loadmat` reads `session.mat` and every value agrees with the CSV
+beside it), TEST-037 (`pdftotext` finds every section doc 10 §8 names). Both
+checkers found real defects on their first run, recorded in those entries.
+
+**Closed since this section was first written:** the orientation quaternions were
+identity until M3. They are now the device's own Mahony estimate, and
+`raw.csv`/`session.mat` carry them per frame as Q15 integers.
 
 ## What the dashboard checks today
 

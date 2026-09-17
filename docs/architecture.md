@@ -93,6 +93,7 @@ Wi-Fi AP WebSocket                  USB COBS frames
                       ▼
 dashboard backend: decode → SQLite (raw, summaries, cycles, events)
                       ├─► 20 Hz live channel → React views
+                      └─► export package (CSV, metadata.json, session.mat, report.pdf)
                       └─► exports: CSV package, session.mat, PDF report
 ```
 

@@ -315,3 +315,142 @@ see. Spread is reported as median and MAD, the robust pair the spec uses.
 Three store tests: a round trip including a repeated (backfilled) batch, the
 rule that gait is only stored while recording, and a migration from schema 2
 that keeps existing frames.
+
+## Host-side segmentation (M5)
+
+### Objective
+Doc 12 §5: the researcher enters `max_valid_cycles_per_segment` and
+`max_errors_per_segment`, and a segment closes when either is reached first. No
+default may be invented for either.
+
+### Design
+The rule is applied to the stored cycle stream rather than on the device
+(DEC-014). Limits live on the session row; `segments` holds one row per segment
+with its counts and why it closed; each cycle carries the index of the segment
+that was open when it arrived — so the cycle that trips a limit belongs to the
+segment it closed, which is the reading that makes the counts add up.
+
+An **error**, for the purpose of the limit, is a scored cycle whose primary class
+is not NONE and whose confidence reaches 0.50. Doc 12 leaves the word undefined;
+0.50 is the level below which doc 06 §7 says the classification should not even
+be shown, and ending a segment on a finding the system will not display would be
+worse than not counting it.
+
+### Implementation
+`roll_segment` in `dashboard/src-tauri/src/store/mod.rs`, called inside the
+writer's transaction for each cycle. It reads the session's limits, finds the
+open segment, updates its counts, closes it when a limit is met and opens the
+next. It reads the row back each time rather than caching a counter: cycles
+arrive at roughly 1 Hz, so four small statements cost nothing, and a backfilled
+batch cannot double-count against a stale in-memory total.
+
+A session with no limits — every recording, capture and check — short-circuits to
+segment 0 without touching the table.
+
+### Edge cases
+- Nothing open (the session was stopped between the cycle arriving and the
+  commit): the cycle is attributed to the last segment rather than reopening one.
+- Stopping a session closes the open segment with `session_stopped`.
+- An invalid cycle counts toward neither limit.
+
+### Important files
+- `dashboard/src-tauri/src/store/mod.rs` — `roll_segment`, `counts_as_error`
+- `dashboard/src-tauri/src/store/schema.rs` — schema 5
+- `dashboard/src/views/Sessions.tsx` — the doc 12 §4 gate
+
+### Verification
+TEST-032.
+
+## Unilateral cycle symmetry proxy (M6)
+
+### Objective
+Doc 05 §10: `proxy = 1 - normalized_difference(current, previous)` between
+consecutive valid right-leg cycles, "using the same robust feature normalization
+used by the error engine". Required by `gait.csv` and by the doc 11 LIVE panel.
+
+### Design
+The error engine's normalization is `d = clamp(z / 3)` where `z` is a difference
+in units of the reference's spread for that feature, weighted by doc 06 §3. The
+proxy is the same, with the previous cycle in place of the reference's median:
+
+```
+proxy = 1 − Σ w_f · clamp(|x_f(i) − x_f(i−1)| / spread_f / 3) / Σ w_f
+```
+
+It therefore **needs a reference profile**. A session with none has no spreads to
+normalize by, and the proxy is null — not zero, not one. Cycle distance is
+dropped from both sides when either cycle had no zero-velocity window, exactly as
+the error engine drops it.
+
+Computed on the host in `Store::cycles`, for the same reason as segmentation: it
+is a pure function of the stored cycle stream, so it reproduces exactly on replay
+and costs no protocol change.
+
+### Limitations
+This is cycle repeatability, never a left-versus-right symmetry claim — only the
+right leg is instrumented. Doc 05 §10 insists on the name
+`unilateral_cycle_symmetry_proxy`, and it is spelled that way in the CSV, the
+`.mat` and the report.
+
+### Important files
+- `dashboard/src-tauri/src/store/mod.rs` — `symmetry_proxy`, `fill_symmetry_proxy`
+
+### Verification
+TEST-035 checks that the first valid cycle's cell is empty and the second is not.
+Never yet computed from a real reference profile.
+
+## Export package (M6)
+
+### Objective
+Doc 10: `raw.csv`, `gait.csv`, `events.csv`, `haptics.csv`, `metadata.json`,
+`session.mat` and the PDF report, all derived from the store so a session
+recorded last month exports the same bytes today.
+
+### Design
+Three rules run through all of it.
+
+1. **Not measured is empty, never zero.** A CSV cell is blank and a `.mat` value
+   is NaN wherever the value does not exist: an unscored cycle's error columns, a
+   symmetry proxy with no previous cycle, a distance with no zero-velocity
+   window. A column of zeroes would read as perfect agreement.
+2. **Did not happen is stated, not omitted.** `haptics.csv` exists with its
+   header alone; `session.mat` has a `haptics` variable carrying the reason it is
+   empty; the report draws the haptic-response panel doc 10 §8 asks for, empty
+   and labelled. A missing file or panel looks like an oversight.
+3. **The raw integers survive.** Doc 10 §7 requires it of the `.mat`, so
+   `raw.csv` carries the same stored ADC counts rather than converting to
+   physical units, and `metadata.json` carries the scale factors and both mount
+   maps so the conversion is one multiplication away.
+
+`events.csv` is where doc 10 asks for more than the device produces: ten event
+types against the device's five. Cycle bounds come from the cycles, ERROR_ACTIVE
+and ERROR_RESOLVED from the class transitions of displayable cycles, FAULT from
+the recorded status changes. SERVICE_TEST never appears, and `metadata.json` says
+why. ZUPT_END is written although doc 10 §4 does not list it: the device reports
+windows, not instants.
+
+The `.mat` writer is hand-rolled (DEC-003). The rules that are easy to get wrong
+are listed at the top of `mat.rs`; the one that actually bit was the char-array
+type code, `miUTF16` = 17, not 18.
+
+The PDF is composed on a fixed grid with krilla — every element at a measured
+coordinate on A4, no layout engine — with the IBM Plex faces the UI uses embedded
+as TTF subsets.
+
+### Important files
+- `dashboard/src-tauri/src/export/mod.rs` — orchestration and `metadata.json`
+- `dashboard/src-tauri/src/export/csv.rs`
+- `dashboard/src-tauri/src/export/mat.rs`
+- `dashboard/src-tauri/src/export/pdf.rs`
+- `dashboard/src/views/Export.tsx`
+- `tools/check_mat.py`, `tools/check_pdf.py`
+
+### Limitations
+The PDF's paragraph wrapping estimates line width from a mean advance of 0.52 em
+rather than shaping each candidate line. The report's prose is all lowercase
+Latin and nothing is set flush right, so this is invisible — but a long
+unbroken token, such as a very long patient identifier, will overrun.
+
+### Verification
+TEST-035, TEST-036, TEST-037. Every one of them ran against synthetic cycles;
+none has seen a real session.
