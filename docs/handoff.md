@@ -173,6 +173,12 @@ Every milestone ends with its verification actually run, measured numbers in
   `npm run build` and `(cd src-tauri && cargo build)` to build.
 - Frontend logic tests: `cd dashboard && npm test` (Node 22.6+ runs the
   TypeScript directly; keep test syntax erasable — no enums).
+- Replay a recording through the device's own code:
+  `g++ -std=gnu++17 -O2 -I firmware/lib/ead_core/src -I firmware/include -o /tmp/eadreplay
+   tools/replay/main.cpp firmware/lib/ead_core/src/ead/{calibration,mahony,gait,protocol,crc32,cobs}.cpp`
+  then `/tmp/eadreplay recordings/walk6m-2026-09-18.eadlog --still-seconds 5`.
+  This is how gait thresholds are changed: against a recording with known ground
+  truth, never by guessing.
 - Dashboard tests: `cd dashboard/src-tauri && cargo test`; add
   `-- --ignored` to run the hardware test with the device attached.
 - The dashboard's database lives at
@@ -190,9 +196,11 @@ Every milestone ends with its verification actually run, measured numbers in
   anatomical a ≈ (0, 0, +1) g (TEST-014).
 
 ## Next Steps
-1. M4: gait events (IC, TO, foot-flat) and ZUPT. Everything they depend on is
-   verified on hardware: mount maps (TEST-027), calibration (TEST-028) and
-   orientation (TEST-029, peaks repeatable within 0.2°).
+1. Record a walk through the dashboard and read the Cycles view: the only part of
+   the gait chain not yet seen end to end is cycles reaching the database.
+2. More walks at different speeds. The detector's thresholds were fitted to one
+   recording (TEST-030) and doc 05 §3 wants them adaptive per patient.
+3. M5: reference profiles and the error engine.
 2. Ask the user to run the Wi-Fi link tests (command in Environment above).
 3. Calibration and Mahony orientation; then walking recordings for M4.
 
