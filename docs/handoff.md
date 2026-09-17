@@ -189,10 +189,10 @@ Every milestone ends with its verification actually run, measured numbers in
   anatomical a ≈ (0, 0, +1) g (TEST-014).
 
 ## Next Steps
-0. User visually checks the raw view navigation (overview strip, drag-select,
-   pan/zoom, four stacked signals) — not yet seen by the agent.
-1. Build the guided mounting check, then have the user run it. It replaces
-   TEST-014 and settles PROB-002, the last open question on the mount maps.
+1. User runs the mounting check in the Device view while wearing the device
+   (TEST-027). It replaces TEST-014 and settles PROB-002, the last open question
+   on the mount maps. A FAIL prints the measured vector, which says what the
+   mount map should be.
 2. Ask the user to run the Wi-Fi link tests (command in Environment above).
 3. Calibration and Mahony orientation; then walking recordings for M4.
 

@@ -206,3 +206,43 @@ mismatch raises a fault bit that the dashboard displays.
 
 ### Verification
 TEST-012, TEST-013, and the application running against hardware (TEST-023).
+
+## Mounting check (M3)
+
+### Objective
+Prove each IMU is mounted the way the firmware's mount map assumes, without
+asking the operator to read numbers off a screen. This is how PROB-002 (the
+shank map) gets settled with evidence.
+
+### Design
+Three guided moves, judged against the anatomical frame (X forward, Y medial,
+Z up, right leg):
+
+| Step | Expected |
+|---|---|
+| Stand still, 3 s | mean a ≈ (0, 0, +1) g on both sensors |
+| Raise the toes, heel down, 4 s | foot peak angular rate on Y, negative |
+| Seated knee extension, 4 s | shank peak angular rate on Y, negative |
+
+Both moves rotate the segment about the medial axis in the negative sense, so
+both expect a negative Y rate. A move that is too gentle (< 30 °/s) or not
+clearly about one axis (leading axis less than 1.5× the next) fails rather than
+being guessed at, and every verdict shows the measured vector so a failure says
+what the mounting actually is.
+
+### Implementation
+`dashboard/src/mounting.ts` holds the verdicts and thresholds and is tested
+(`dashboard/src/mounting.test.ts`, 11 tests, including gravity on the wrong axis
+and a reversed sign). `dashboard/src/views/MountingCheck.tsx` collects samples
+and renders; it appears in the Device view and needs no firmware support.
+
+Accelerations come from the live tick state (5 Hz, enough for a mean). Angular
+rates come from the 20 Hz rings in `useDevice`, because the tick state is
+throttled to 5 Hz for the readouts and would miss the peak of a short movement.
+
+### Limitations
+Judged on the single strongest sample rather than an integrated angle, so it
+confirms axis and sign, not range of motion.
+
+### Verification
+11 unit tests. Not yet run on a worn device (TEST-027).

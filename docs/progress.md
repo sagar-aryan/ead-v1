@@ -389,3 +389,37 @@ Implemented; visual check pending with the user.
 
 ### Next Steps
 Guided mounting check (M3).
+
+## 2026-09-17 — M3: guided mounting check
+
+### Objective
+Settle PROB-002 (the shank mount map) with a measurement the user can perform,
+rather than by asking them to read axis values aloud.
+
+### Approach
+Three guided moves judged in the dashboard against the anatomical frame: stand
+still (gravity must read +Z on both sensors), raise the toes (foot must turn
+about −Y), seated knee extension (shank must turn about −Y). No firmware change:
+the live stream already carries anatomical accelerations and rates.
+
+### Changes
+- Added `dashboard/src/mounting.ts` (verdicts, thresholds) and its tests.
+- Added `dashboard/src/views/MountingCheck.tsx`; rendered from the Device view.
+- `styles.css`: a verdict style whose colour only reinforces the word.
+
+### Problems
+The first version collected samples from the live tick React state, which
+`useDevice` throttles to 5 Hz for the numeric readouts — fast enough for the
+still step's mean but not to catch the peak of a short movement. The rotation
+steps now read the 20 Hz rings instead.
+
+### Verification
+`npm test` 21 pass (11 new); `npm run build` clean. Not run on hardware: it needs
+the device worn on the leg, which is the user's step.
+
+### Current Status
+Implemented, awaiting a run on the leg (TEST-027).
+
+### Next Steps
+User runs the check; the result decides whether PROB-002 closes or the shank map
+changes. Then static calibration and Mahony orientation.

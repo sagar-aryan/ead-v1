@@ -28,6 +28,7 @@ A result is only recorded as PASS when it was run and checked.
 | TEST-024 | 2026-09-17 | Raw-window query time on an hour of data | PASS |
 | TEST-025 | 2026-09-17 | Raw view over 30 minutes of recorded device data | PASS |
 | TEST-026 | 2026-09-17 | Raw view load with four signals and overview; window arithmetic | PASS |
+| TEST-027 | — | Mounting check on a worn device | Pending (user) |
 
 ## TEST-008 — M0 firmware build
 
@@ -612,3 +613,32 @@ PASS
 
 ### Notes
 Rendered view not inspected by the agent (native Wayland window, no Xvfb).
+
+## TEST-027 — Mounting check on a worn device (pending)
+
+### Objective
+Confirm both mount maps against the real mounting, settling PROB-002.
+
+### Environment
+Device worn: foot sensor on the shoe, shank sensor on the shin, connected over
+USB or Wi-Fi, Device view open.
+
+### Procedure
+1. Stand still and press Start on "Stand still".
+2. Heel on the floor, press Start on "Raise your toes", then lift the toes fully
+   and lower them within the four seconds.
+3. Sit, press Start on "Extend your knee", straighten the knee and lower it.
+
+### Expected
+All three PASS. Standing still: both sensors near (0, 0, +1) g. Toes: foot peak
+on Y, negative. Knee: shank peak on Y, negative.
+
+### Actual
+Not yet run.
+
+### Result
+Pending
+
+### Notes
+A FAIL is the useful outcome here: the panel prints the measured vector, which
+says what the mounting actually is and what the mount map should be.

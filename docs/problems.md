@@ -110,6 +110,10 @@ compile time.
   rotation" (g++ 13, `-std=gnu++17`, 2026-09-17).
 - Host check: chip (1, 2, 3) maps to anatomical (−3, 1, −2), and chip X = −32768
   maps without overflow.
+- On-body: pending. The Device view's mounting check (TEST-027) measures it
+  directly — standing still must read +Z on both sensors, raising the toes must
+  turn the foot about −Y and a seated knee extension must turn the shank about
+  −Y. A failure prints the measured vector, which says what the map should be.
 - On-body: pending. Standing still must read anatomical a ≈ (0, 0, +1) g on the
   shank. The M3 mounting check then verifies gyro signs with a toe raise and a
   seated knee extension.

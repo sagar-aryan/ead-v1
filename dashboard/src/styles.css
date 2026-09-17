@@ -456,3 +456,16 @@ tr.selectable:hover td {
   margin: 0;
   cursor: pointer;
 }
+
+/* A check verdict: the word carries the meaning, colour only reinforces it. */
+.verdict {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 500;
+}
+.verdict.pass {
+  color: var(--good);
+}
+.verdict.fail {
+  color: var(--critical);
+}

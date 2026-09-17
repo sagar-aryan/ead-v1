@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 
 import { api, type LinkTarget, type UsbPortInfo } from "../api";
 import type { DeviceApi } from "../useDevice";
+import { MountingCheck } from "./MountingCheck";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -189,6 +190,8 @@ export function Device({ device }: { device: DeviceApi }) {
           </div>
         </div>
       )}
+
+      <MountingCheck device={device} />
 
       {connected && config && (
         <div className="panel">
