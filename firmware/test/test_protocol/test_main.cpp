@@ -9,6 +9,7 @@
 #include "../vectors.h"
 #include "ead/config_section.h"
 #include "ead/calibration.h"
+#include "ead/gait.h"
 #include "ead/protocol.h"
 
 using ead::MsgType;
@@ -88,6 +89,8 @@ static void test_device_status() {
   s.calibration_state = uint8_t(ead::CalibrationState::Ready);
   s.calibration_samples = 500;
   s.calibration_reject = 0;
+  s.gait_state = uint8_t(ead::GaitState::FootFlatZv);
+  s.cycles_completed = 37;
   uint8_t payload[ead::kStatusPayloadSize];
   const size_t n = ead::encodeStatusPayload(s, payload, sizeof payload);
   TEST_ASSERT_EQUAL_size_t(ead::kStatusPayloadSize, n);
@@ -285,8 +288,54 @@ static void test_calibration_record_round_trip() {
               ead::kHeaderSize + n);
 }
 
+static void test_event_batch_matches_the_vector() {
+  const ead::GaitEvent events[3] = {
+      {ead::GaitEventType::InitialContact, 12'000'000, 1200},
+      {ead::GaitEventType::FootFlat, 12'060'000, 1206},
+      {ead::GaitEventType::ToeOff, 12'600'000, 1260},
+  };
+  uint8_t payload[2 + 3 * ead::kEventRecordSize];
+  const size_t n = ead::encodeEventBatchPayload(events, 3, payload, sizeof payload);
+  TEST_ASSERT_EQUAL_size_t(sizeof payload, n);
+  assertBytes(loadVector("event_batch.hex"),
+              message(MsgType::EventBatch, 51, 12'000'000, payload, n).data(),
+              ead::kHeaderSize + n);
+  // An oversized batch is refused rather than truncated.
+  TEST_ASSERT_EQUAL_size_t(0u, ead::encodeEventBatchPayload(events, 3, payload, n - 1));
+}
+
+static void test_step_batch_matches_the_vector() {
+  ead::GaitCycle cycle{};
+  cycle.startFrame = 1200;
+  cycle.endFrame = 1300;
+  cycle.startUs = 12'000'000;
+  cycle.cycleTimeS = 1.02f;
+  cycle.stanceTimeS = 0.63f;
+  cycle.swingTimeS = 0.39f;
+  cycle.stanceRatio = 0.6176f;
+  cycle.swingRatio = 0.3824f;
+  cycle.cadenceStepsPerMin = 117.65f;
+  cycle.peakShankRateDps = 412.5f;
+  cycle.peakDorsiflexionDeg = 14.2f;
+  cycle.contactSagittalDeg = -6.8f;
+  cycle.peakInversionDeg = 3.1f;
+  cycle.distanceM = 1.41f;
+  cycle.speedMps = 1.382f;
+  cycle.zuptQuality = 0.58f;
+  cycle.valid = true;
+
+  uint8_t payload[2 + ead::kCycleRecordSize];
+  const size_t n = ead::encodeStepBatchPayload(&cycle, 1, payload, sizeof payload);
+  TEST_ASSERT_EQUAL_size_t(sizeof payload, n);
+  assertBytes(loadVector("step_batch.hex"),
+              message(MsgType::StepBatch, 52, 12'000'000, payload, n).data(),
+              ead::kHeaderSize + n);
+}
+
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_event_batch_matches_the_vector);
+  RUN_TEST(test_step_batch_matches_the_vector);
   RUN_TEST(test_session_start_round_trip);
   RUN_TEST(test_calibration_record_round_trip);
   RUN_TEST(test_host_hello_request);

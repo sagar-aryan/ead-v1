@@ -6,6 +6,7 @@
 #include "calibration_service.h"
 #include "ead/calibration.h"
 #include "ead/mahony.h"
+#include "gait_service.h"
 
 namespace orientation {
 namespace {
@@ -41,6 +42,8 @@ void adopt() {
     s_shank.reset(kIdentity);
   }
   portEXIT_CRITICAL(&s_mux);
+  // A new calibration invalidates whatever the gait engine was mid-way through.
+  gait::reset();
 }
 
 void process(ead::RawFrame* frame) {

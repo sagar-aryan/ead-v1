@@ -19,6 +19,9 @@ bool begin();
 
 void startProcessing(QueueHandle_t frames);
 
+// Appends a durable message built elsewhere (gait events and cycles).
+void append(ead::MsgType type, uint64_t timeUs, const uint8_t* payload, size_t len);
+
 size_t read(uint32_t seq, uint8_t* out, size_t cap);
 size_t lengthOf(uint32_t seq);
 // Oldest and newest stored sequence numbers (0, 0 when empty).

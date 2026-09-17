@@ -1,4 +1,4 @@
-# Device Protocol (schema 2)
+# Device Protocol (schema 3)
 
 Wire protocol between the EAD-V1 device and host software (dashboard, `tools/eadprobe.py`).
 The frame header and message type numbers are fixed by
@@ -72,9 +72,9 @@ unknown schema.
 the timestamp of the batch's first frame; for other device messages, the time the message
 was built; host messages send 0. Host time is never substituted for device time (doc 08 §6).
 
-## 4. Message catalogue (schema 2)
+## 4. Message catalogue (schema 3)
 
-| Type | Name | Direction | Schema 2 behaviour |
+| Type | Name | Direction | Schema 3 behaviour |
 |---:|---|---|---|
 | 0x01 | HELLO | both | Host identifies; device replies with identity and starts streaming |
 | 0x02 | CONFIG_GET | both | Host request (empty); device reply with configuration |
@@ -84,8 +84,8 @@ was built; host messages send 0. Host time is never substituted for device time 
 | 0x06 | PAUSE | host → device | ERROR NotSupported |
 | 0x07 | RESUME | host → device | ERROR NotSupported |
 | 0x08 | RAW_SAMPLE_BATCH | device → host | Durable; up to 10 frames |
-| 0x09 | EVENT_BATCH | device → host | Not emitted |
-| 0x0A | STEP_BATCH | device → host | Not emitted |
+| 0x09 | EVENT_BATCH | device → host | Durable; gait events (§5.11) |
+| 0x0A | STEP_BATCH | device → host | Durable; one record per completed gait cycle (§5.12) |
 | 0x0B | HAPTIC_BATCH | device → host | Never emitted (no haptics, DEC-006) |
 | 0x0C | STATUS | both | Device status at 5 Hz; host keepalive (empty) at 1 Hz |
 | 0x0D | ACK | device → host | Not emitted |
@@ -95,9 +95,10 @@ was built; host messages send 0. Host time is never substituted for device time 
 | 0x11 | BACKFILL_DATA | device → host | Chunks of stored durable messages |
 | 0x12 | SERVICE_TEST | host → device | ERROR NotSupported (no haptics) |
 
-Schema 2 adds the calibration window (SESSION_START / SESSION_STOP, §5.9–5.10) and the
-calibration fields in STATUS. The remaining session kinds, gait events and steps arrive
-with milestones M4–M5 as further schema versions.
+Schema 2 added the calibration window (SESSION_START / SESSION_STOP, §5.9–5.10) and the
+calibration fields in STATUS. Schema 3 adds gait events and cycles (§5.11–5.12) and the
+gait fields in STATUS. The remaining session kinds and the error engine arrive with
+milestone M5.
 
 ## 5. Payloads
 
@@ -132,7 +133,7 @@ Host → device: empty payload, sent at least once per second while connected. A
 host message counts as activity. A link streams only while the host has been active
 within 3 s.
 
-Device → host (53 bytes), every 200 ms while streaming:
+Device → host (58 bytes), every 200 ms while streaming:
 
 | Offset | Type | Field |
 |---:|---|---|
@@ -156,6 +157,8 @@ Device → host (53 bytes), every 200 ms while streaming:
 | 46 | u8 | `calibration_state`: 0 none, 1 collecting, 2 ready, 3 rejected |
 | 47 | u32 | `calibration_samples`: frames collected in the current or last window |
 | 51 | u16 | `calibration_reject`: reason bits (§6.5), 0 while collecting or when ready |
+| 53 | u8 | `gait_state` (§6.6) |
+| 54 | u32 | `cycles_completed` since boot, valid and invalid alike |
 
 Counters are cumulative since boot. The calibration fields describe the record held in
 RAM; it is lost on reset, and `calibration_state` returns to 0.
@@ -321,6 +324,63 @@ Each sensor record is 60 bytes: thirteen little-endian float32 values and 8 rese
 A record with any `reject` bit set must not be used. The device keeps the last record in
 RAM and reports it in STATUS; it is not stored in flash (no storage until M7).
 
+### 5.11 EVENT_BATCH (device → host, durable)
+
+| Offset | Type | Field |
+|---:|---|---|
+| 0 | u8 | `count`, 1–20 |
+| 1 | u8 | `record_size` = 14 |
+| 2 | … | `count` records |
+
+Each record:
+
+| Offset | Type | Field |
+|---:|---|---|
+| 0 | u8 | `type` (§6.7) |
+| 1 | u8 | reserved, 0 |
+| 2 | u32 | `frame_index` the event is attributed to |
+| 6 | u64 | `device_time_us` of the event |
+
+An event's time is the instant the detector chose, not the instant it decided: initial
+contact is timestamped at the strongest impact feature inside its 120 ms window, so an
+event can refer to a frame already sent (doc 05 §3).
+
+### 5.12 STEP_BATCH (device → host, durable)
+
+One record per completed gait cycle: right initial contact to the next (doc 05 §1).
+
+| Offset | Type | Field |
+|---:|---|---|
+| 0 | u8 | `count`, 1–8 |
+| 1 | u8 | `record_size` = 72 |
+| 2 | … | `count` records |
+
+Each record:
+
+| Offset | Type | Field |
+|---:|---|---|
+| 0 | u32 | `start_frame` (the initial contact that opened the cycle) |
+| 4 | u32 | `end_frame` |
+| 8 | u64 | `start_us` |
+| 16 | f32 | `cycle_time_s` |
+| 20 | f32 | `stance_time_s` |
+| 24 | f32 | `swing_time_s` |
+| 28 | f32 | `stance_ratio` |
+| 32 | f32 | `swing_ratio` |
+| 36 | f32 | `cadence_steps_per_min` = 120 / cycle time (doc 05 §9) |
+| 40 | f32 | `peak_shank_rate_dps` |
+| 44 | f32 | `peak_dorsiflexion_deg` in swing |
+| 48 | f32 | `contact_sagittal_deg` at initial contact |
+| 52 | f32 | `peak_inversion_deg` |
+| 56 | f32 | `distance_m`, estimated |
+| 60 | f32 | `speed_mps` = distance / cycle time |
+| 64 | f32 | `zupt_quality`, fraction of the cycle in an accepted zero-velocity window |
+| 68 | u16 | `flags`: bit 0 `valid` (passed the temporal guards, doc 05 §4) |
+| 70 | u16 | reserved, 0 |
+
+Distance and speed are only meaningful where `zupt_quality` is adequate; a host must show
+them as low-confidence rather than correcting them (doc 05 §8).
+
 ## 6. Enumerations
 
 ### 6.1 Device state (doc 07 §6)
@@ -384,3 +444,11 @@ Retention and flow control:
   with more than 2880 bytes of its 5760-byte send buffer free, and no message exceeds
   2800 bytes, so the device never blocks on a slow client.
 - **USB.** A frame is written only when the CDC transmit buffer (16 KB) can take it whole.
+
+### 6.6 Gait state (doc 05 §2)
+
+`0 INIT, 1 SWING, 2 CONTACT_TRANSITION, 3 STANCE, 4 FOOT_FLAT_ZV, 5 PRE_SWING, 6 FAULT`
+
+### 6.7 Gait event types
+
+`1 INITIAL_CONTACT, 2 TOE_OFF, 3 FOOT_FLAT, 4 ZUPT_START, 5 ZUPT_END`

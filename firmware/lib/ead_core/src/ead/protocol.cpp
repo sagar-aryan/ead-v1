@@ -1,6 +1,7 @@
 #include "ead/protocol.h"
 
 #include "ead/calibration.h"
+#include "ead/gait.h"
 
 #include "ead/cobs.h"
 #include "ead/crc32.h"
@@ -119,6 +120,8 @@ size_t encodeStatusPayload(const StatusInfo& s, uint8_t* out, size_t cap) {
   w.u8(s.calibration_state);
   w.u32(s.calibration_samples);
   w.u16(s.calibration_reject);
+  w.u8(s.gait_state);
+  w.u32(s.cycles_completed);
   return w.ok() ? w.size() : 0;
 }
 
@@ -279,6 +282,51 @@ bool UsbFrameDecoder::feed(uint8_t byte) {
   }
   decodedLen_ = d - 4;
   return true;
+}
+
+
+
+size_t encodeEventBatchPayload(const GaitEvent* events, size_t count, uint8_t* out, size_t cap) {
+  if (count == 0 || count > kMaxEventsPerBatch) return 0;
+  ByteWriter w(out, cap);
+  w.u8(uint8_t(count));
+  w.u8(uint8_t(kEventRecordSize));
+  for (size_t i = 0; i < count; ++i) {
+    w.u8(uint8_t(events[i].type));
+    w.u8(0);
+    w.u32(events[i].frameIndex);
+    w.u64(events[i].timeUs);
+  }
+  return w.ok() ? w.size() : 0;
+}
+
+size_t encodeStepBatchPayload(const GaitCycle* cycles, size_t count, uint8_t* out, size_t cap) {
+  if (count == 0 || count > kMaxCyclesPerBatch) return 0;
+  ByteWriter w(out, cap);
+  w.u8(uint8_t(count));
+  w.u8(uint8_t(kCycleRecordSize));
+  for (size_t i = 0; i < count; ++i) {
+    const GaitCycle& c = cycles[i];
+    w.u32(c.startFrame);
+    w.u32(c.endFrame);
+    w.u64(c.startUs);
+    w.f32(c.cycleTimeS);
+    w.f32(c.stanceTimeS);
+    w.f32(c.swingTimeS);
+    w.f32(c.stanceRatio);
+    w.f32(c.swingRatio);
+    w.f32(c.cadenceStepsPerMin);
+    w.f32(c.peakShankRateDps);
+    w.f32(c.peakDorsiflexionDeg);
+    w.f32(c.contactSagittalDeg);
+    w.f32(c.peakInversionDeg);
+    w.f32(c.distanceM);
+    w.f32(c.speedMps);
+    w.f32(c.zuptQuality);
+    w.u16(c.valid ? kCycleValid : 0);
+    w.u16(0);
+  }
+  return w.ok() ? w.size() : 0;
 }
 
 }  // namespace ead

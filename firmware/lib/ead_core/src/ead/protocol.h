@@ -10,7 +10,7 @@
 namespace ead {
 
 constexpr uint16_t kProtocolVersion = 1;  // doc 08 header field
-constexpr uint16_t kSchemaVersion = 2;    // payload layouts, docs/protocol.md
+constexpr uint16_t kSchemaVersion = 3;    // payload layouts, docs/protocol.md
 constexpr size_t kHeaderSize = 20;
 constexpr size_t kRawFrameSize = 54;
 constexpr size_t kMaxRawFramesPerBatch = 10;
@@ -169,9 +169,11 @@ struct StatusInfo {
   uint8_t calibration_state;
   uint32_t calibration_samples;
   uint16_t calibration_reject;
+  uint8_t gait_state;
+  uint32_t cycles_completed;
 };
 
-constexpr size_t kStatusPayloadSize = 53;
+constexpr size_t kStatusPayloadSize = 58;
 
 /// STATUS calibration_state (docs/protocol.md §5.3).
 enum class CalibrationState : uint8_t { None = 0, Collecting = 1, Ready = 2, Rejected = 3 };
@@ -189,6 +191,20 @@ bool decodeSessionStart(const uint8_t* payload, size_t len, uint8_t* kind, uint1
 size_t encodeSessionStart(uint8_t kind, uint16_t durationMs, uint8_t* out, size_t cap);
 
 struct CalibrationRecord;  // ead/calibration.h
+struct GaitEvent;          // ead/gait.h
+struct GaitCycle;          // ead/gait.h
+
+// ---- gait (schema 3) -------------------------------------------------------
+
+constexpr size_t kEventRecordSize = 14;
+constexpr size_t kCycleRecordSize = 72;
+constexpr size_t kMaxEventsPerBatch = 20;
+constexpr size_t kMaxCyclesPerBatch = 8;
+/// Bit 0 of a cycle record's flags: the cycle passed the temporal guards.
+constexpr uint16_t kCycleValid = 1u << 0;
+
+size_t encodeEventBatchPayload(const GaitEvent* events, size_t count, uint8_t* out, size_t cap);
+size_t encodeStepBatchPayload(const GaitCycle* cycles, size_t count, uint8_t* out, size_t cap);
 
 /// SESSION_STOP, device → host: the calibration record.
 size_t encodeCalibrationPayload(uint8_t kind, const CalibrationRecord& record, uint8_t* out,

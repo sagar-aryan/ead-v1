@@ -26,11 +26,12 @@ import time
 import zlib
 
 PROTOCOL_VERSION = 1
-SCHEMA = 2
+SCHEMA = 3
 HEADER = struct.Struct("<HBBIIQ")
 
 HELLO, CONFIG_GET, RAW_SAMPLE_BATCH, STATUS, ERROR = 0x01, 0x02, 0x08, 0x0C, 0x0E
 SESSION_START, SESSION_STOP = 0x04, 0x05
+EVENT_BATCH, STEP_BATCH = 0x09, 0x0A
 BACKFILL_REQUEST, BACKFILL_DATA = 0x10, 0x11
 DURABLE = {0x08, 0x09, 0x0A, 0x0B}
 
@@ -46,7 +47,7 @@ ERROR_CODES = {1: "BadFrame", 2: "SchemaMismatch", 3: "NotSupported", 4: "Invali
 
 USB_VID, USB_PID = 0x303A, 0x1001
 RAW_FRAME = struct.Struct("<QI6h6h4h4hH")
-STATUS_PAYLOAD = struct.Struct("<BBHIIIIIIIbBIHHHHBIH")
+STATUS_PAYLOAD = struct.Struct("<BBHIIIIIIIbBIHHHHBIHBI")
 ACCEL_LSB_PER_G = 8192.0  # +-4 g (datasheet)
 
 
@@ -291,14 +292,50 @@ def decode_status(p):
              "i2c_errors", "imu_reinits", "oldest_seq", "last_seq", "ap_rssi_dbm", "ap_stations",
              "heap_free_min", "stack_free_acquisition", "stack_free_processing", "stack_free_usb",
              "stack_free_wifi", "calibration_state", "calibration_samples",
-             "calibration_reject"]
+             "calibration_reject", "gait_state", "cycles_completed"]
     s = dict(zip(names, STATUS_PAYLOAD.unpack(p)))
     s["state"] = STATES[s["state"]]
     s["faults"] = flag_names(s["faults"], FAULTS)
     s["links"] = [n for bit, n in enumerate(["usb", "wifi"]) if s["links"] & (1 << bit)]
     s["calibration_state"] = CALIB_STATES[s["calibration_state"]]
     s["calibration_reject"] = flag_names(s["calibration_reject"], CALIB_REJECTS)
+    s["gait_state"] = GAIT_STATES[s["gait_state"]]
     return s
+
+
+GAIT_STATES = ["INIT", "SWING", "CONTACT_TRANSITION", "STANCE", "FOOT_FLAT_ZV", "PRE_SWING",
+               "FAULT"]
+GAIT_EVENTS = {1: "INITIAL_CONTACT", 2: "TOE_OFF", 3: "FOOT_FLAT", 4: "ZUPT_START",
+               5: "ZUPT_END"}
+EVENT_RECORD = struct.Struct("<BBIQ")
+CYCLE_RECORD = struct.Struct("<IIQ13fHH")
+
+
+def decode_events(p):
+    count, size = p[0], p[1]
+    out = []
+    for i in range(count):
+        t, _, frame, us = EVENT_RECORD.unpack_from(p, 2 + i * size)
+        out.append({"type": GAIT_EVENTS.get(t, t), "frame": frame, "time_s": us / 1e6})
+    return out
+
+
+def decode_cycles(p):
+    count, size = p[0], p[1]
+    out = []
+    for i in range(count):
+        v = CYCLE_RECORD.unpack_from(p, 2 + i * size)
+        out.append({
+            "start_frame": v[0], "end_frame": v[1], "start_s": v[2] / 1e6,
+            "cycle_time_s": round(v[3], 3), "stance_time_s": round(v[4], 3),
+            "swing_time_s": round(v[5], 3), "stance_ratio": round(v[6], 3),
+            "swing_ratio": round(v[7], 3), "cadence": round(v[8], 1),
+            "peak_shank_dps": round(v[9], 1), "peak_dorsiflexion_deg": round(v[10], 1),
+            "contact_sagittal_deg": round(v[11], 1), "peak_inversion_deg": round(v[12], 1),
+            "distance_m": round(v[13], 3), "speed_mps": round(v[14], 3),
+            "zupt_quality": round(v[15], 3), "valid": bool(v[16] & 1),
+        })
+    return out
 
 
 CALIB_STATES = ["none", "collecting", "ready", "rejected"]
@@ -459,6 +496,41 @@ def cmd_calibrate(args):
               f"|a| {v['accel_magnitude_g']} g  sigma {v['gyro_std_dps']} deg/s")
     s.transport.close()
     return 0 if record["reject"] == ["none"] else 1
+
+
+def cmd_walk(args):
+    """Records a walk and prints the cycles the device detected."""
+    s = Session(args)
+    s.open()
+    s.hello()
+    print(f"walking capture: {args.seconds:.0f} s")
+    events, cycles = [], []
+    end = time.monotonic() + args.seconds
+    while time.monotonic() < end:
+        s.send(STATUS, b"")
+        for msg in s.transport.poll(0.2):
+            t, _, _, p = parse(msg)
+            if t == EVENT_BATCH:
+                events.extend(decode_events(p))
+            elif t == STEP_BATCH:
+                cycles.extend(decode_cycles(p))
+            elif t == ERROR:
+                print(decode_error(p), file=sys.stderr)
+    contacts = [e for e in events if e["type"] == "INITIAL_CONTACT"]
+    print(f"{len(contacts)} initial contacts, {len(cycles)} cycles")
+    if cycles:
+        print(f"{'cycle':>6} {'time':>6} {'stance':>7} {'cadence':>8} {'dist':>7} "
+              f"{'speed':>7} {'zupt':>6} {'dorsi':>7}  valid")
+        for i, c in enumerate(cycles, 1):
+            print(f"{i:6d} {c['cycle_time_s']:6.2f} {c['stance_ratio']:7.2f} "
+                  f"{c['cadence']:8.1f} {c['distance_m']:7.2f} {c['speed_mps']:7.2f} "
+                  f"{c['zupt_quality']:6.2f} {c['peak_dorsiflexion_deg']:7.1f}  {c['valid']}")
+        valid = [c for c in cycles if c["valid"]]
+        if valid:
+            total = sum(c["distance_m"] for c in valid)
+            print(f"valid cycles {len(valid)}  total distance {total:.2f} m  "
+                  f"mean cadence {sum(c['cadence'] for c in valid)/len(valid):.1f} steps/min")
+    s.transport.close()
 
 
 def cmd_config(args):
@@ -693,6 +765,8 @@ def main():
     st = sub.add_parser("stats")
     st.add_argument("--seconds", type=float, default=60)
     st.add_argument("--record", metavar="FILE")
+    wk = sub.add_parser("walk")
+    wk.add_argument("--seconds", type=float, default=30)
     cal = sub.add_parser("calibrate")
     cal.add_argument("--seconds", type=float, default=5.0)
     ro = sub.add_parser("reopen")
@@ -700,7 +774,7 @@ def main():
     ro.add_argument("--pause", type=float, default=0.5)
     args = ap.parse_args()
     {"hello": cmd_hello, "config": cmd_config, "stats": cmd_stats, "reopen": cmd_reopen,
-     "calibrate": cmd_calibrate}[args.command](args)
+     "calibrate": cmd_calibrate, "walk": cmd_walk}[args.command](args)
 
 
 if __name__ == "__main__":

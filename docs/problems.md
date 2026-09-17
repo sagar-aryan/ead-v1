@@ -533,3 +533,78 @@ invisible to the static gravity check, which compared each sensor against
 itself. It took a physical pose with a known answer — a flat foot is 0° — to
 show it. Every estimator needs at least one test whose expected value comes from
 the world rather than from the code.
+
+## PROB-011 — Accelerometer range is marginal for heel strike
+
+**Status:** Open, measured
+
+### Symptoms
+A 6 m walk clipped the accelerometer on 2 frames and the gyroscope on 1, out of
+4,010 (TEST-030). Peak |a| at heel strike reached 5.3 g against a ±4 g range.
+
+### Evidence
+`foot_accel_saturated` and `foot_gyro_saturated` flags in the recording, and the
+acceleration magnitudes around each contact: 2.3–5.3 g.
+
+### Consequence
+Clipping loses part of the impact peak. It does not affect contact detection —
+a clipped impact is still far above the confirm threshold — but it under-reads
+the acceleration that distance integration uses, at the one moment per stride
+where acceleration is largest.
+
+### Options
+1. ±8 g accelerometer and ±1000 °/s gyroscope: halves the resolution everywhere
+   else, where the signal is small.
+2. Keep ±4 g and accept that a heel strike clips.
+3. Measure a faster walk and a stair descent before deciding; both are harsher
+   than the level walk that produced this.
+
+### Decision
+Deferred until there are recordings of faster walking (option 3). At three
+clipped frames in forty seconds, this is not what limits distance accuracy today
+— the orientation error during swing is (PROB-012).
+
+## PROB-012 — Orientation error during swing limits distance accuracy
+
+**Status:** Workaround in place, root cause understood
+
+### Symptoms
+Integrating acceleration over a swing gives a foot velocity of 6–10 m/s at the
+instant the foot is back on the ground and demonstrably at rest (TEST-030).
+
+### Investigation
+Measured in the recording: during the walk the world-frame acceleration averaged
+−2.65 m/s² vertically, where it should average zero, and its horizontal RMS was
+8.2 m/s². Both point at the orientation estimate rather than at the sensor: a
+tilt error of θ leaks 9.81·sin θ of gravity into the horizontal axes, which
+integrates into exactly this kind of runaway velocity.
+
+### Root cause
+A 6-DoF estimator has only gravity to level itself against, and during swing the
+accelerometer measures gravity plus the foot's own acceleration. Correcting
+toward that tilts the estimate toward the direction of travel, which is worst
+exactly when the foot is moving fastest.
+
+### Workaround
+Two measures, both measured against the 6 m course:
+
+1. The gravity correction is gated off while |a| is more than 0.25 g from 1 g
+   (`kAccelGateG`), so the estimator integrates the gyroscope through swing and
+   re-levels during stance. Chosen from a sweep: no gate −23 %, 0.15 g +8.7 %,
+   0.25 g +6.5 %, 0.40 g −9 %.
+2. The velocity that has accumulated by the end of a swing is treated as drift
+   and removed as a linear ramp over that swing, which has a closed form: the
+   displacement correction is the end velocity times half the segment duration
+   (`GaitEngine::removeSegmentDrift`). Without it the same recording measured
+   0.94 m instead of 6.39 m.
+
+### Remaining error
++6.5 % on a 6 m course. The proper fix is an error-state Kalman filter that
+corrects tilt as well as velocity at each zero-velocity update, which is what a
+foot-mounted inertial navigator normally does; doc 05 §7 asks only for the
+velocity substate in V1.
+
+### Lessons
+The failure was invisible in every synthetic test, because a synthetic signal is
+generated from a known orientation and so has no tilt error at all. It took one
+walk down a corridor of known length.

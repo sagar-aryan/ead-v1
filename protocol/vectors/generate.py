@@ -20,15 +20,17 @@ ROOT = HERE.parent.parent
 CONFIG_JSON = ROOT / "ead_agent_docs_v2" / "CONFIG_V1.json"
 
 PROTOCOL_VERSION = 1
-SCHEMA = 2
+SCHEMA = 3
 
 # Message types (doc 08 §3).
 HELLO, CONFIG_GET, STATUS, ERROR = 0x01, 0x02, 0x0C, 0x0E
 RAW_SAMPLE_BATCH, BACKFILL_REQUEST, BACKFILL_DATA = 0x08, 0x10, 0x11
 SESSION_START, SESSION_STOP = 0x04, 0x05
+EVENT_BATCH, STEP_BATCH = 0x09, 0x0A
 
 # Calibration states and reject bits (docs/protocol.md §5.3, §6.5).
 CALIB_READY = 2
+GAIT_FOOT_FLAT = 4
 CALIB_MOVED = 1 << 1
 
 # RAW frame status bits (docs/protocol.md).
@@ -156,7 +158,7 @@ def main():
     cfg = json.loads(CONFIG_JSON.read_text())
 
     hello_request = message(HELLO, struct.pack("<H", SCHEMA), seq=7, time_us=0)
-    write("hello_request.hex", "Host HELLO, schema 2, command sequence 7.", hello_request)
+    write("hello_request.hex", "Host HELLO, schema 3, command sequence 7.", hello_request)
 
     fw = "0.1.0+test"
     sha = hashlib.sha256(b"ead").digest()
@@ -171,15 +173,16 @@ def main():
           message(HELLO, hello_info_payload, seq=42, time_us=123456789))
 
     status_payload = struct.pack(
-        "<BBHIIIIIIIbBIHHHHBIH", STATE_READY, LINK_USB_ACTIVE,
+        "<BBHIIIIIIIbBIHHHHBIHBI", STATE_READY, LINK_USB_ACTIVE,
         FAULT_SHANK_FROZEN | FAULT_ACQUISITION_STALLED, 123456, 3, 17, 2, 1, 1, 42, -47, 1, 201000,
-        1500, 2600, 3100, 4200, CALIB_READY, 500, 0)
-    assert len(status_payload) == 53
+        1500, 2600, 3100, 4200, CALIB_READY, 500, 0, GAIT_FOOT_FLAT, 37)
+    assert len(status_payload) == 58
     write("status.hex",
           "Device STATUS: READY, USB link active, faults 0x0300 (shank frozen + acquisition\n"
           "stalled), frame 123456, dropped 3, shank repeated 17, I2C errors 2, reinits 1,\n"
           "sequence window 1..42, RSSI -47 dBm, 1 station, heap min 201000,\n"
-          "stack free 1500/2600/3100/4200, calibration ready from 500 samples.\n"
+          "stack free 1500/2600/3100/4200, calibration ready from 500 samples,\n"
+          "gait FOOT_FLAT_ZV with 37 cycles completed.\n"
           "Header sequence 42, time 987654321.",
           message(STATUS, status_payload, seq=42, time_us=987654321))
 
@@ -204,6 +207,24 @@ def main():
 
     write("backfill_request.hex", "Host BACKFILL_REQUEST for sequences 100..250, command sequence 11.",
           message(BACKFILL_REQUEST, struct.pack("<II", 100, 250), seq=11, time_us=0))
+
+    events = b"".join(struct.pack("<BBIQ", t, 0, frame, us) for t, frame, us in (
+        (1, 1200, 12_000_000), (3, 1206, 12_060_000), (2, 1260, 12_600_000)))
+    write("event_batch.hex",
+          "EVENT_BATCH: initial contact at frame 1200, foot-flat at 1206, toe-off at 1260.\n"
+          "Header sequence 51, time 12000000.",
+          message(EVENT_BATCH, struct.pack("<BB", 3, 14) + events, seq=51, time_us=12_000_000))
+
+    cycle = (struct.pack("<IIQ", 1200, 1300, 12_000_000)
+             + struct.pack("<13f", 1.02, 0.63, 0.39, 0.6176, 0.3824, 117.65,
+                           412.5, 14.2, -6.8, 3.1, 1.41, 1.382, 0.58)
+             + struct.pack("<HH", 1, 0))
+    assert len(cycle) == 72
+    write("step_batch.hex",
+          "STEP_BATCH: one valid cycle of 1.02 s, stance 0.63 s, cadence 117.65 steps/min,\n"
+          "peak shank rate 412.5 deg/s, distance 1.41 m at 1.382 m/s, ZUPT quality 0.58.\n"
+          "Header sequence 52, time 12000000.",
+          message(STEP_BATCH, struct.pack("<BB", 1, 72) + cycle, seq=52, time_us=12_000_000))
 
     write("session_start.hex",
           "Host SESSION_START, kind CALIBRATION (1), 5000 ms window. Command sequence 12.",

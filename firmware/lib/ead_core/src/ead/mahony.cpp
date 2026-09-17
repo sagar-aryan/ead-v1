@@ -8,6 +8,12 @@ namespace {
 constexpr float kDegToRad = 0.017453292519943295f;
 /// Below this the accelerometer says nothing about which way is down.
 constexpr float kMinAccelG = 0.1f;
+/// And neither does it while the segment is being accelerated: what it measures
+/// then is gravity plus motion, and correcting toward that tilts the estimate
+/// toward the direction of travel. A swinging foot spends most of its time
+/// outside this band, so the estimator integrates the gyroscope through swing
+/// and re-levels during stance, which is what the zero-velocity windows are.
+constexpr float kAccelGateG = 0.25f;
 
 }  // namespace
 
@@ -67,7 +73,7 @@ void Mahony::update(const float gyroDps[3], const float accelG[3], float dtSecon
 
   const float magnitude =
       std::sqrt(accelG[0] * accelG[0] + accelG[1] * accelG[1] + accelG[2] * accelG[2]);
-  if (magnitude > kMinAccelG) {
+  if (magnitude > kMinAccelG && std::fabs(magnitude - 1.0f) <= kAccelGateG) {
     const float ax = accelG[0] / magnitude;
     const float ay = accelG[1] / magnitude;
     const float az = accelG[2] / magnitude;

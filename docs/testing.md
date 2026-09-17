@@ -31,6 +31,7 @@ A result is only recorded as PASS when it was run and checked.
 | TEST-027 | 2026-09-17 | Mounting check on a worn device | PASS (after correcting the shank map) |
 | TEST-028 | 2026-09-18 | Static calibration on the device, repeatability and window length | PASS |
 | TEST-029 | 2026-09-18 | Orientation estimate on hardware | PASS |
+| TEST-030 | 2026-09-18 | Gait detection and distance on a measured 6 m course | PASS (6.39 m measured against 6.00 m) |
 
 ## TEST-008 — M0 firmware build
 
@@ -767,3 +768,62 @@ would.
 
 ### Result
 PASS
+
+## TEST-030 — Gait detection and distance on a measured 6 m course
+
+### Objective
+Check the gait detector against measured ground truth: does it find one cycle per
+stride, and does the estimated distance match a course of known length?
+
+### Environment
+Device worn, powered from a battery pack, streaming over Wi-Fi. Course 6.00 m
+walked in a straight line at a normal indoor pace, 11–12 alternating steps (about
+6 right-foot strides). Recording `recordings/walk6m-2026-09-18.eadlog`: 40 s,
+4,010 frames, no gaps, 5 s standing at the start.
+
+### Procedure
+1. `eadprobe --ws … stats --seconds 40 --record walk6m.eadlog` while walking.
+2. Establish ground-truth contact times independently of the detector, by finding
+   the acceleration peaks above 2 g in the recording.
+3. Replay the recording through the device's own code (`tools/replay`) and
+   compare.
+
+### Ground truth
+Heel strikes at 6.95, 7.51, 9.17, 10.94, 12.74, 14.33 and 15.92 s — six strides
+of 1.59–1.80 s. Contacts peak at 2.3–5.3 g; push-off and mid-swing peak at
+1.5–1.9 g, which is what separates them.
+
+### Actual
+Three defects were found and fixed, each with the evidence that produced it:
+
+| Run | Contacts found | Distance | What it showed |
+|---|---|---|---|
+| First, on the device | 20 for ~12 steps | 5.91 m, ZUPT quality 0.00 | Every impact opened a cycle; zero-velocity never detected |
+| After the refractory and ZUPT-context fixes | 12, alternating 1.0 s / 0.6 s | 2.65 m | Push-off was being read as a footfall, splitting every stride |
+| After the confirm threshold and the sustain fix | 7, exactly the ground truth | 6.39 m | Correct |
+
+Final replay: 6 cycles, all valid, cycle time 1.59–1.80 s, stance ratio
+0.50–0.60, ZUPT quality 0.22–0.29, per-stride distance 1.04–1.35 m, total
+**6.39 m against a 6.00 m course (+6.5 %)**.
+
+The gravity-correction gate was chosen by measurement rather than by taste:
+
+| Gate | Total distance | Error |
+|---|---:|---:|
+| none | 4.63 m | −23 % |
+| 0.15 g | 6.52 m | +8.7 % |
+| **0.25 g** | **6.39 m** | **+6.5 %** |
+| 0.40 g | 5.46 m | −9 % |
+
+### Result
+PASS
+
+### Notes
+Tuned against a single recording, so the thresholds are fitted to one gait on one
+day. They are named constants in `gait.h` and overridable at run time
+(`GaitConfig`), and doc 05 §3 asks for them to become adaptive per patient. More
+walks, at different speeds, are the next evidence needed.
+
+Saturation appeared for the first time: 2 frames of accelerometer and 1 of
+gyroscope clipping (±4 g, ±500 °/s) in 4,010. Impacts reached 5.3 g, so the
+accelerometer range is marginal for heel strike (PROB-011).

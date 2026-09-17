@@ -1,6 +1,7 @@
 #include "telemetry.h"
 
 #include "calibration_service.h"
+#include "gait_service.h"
 #include "orientation.h"
 
 #include <new>
@@ -46,12 +47,15 @@ void processingTask(void* arg) {
       orientation::adopt();
     }
     orientation::process(&batch[count]);
+    gait::consume(batch[count]);
     if (++count < EAD_SAMPLE_BATCH_FRAMES) continue;
     const size_t len = ead::encodeRawBatchPayload(batch, count, payload, sizeof payload);
     {
       Guard guard;
       s_ring->append(ead::MsgType::RawSampleBatch, batch[0].timestamp_us, payload, len);
     }
+    // After the frames, so an event always follows the frame it refers to.
+    gait::publish();
     count = 0;
   }
 }
@@ -80,6 +84,12 @@ void startProcessing(QueueHandle_t frames) {
   TaskHandle_t handle = nullptr;
   xTaskCreatePinnedToCore(processingTask, "processing", 6144, frames, 20, &handle, 1);
   device::registerTask(device::TaskRole::Processing, handle);
+}
+
+void append(ead::MsgType type, uint64_t timeUs, const uint8_t* payload, size_t len) {
+  if (len == 0 || s_ring == nullptr) return;
+  Guard guard;
+  s_ring->append(type, timeUs, payload, len);
 }
 
 size_t read(uint32_t seq, uint8_t* out, size_t cap) {

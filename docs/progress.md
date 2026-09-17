@@ -575,3 +575,54 @@ M4: gait events and ZUPT.
 
 Orientation is confirmed on the leg: four toe raises peaked at +24.9°, +25.9°,
 +26.5° and +26.7°, repeating within 0.2°, with no accumulation between lifts.
+
+## 2026-09-18 — M4: gait events, ZUPT and cycle distance
+
+### Objective
+Detect gait cycles and estimate stride distance, then check both against a
+measured course.
+
+### Approach
+Doc 05 in `ead_core/gait.{h,cpp}`: the seven-state machine, initial contact
+timestamped at the strongest impact inside its window, toe-off after sustained
+rotation, zero-velocity windows at the document's thresholds, per-cycle features,
+and a velocity error-state update rather than a hard reset. Schema 3 carries the
+result as EVENT_BATCH and STEP_BATCH, both durable.
+
+Then a recording, because thresholds cannot be guessed: `tools/replay` runs the
+device's own code over a `.eadlog` on the host, so a change can be tested against
+real signals in seconds instead of asking for another walk.
+
+### Problems
+Four, all found by measurement (TEST-030, PROB-011, PROB-012):
+
+1. Every impact opened a cycle — 20 contacts for 12 steps. A footfall produces
+   several impacts; contacts within one minimum cycle are now the same footfall.
+2. Zero-velocity was never detected on a real walk. PRE_SWING had been left out
+   of the states allowed to hold a window, and a single moving sample during
+   stance locked the detector out for the whole cycle.
+3. Push-off was being read as the next footfall, splitting every stride into a
+   1.0 s "mostly stance" cycle and a 0.6 s "mostly swing" one. Measured, heel
+   strikes peak at 2.3–5.3 g and push-off at 1.5–1.9 g, so a confirm threshold
+   at 1.1 g above rest separates them. Doc 05's suggested test — angular speed
+   decreasing toward contact — does not hold for this mounting: the foot's rate
+   peaks within 20 ms of heel strike.
+4. One real contact was rejected for lasting 29.96 ms against a 30 ms
+   requirement: three samples at the device's actual 100.147 Hz. An impact above
+   the confirm level is now decisive regardless of duration.
+
+### Verification
+TEST-030: 6 cycles for 6 strides, contact times matching the ground truth
+exactly, total distance 6.39 m against a 6.00 m course (+6.5 %), ZUPT quality
+0.22–0.29, stance ratio 0.50–0.60. Firmware 47 native tests, Rust 44.
+
+### Current Status
+The gait engine works on real walking. The firmware on the device is one version
+behind: it needs a USB connection to flash.
+
+### Next Steps
+1. Flash the device with the corrected detector and confirm live.
+2. Store cycles and events in the dashboard and build the CYCLES, EVENTS and
+   TRENDS views.
+3. More walks, at different speeds, before trusting the thresholds (they are
+   fitted to one recording).

@@ -15,7 +15,7 @@ use reader::Reader;
 pub use config::parse_section;
 
 pub const PROTOCOL_VERSION: u16 = 1;
-pub const SCHEMA_VERSION: u16 = 2;
+pub const SCHEMA_VERSION: u16 = 3;
 pub const HEADER_SIZE: usize = 20;
 pub const RAW_FRAME_SIZE: usize = 54;
 /// Largest message the device will send (`docs/protocol.md` §7).
@@ -217,7 +217,7 @@ pub fn hello_request() -> Vec<u8> {
 
 // ---- STATUS ----------------------------------------------------------------
 
-pub const STATUS_PAYLOAD_SIZE: usize = 53;
+pub const STATUS_PAYLOAD_SIZE: usize = 58;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
 pub struct Status {
@@ -242,6 +242,9 @@ pub struct Status {
     pub calibration_state: u8,
     pub calibration_samples: u32,
     pub calibration_reject: u16,
+    /// Gait state, `docs/protocol.md` §6.6.
+    pub gait_state: u8,
+    pub cycles_completed: u32,
 }
 
 pub fn parse_status(payload: &[u8]) -> Result<Status> {
@@ -270,7 +273,139 @@ pub fn parse_status(payload: &[u8]) -> Result<Status> {
         calibration_state: r.u8()?,
         calibration_samples: r.u32()?,
         calibration_reject: r.u16()?,
+        gait_state: r.u8()?,
+        cycles_completed: r.u32()?,
     })
+}
+
+// ---- gait events and cycles (schema 3) --------------------------------------
+
+/// Gait states, doc 05 §2 order.
+pub const GAIT_STATES: [&str; 7] =
+    ["init", "swing", "contact_transition", "stance", "foot_flat_zv", "pre_swing", "fault"];
+
+pub const EVENT_RECORD_SIZE: usize = 14;
+pub const CYCLE_RECORD_SIZE: usize = 72;
+/// Bit 0 of a cycle's flags: it passed the temporal guards (doc 05 §4).
+pub const CYCLE_VALID: u16 = 1 << 0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GaitEventType {
+    InitialContact,
+    ToeOff,
+    FootFlat,
+    ZuptStart,
+    ZuptEnd,
+}
+
+impl GaitEventType {
+    fn from_byte(value: u8) -> Option<Self> {
+        Some(match value {
+            1 => GaitEventType::InitialContact,
+            2 => GaitEventType::ToeOff,
+            3 => GaitEventType::FootFlat,
+            4 => GaitEventType::ZuptStart,
+            5 => GaitEventType::ZuptEnd,
+            _ => return None,
+        })
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            GaitEventType::InitialContact => "initial_contact",
+            GaitEventType::ToeOff => "toe_off",
+            GaitEventType::FootFlat => "foot_flat",
+            GaitEventType::ZuptStart => "zupt_start",
+            GaitEventType::ZuptEnd => "zupt_end",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct GaitEvent {
+    pub event_type: GaitEventType,
+    pub frame_index: u32,
+    pub timestamp_us: u64,
+}
+
+pub fn parse_event_batch(payload: &[u8]) -> Result<Vec<GaitEvent>> {
+    let mut r = Reader::new(payload);
+    let count = r.u8()? as usize;
+    let size = r.u8()? as usize;
+    if size < EVENT_RECORD_SIZE || payload.len() != 2 + count * size {
+        return Err(ProtocolError::BadPayload("EVENT_BATCH"));
+    }
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        let raw = r.u8()?;
+        r.u8()?; // reserved
+        let event = GaitEvent {
+            event_type: GaitEventType::from_byte(raw)
+                .ok_or(ProtocolError::BadPayload("EVENT_BATCH"))?,
+            frame_index: r.u32()?,
+            timestamp_us: r.u64()?,
+        };
+        r.bytes(size - EVENT_RECORD_SIZE)?;
+        out.push(event);
+    }
+    Ok(out)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct GaitCycle {
+    pub start_frame: u32,
+    pub end_frame: u32,
+    pub start_us: u64,
+    pub cycle_time_s: f32,
+    pub stance_time_s: f32,
+    pub swing_time_s: f32,
+    pub stance_ratio: f32,
+    pub swing_ratio: f32,
+    pub cadence_steps_per_min: f32,
+    pub peak_shank_rate_dps: f32,
+    pub peak_dorsiflexion_deg: f32,
+    pub contact_sagittal_deg: f32,
+    pub peak_inversion_deg: f32,
+    pub distance_m: f32,
+    pub speed_mps: f32,
+    pub zupt_quality: f32,
+    pub valid: bool,
+}
+
+pub fn parse_step_batch(payload: &[u8]) -> Result<Vec<GaitCycle>> {
+    let mut r = Reader::new(payload);
+    let count = r.u8()? as usize;
+    let size = r.u8()? as usize;
+    if size < CYCLE_RECORD_SIZE || payload.len() != 2 + count * size {
+        return Err(ProtocolError::BadPayload("STEP_BATCH"));
+    }
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        let cycle = GaitCycle {
+            start_frame: r.u32()?,
+            end_frame: r.u32()?,
+            start_us: r.u64()?,
+            cycle_time_s: r.f32()?,
+            stance_time_s: r.f32()?,
+            swing_time_s: r.f32()?,
+            stance_ratio: r.f32()?,
+            swing_ratio: r.f32()?,
+            cadence_steps_per_min: r.f32()?,
+            peak_shank_rate_dps: r.f32()?,
+            peak_dorsiflexion_deg: r.f32()?,
+            contact_sagittal_deg: r.f32()?,
+            peak_inversion_deg: r.f32()?,
+            distance_m: r.f32()?,
+            speed_mps: r.f32()?,
+            zupt_quality: r.f32()?,
+            valid: r.u16()? & CYCLE_VALID != 0,
+        };
+        r.u16()?; // reserved
+        r.bytes(size - CYCLE_RECORD_SIZE)?;
+        out.push(cycle);
+    }
+    Ok(out)
 }
 
 // ---- session control and calibration (schema 2) -----------------------------

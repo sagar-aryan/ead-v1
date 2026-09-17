@@ -300,3 +300,43 @@ fn rejection_bits_name_every_reason() {
     assert_eq!(calibration_rejections(0b1010), vec!["the sensor moved", "gravity was not upward"]);
     assert_eq!(calibration_rejections(0b1111).len(), 4);
 }
+
+#[test]
+fn event_batch_decodes() {
+    let msg = vector("event_batch.hex");
+    let (header, payload) = parse(&msg).unwrap();
+    assert_eq!(header.msg_type, MsgType::EventBatch as u8);
+    let events = parse_event_batch(payload).unwrap();
+    assert_eq!(events.len(), 3);
+    assert_eq!(events[0].event_type, GaitEventType::InitialContact);
+    assert_eq!(events[0].frame_index, 1200);
+    assert_eq!(events[0].timestamp_us, 12_000_000);
+    assert_eq!(events[2].event_type, GaitEventType::ToeOff);
+    assert_eq!(parse_event_batch(&payload[..5]), Err(ProtocolError::BadPayload("EVENT_BATCH")));
+}
+
+#[test]
+fn step_batch_decodes() {
+    let msg = vector("step_batch.hex");
+    let (header, payload) = parse(&msg).unwrap();
+    assert_eq!(header.msg_type, MsgType::StepBatch as u8);
+    let cycles = parse_step_batch(payload).unwrap();
+    assert_eq!(cycles.len(), 1);
+    let c = cycles[0];
+    assert!(c.valid);
+    assert_eq!(c.cycle_time_s, 1.02);
+    assert_eq!(c.cadence_steps_per_min, 117.65);
+    assert_eq!(c.distance_m, 1.41);
+    assert_eq!(c.zupt_quality, 0.58);
+    // Doc 05 §9: cadence is 120 / cycle time, not 60 / cycle time.
+    assert!((c.cadence_steps_per_min - 120.0 / c.cycle_time_s).abs() < 0.1);
+}
+
+#[test]
+fn an_unknown_event_type_is_rejected_rather_than_guessed() {
+    let mut payload = vec![1u8, 14];
+    payload.extend_from_slice(&[9, 0]); // type 9 does not exist
+    payload.extend_from_slice(&1200u32.to_le_bytes());
+    payload.extend_from_slice(&12_000_000u64.to_le_bytes());
+    assert_eq!(parse_event_batch(&payload), Err(ProtocolError::BadPayload("EVENT_BATCH")));
+}

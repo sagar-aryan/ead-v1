@@ -1,6 +1,7 @@
 #include "device.h"
 
 #include "calibration_service.h"
+#include "gait_service.h"
 
 #include <algorithm>
 
@@ -124,6 +125,8 @@ void fillStatus(ead::StatusInfo* s) {
 
   s->heap_free_min = uint32_t(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
   s->stack_free_acquisition = stackFree(TaskRole::Acquisition);
+  s->gait_state = gait::state();
+  s->cycles_completed = gait::cyclesCompleted();
   s->calibration_state = uint8_t(calibration::state());
   s->calibration_samples = calibration::samples();
   s->calibration_reject = calibration::reject();
