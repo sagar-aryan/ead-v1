@@ -128,6 +128,10 @@ void loop() {
       Serial.printf("F[%d] a=%.2f,%.2f,%.2f g g=%.0f,%.0f,%.0f dps INT=%d | S[%d] a=%.2f,%.2f,%.2f g g=%.0f,%.0f,%.0f dps INT=%d\n",
         okf, f.ax/8192.0, f.ay/8192.0, f.az/8192.0, f.gx/65.5, f.gy/65.5, f.gz/65.5, fi,
         oks, s.ax/8192.0, s.ay/8192.0, s.az/8192.0, s.gx/65.5, s.gy/65.5, s.gz/65.5, si);
+      // Machine-readable line for tools/orient_viewer.py (physical units).
+      Serial.printf("CSV,%.4f,%.4f,%.4f,%.2f,%.2f,%.2f,%.4f,%.4f,%.4f,%.2f,%.2f,%.2f,%d,%d\n",
+        f.ax/8192.0, f.ay/8192.0, f.az/8192.0, f.gx/65.5, f.gy/65.5, f.gz/65.5,
+        s.ax/8192.0, s.ay/8192.0, s.az/8192.0, s.gx/65.5, s.gy/65.5, s.gz/65.5, fi, si);
     }
   }
 }
