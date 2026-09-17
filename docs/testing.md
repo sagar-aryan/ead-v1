@@ -30,6 +30,7 @@ A result is only recorded as PASS when it was run and checked.
 | TEST-026 | 2026-09-17 | Raw view load with four signals and overview; window arithmetic | PASS |
 | TEST-027 | 2026-09-17 | Mounting check on a worn device | PASS (after correcting the shank map) |
 | TEST-028 | 2026-09-18 | Static calibration on the device, repeatability and window length | PASS |
+| TEST-029 | — | Orientation estimate on hardware | Pending (needs the device upright) |
 
 ## TEST-008 — M0 firmware build
 
@@ -701,3 +702,28 @@ PASS
 The foot sensor reads |a| = 1.0249 g consistently while the shank reads 0.998 g.
 That is a scale-factor difference between the two parts, not motion; recorded as
 PROB-009.
+
+## TEST-029 — Orientation estimate on hardware (pending)
+
+### Objective
+Confirm the device's orientation estimate tracks reality: valid only when
+calibrated, stable while still, and agreeing with measured gravity.
+
+### Procedure
+1. Place the device as worn (or both boards flat), calibrate, and hold still.
+2. Compare each frame's estimated gravity direction with the measured
+   acceleration direction; expect agreement within a degree while still.
+3. Rotate the foot through dorsiflexion and watch the sagittal angle follow.
+
+### Expected
+`orientation_valid` set on every frame after calibration; mean angle between
+estimated and measured gravity under 1°; the sagittal angle following the foot.
+
+### Actual
+Not yet run: with the boards lying on the bench the shank sensor sits 73° from
+upright, so calibration rejects the window (`upside_down`) and orientation
+correctly stays unavailable. Observed so far, both correct: 0/410 frames carried
+`orientation_valid` without a usable record.
+
+### Result
+Pending

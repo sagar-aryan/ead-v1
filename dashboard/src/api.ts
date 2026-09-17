@@ -118,6 +118,8 @@ export interface LiveTick {
   status_flags: number;
   /** False while the device configuration is unknown: values are raw counts. */
   anatomical: boolean;
+  /** Null while the device reports no orientation, e.g. before calibration. */
+  orientation: Orientation | null;
 }
 
 export interface Patient {
@@ -142,6 +144,22 @@ export interface Session {
   last_frame_index: number | null;
   frames_stored: number;
   frames_missing: number;
+}
+
+export interface AnkleAngles {
+  /** Positive is dorsiflexion-related, negative plantarflexion-related. */
+  sagittal_deg: number;
+  /** Positive is inversion-related. */
+  frontal_deg: number;
+  /** Drifts: yaw has no gravity reference. Shown, never used as a feature. */
+  transverse_deg: number;
+}
+
+export interface Orientation {
+  foot: [number, number, number, number];
+  shank: [number, number, number, number];
+  relative: [number, number, number, number];
+  angles: AnkleAngles;
 }
 
 export interface CalibrationSensor {

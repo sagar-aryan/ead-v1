@@ -7,6 +7,7 @@
  */
 import { Strip } from "../components/Strip";
 import type { DeviceApi } from "../useDevice";
+import { Orientation } from "./Orientation";
 
 const FOOT = "#2a78d6";
 const SHANK = "#eb6834";
@@ -175,6 +176,8 @@ export function Live({ device }: { device: DeviceApi }) {
           <Axis label="shank gz" value={tick?.shank_gyro_dps[2] ?? null} unit={gyroUnit} />
         </div>
       </div>
+
+      <Orientation device={device} />
 
       <div className="panel">
         <h2>Frame quality</h2>

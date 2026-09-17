@@ -7,6 +7,7 @@ mod hardware_tests;
 mod device;
 mod link;
 mod live;
+mod orientation;
 mod protocol;
 mod store;
 

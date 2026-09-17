@@ -69,6 +69,8 @@ enum RawStatus : uint16_t {
   kRawShankAccelSaturated = 1u << 5,
   kRawShankGyroSaturated = 1u << 6,
   kRawFootRepeated = 1u << 7,
+  /// The frame's quaternions are an estimate; clear means they are identity.
+  kRawOrientationValid = 1u << 8,
 };
 
 // One synchronized frame (doc 09 §6). Accel/gyro are chip-frame ADC counts in

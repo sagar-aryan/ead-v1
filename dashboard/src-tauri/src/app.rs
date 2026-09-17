@@ -140,7 +140,7 @@ pub fn device_config(app: tauri::State<'_, Arc<App>>) -> Option<Arc<DeviceConfig
 pub struct Vocabulary {
     pub device_states: [&'static str; 9],
     pub fault_names: [&'static str; 10],
-    pub raw_status_names: [&'static str; 8],
+    pub raw_status_names: [&'static str; 9],
     pub default_wifi_url: &'static str,
 }
 

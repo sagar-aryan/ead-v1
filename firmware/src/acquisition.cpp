@@ -144,7 +144,8 @@ void acquisitionTask(void* arg) {
                ead::kRawFootAccelSaturated, ead::kRawFootGyroSaturated, false);
     readSensor(shank, f.shank, &f.status, ead::kRawShankReadFail, ead::kRawShankRepeated,
                ead::kRawShankAccelSaturated, ead::kRawShankGyroSaturated, true);
-    // Orientation is not estimated yet (milestone M3); identity, flagged invalid.
+    // Identity until the processing task estimates orientation: a frame that
+    // reaches the host with kRawOrientationValid clear carries these.
     f.q_foot[0] = kQ15One;
     f.q_shank[0] = kQ15One;
 

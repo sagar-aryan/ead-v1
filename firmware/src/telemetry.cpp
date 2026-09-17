@@ -1,6 +1,7 @@
 #include "telemetry.h"
 
 #include "calibration_service.h"
+#include "orientation.h"
 
 #include <new>
 
@@ -40,6 +41,11 @@ void processingTask(void* arg) {
   for (;;) {
     xQueueReceive(frames, &batch[count], portMAX_DELAY);
     calibration::consume(batch[count]);
+    // A window that just completed becomes the estimator's starting point.
+    if (calibration::state() == ead::CalibrationState::Ready && !orientation::valid()) {
+      orientation::adopt();
+    }
+    orientation::process(&batch[count]);
     if (++count < EAD_SAMPLE_BATCH_FRAMES) continue;
     const size_t len = ead::encodeRawBatchPayload(batch, count, payload, sizeof payload);
     {

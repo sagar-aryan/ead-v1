@@ -520,3 +520,50 @@ user has not yet looked at.
 
 ### Next Steps
 Mahony orientation on the device using the record, then the orientation view.
+
+## 2026-09-18 — Mahony orientation on the device
+
+### Objective
+Turn the two sensors into foot and shank orientations, and the pair into ankle
+angles, using the calibration record.
+
+### Approach
+Doc 04 §5 to the letter: a 6-DoF Mahony estimator per IMU at 100 Hz, Kp 2.0,
+Ki 0.05, gravity correcting roll and pitch, yaw gyro-integrated with no heading
+claimed, and the relative orientation `inverse(q_shank) * q_foot` as the
+kinematic quantity (doc 04 §6). The estimator starts from the alignment the
+calibration measured rather than from identity, so a recording does not begin
+with seconds of convergence.
+
+Two refusals are built in, because a plausible-looking orientation is worse than
+none: without a calibration record the quaternions stay identity and the new
+`orientation_valid` status bit stays clear; a frame whose interval is outside
+half to twice the nominal period restarts the estimator instead of integrating
+across the gap.
+
+### Changes
+- `ead_core/mahony.{h,cpp}` + 7 native tests.
+- `firmware/src/orientation.{h,cpp}`, run on the processing task;
+  `src/anatomical.h` now holds the one chip-to-anatomical conversion, which
+  `calibration_service.cpp` also uses (it had its own copy).
+- `protocol.h`, `docs/protocol.md`: `orientation_valid`, bit 8 of the frame status.
+- Dashboard: `src-tauri/src/orientation.rs` (relative orientation and the three
+  ankle angles, 7 tests), orientation in `LiveTick`, and an `Orientation` panel
+  drawing the sagittal view on a canvas.
+
+### Problems
+Verification on hardware is blocked on the device's physical position, not on
+code: with the boards lying as they are on the bench the shank sensor is 73° off
+upright, so calibration rejects the window as `upside_down` and orientation
+correctly stays unavailable. Both refusals were observed working
+(0/410 frames valid without a record).
+
+### Verification
+Firmware 36 native tests, Rust 41, frontend 23; clippy clean; all four builds
+clean. Orientation itself is not yet verified against the hardware.
+
+### Current Status
+Implemented; needs the device worn or laid flat to verify (TEST-029).
+
+### Next Steps
+Verify on the leg, then gait events and ZUPT (M4).

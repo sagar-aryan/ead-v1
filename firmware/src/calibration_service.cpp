@@ -2,6 +2,7 @@
 
 #include <freertos/FreeRTOS.h>
 
+#include "anatomical.h"
 #include "config_v1.h"
 
 namespace calibration {
@@ -18,24 +19,6 @@ ead::CalibrationState s_state = ead::CalibrationState::None;
 uint32_t s_samples = 0;
 uint32_t s_wanted = 0;
 uint16_t s_reject = 0;
-
-/// Chip counts to anatomical g, applying the sensor's mount map.
-void anatomicalAccel(const EadMountMap& map, const int16_t raw[6], float out[3]) {
-  for (int axis = 0; axis < 3; ++axis) {
-    float sum = 0.0f;
-    for (int source = 0; source < 3; ++source) {
-      if (map.m[axis][source] == 0) continue;
-      sum += float(map.m[axis][source]) * float(raw[source]);
-    }
-    out[axis] = sum / EAD_ACCEL_LSB_PER_G;
-  }
-}
-
-/// Chip counts to deg/s, left in the chip frame: the bias is a property of the
-/// gyroscope, so it is subtracted before the mount map is applied.
-void chipGyro(const int16_t raw[6], float out[3]) {
-  for (int i = 0; i < 3; ++i) out[i] = float(raw[3 + i]) / EAD_GYRO_LSB_PER_DPS;
-}
 
 }  // namespace
 
@@ -79,11 +62,13 @@ void consume(const ead::RawFrame& frame) {
 
   float accel[3];
   float gyro[3];
-  anatomicalAccel(kEadFootMount, frame.foot, accel);
-  chipGyro(frame.foot, gyro);
+  // No bias is known yet — measuring it is the point — so subtract zero.
+  constexpr float kNoBias[3] = {0.0f, 0.0f, 0.0f};
+  anatomical::accel(kEadFootMount, frame.foot, accel);
+  anatomical::chipGyro(frame.foot, kNoBias, gyro);
   s_foot.add(accel, gyro);
-  anatomicalAccel(kEadShankMount, frame.shank, accel);
-  chipGyro(frame.shank, gyro);
+  anatomical::accel(kEadShankMount, frame.shank, accel);
+  anatomical::chipGyro(frame.shank, kNoBias, gyro);
   s_shank.add(accel, gyro);
 
   const uint32_t collected = s_foot.samples();

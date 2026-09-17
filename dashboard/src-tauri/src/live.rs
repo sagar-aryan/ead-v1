@@ -28,6 +28,30 @@ pub struct LiveTick {
     pub status_flags: u16,
     /// False while the device configuration is unknown, so units are unscaled.
     pub anatomical: bool,
+    /// The device's orientation estimate for the tick's last frame, and the
+    /// ankle angles derived from the pair. None while the device reports the
+    /// frame's orientation as invalid, which it does until it is calibrated.
+    pub orientation: Option<Orientation>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct Orientation {
+    pub foot: [f32; 4],
+    pub shank: [f32; 4],
+    pub relative: [f32; 4],
+    pub angles: crate::orientation::AnkleAngles,
+}
+
+/// Orientation for one frame, or None when the device says it has none.
+fn orientation_of(frame: &RawFrame) -> Option<Orientation> {
+    use crate::orientation as math;
+    if frame.status & crate::protocol::RAW_ORIENTATION_VALID == 0 {
+        return None;
+    }
+    let foot = math::from_q15(frame.q_foot);
+    let shank = math::from_q15(frame.q_shank);
+    let relative = math::relative(shank, foot);
+    Some(Orientation { foot, shank, relative, angles: math::ankle_angles(relative) })
 }
 
 #[derive(Default)]
@@ -121,6 +145,7 @@ impl LiveHub {
             shank_accel_magnitude_g: magnitude(shank_accel_g),
             status_flags,
             anatomical: config.is_some(),
+            orientation: orientation_of(&last),
         })
     }
 

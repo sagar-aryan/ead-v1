@@ -408,7 +408,9 @@ pub fn fault_names(faults: u16) -> Vec<&'static str> {
 // ---- RAW_SAMPLE_BATCH ------------------------------------------------------
 
 /// Frame status bits, `docs/protocol.md` §5.4.
-pub const RAW_STATUS_NAMES: [&str; 8] = [
+pub const RAW_ORIENTATION_VALID: u16 = 1 << 8;
+
+pub const RAW_STATUS_NAMES: [&str; 9] = [
     "foot_read_fail",
     "shank_read_fail",
     "shank_repeated",
@@ -417,6 +419,7 @@ pub const RAW_STATUS_NAMES: [&str; 8] = [
     "shank_accel_saturated",
     "shank_gyro_saturated",
     "foot_repeated",
+    "orientation_valid",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -426,7 +429,7 @@ pub struct RawFrame {
     /// Chip-frame ADC counts: ax, ay, az, gx, gy, gz (DEC-007).
     pub foot: [i16; 6],
     pub shank: [i16; 6],
-    /// Q15 quaternions w, x, y, z. Identity until orientation lands (M3).
+    /// Q15 quaternions w, x, y, z; identity unless RAW_ORIENTATION_VALID is set.
     pub q_foot: [i16; 4],
     pub q_shank: [i16; 4],
     pub status: u16,

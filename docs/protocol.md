@@ -185,8 +185,11 @@ Notes on the frame:
   and are signed everywhere (DEC-007).
 - Physical units use the CONFIG_GET values: `accel_g = counts / accel_lsb_per_g`,
   `gyro_dps = counts / gyro_lsb_per_dps`, then the sensor's mount map for anatomical axes.
-- In schema 2 the quaternions are identity (`32767, 0, 0, 0`); orientation is not yet
-  estimated.
+- Quaternions are the device's Mahony estimate when `orientation_valid` is set, and
+  identity (`32767, 0, 0, 0`) when it is clear. Orientation needs calibration, so the bit
+  stays clear until a record exists; it also clears for a frame whose interval is outside
+  half to twice the nominal period, where integrating across the gap would inject a false
+  rotation and the estimator restarts from the calibrated alignment.
 
 `status_flags`:
 
@@ -200,7 +203,8 @@ Notes on the frame:
 | 5 | `shank_accel_saturated` | A shank accel axis at ±full scale |
 | 6 | `shank_gyro_saturated` | A shank gyro axis at ±full scale |
 | 7 | `foot_repeated` | Foot data-ready flag was clear (not expected: frames are foot-clocked) |
-| 8–15 | reserved | 0 |
+| 8 | `orientation_valid` | The frame's quaternions are the device's estimate, not identity |
+| 9–15 | reserved | 0 |
 
 The two IMUs run on independent clocks (measured 0.14 % apart, TEST-015). The shank
 therefore occasionally repeats a sample, and bit 2 marks it.
