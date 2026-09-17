@@ -25,6 +25,8 @@ const MAX_BACKFILL_SPAN: u32 = 2000;
 pub trait Sink: Send + Sync + 'static {
     fn raw_frames(&self, frames: &[RawFrame]);
     fn status(&self, status: &Status);
+    /// Gait cycles and events, whichever the device sent (schema 3).
+    fn gait(&self, cycles: &[protocol::GaitCycle], events: &[protocol::GaitEvent]);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -340,6 +342,14 @@ impl Tracker {
         match msg_type {
             MsgType::Hello => self.on_hello(payload),
             MsgType::Status => self.on_status(payload),
+            MsgType::EventBatch => match protocol::parse_event_batch(payload) {
+                Ok(events) => self.sink.gait(&[], &events),
+                Err(e) => self.note_error(format!("EVENT_BATCH: {e}")),
+            },
+            MsgType::StepBatch => match protocol::parse_step_batch(payload) {
+                Ok(cycles) => self.sink.gait(&cycles, &[]),
+                Err(e) => self.note_error(format!("STEP_BATCH: {e}")),
+            },
             MsgType::ConfigGet => self.on_config(payload),
             MsgType::SessionStop => {
                 // The device sends this once per completed calibration window.
@@ -423,6 +433,10 @@ impl Tracker {
             }
             Err(err) => state.last_error = Some(format!("device configuration: {err}")),
         }
+    }
+
+    fn note_error(&self, message: String) {
+        self.state.lock().expect("device state").last_error = Some(message);
     }
 
     fn on_status(&mut self, payload: &[u8]) {

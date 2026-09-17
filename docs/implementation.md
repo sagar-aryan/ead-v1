@@ -286,3 +286,32 @@ consumes it yet — orientation is the next step.
 ### Verification
 Seven native unit tests, golden-vector tests in firmware and Rust, and TEST-028
 on hardware.
+
+## Gait storage and the Cycles view (M4)
+
+### Objective
+Keep what the device measured per cycle, and show it in the form a reader needs:
+a table to check individual cycles and a trend to see the session.
+
+### Design
+Schema 3 adds two tables. `cycles` holds one row per completed gait cycle and
+`events` one row per gait event, both keyed by session and frame so a backfilled
+batch replaces rather than duplicates. They are derived values, kept separate
+from `raw_frames`: a corrected detector produces different cycles from the same
+recording, and the recording is the thing that must not change.
+
+The Cycles view reports distance and speed only for cycles whose zero-velocity
+quality reaches 0.15, and shows the rest as low-confidence rather than correcting
+them (doc 05 §8). Cycles rejected by the temporal guards are greyed rather than
+hidden, because a missed or doubled contact is exactly what a reader needs to
+see. Spread is reported as median and MAD, the robust pair the spec uses.
+
+### Important files
+- `dashboard/src-tauri/src/store/schema.rs` — tables and the 2 → 3 migration
+- `dashboard/src-tauri/src/store/mod.rs` — `record_gait`, `cycles`, `events`
+- `dashboard/src/views/Cycles.tsx`
+
+### Verification
+Three store tests: a round trip including a repeated (backfilled) batch, the
+rule that gait is only stored while recording, and a migration from schema 2
+that keeps existing frames.

@@ -7,7 +7,7 @@ use rusqlite::{Connection, Result};
 
 use crate::protocol::RawFrame;
 
-pub const SCHEMA_VERSION: i32 = 2;
+pub const SCHEMA_VERSION: i32 = 3;
 
 pub fn migrate(connection: &mut Connection) -> Result<()> {
     // WAL keeps readers (UI queries) from blocking the writer thread.
@@ -37,6 +37,7 @@ pub fn migrate(connection: &mut Connection) -> Result<()> {
         let transaction = connection.transaction()?;
         match version {
             1 => transaction.execute_batch(MIGRATE_1_TO_2)?,
+            2 => transaction.execute_batch(MIGRATE_2_TO_3)?,
             other => unreachable!("no migration from schema {other}"),
         }
         version += 1;
@@ -87,10 +88,84 @@ CREATE TABLE raw_frames (
   status INTEGER NOT NULL,
   PRIMARY KEY (session_id, frame_index)
 ) WITHOUT ROWID;
+
+-- One row per completed gait cycle, as the device measured it (doc 05 §11).
+-- Derived values, not raw data: a corrected detector produces different rows for
+-- the same recording, which is why the frames are kept separately.
+CREATE TABLE cycles (
+  session_id       TEXT NOT NULL REFERENCES sessions(session_id),
+  start_frame      INTEGER NOT NULL,
+  end_frame        INTEGER NOT NULL,
+  start_us         INTEGER NOT NULL,
+  cycle_time_s     REAL NOT NULL,
+  stance_time_s    REAL NOT NULL,
+  swing_time_s     REAL NOT NULL,
+  stance_ratio     REAL NOT NULL,
+  swing_ratio      REAL NOT NULL,
+  cadence          REAL NOT NULL,
+  peak_shank_dps   REAL NOT NULL,
+  peak_dorsi_deg   REAL NOT NULL,
+  contact_sag_deg  REAL NOT NULL,
+  peak_inv_deg     REAL NOT NULL,
+  distance_m       REAL NOT NULL,
+  speed_mps        REAL NOT NULL,
+  zupt_quality     REAL NOT NULL,
+  valid            INTEGER NOT NULL,
+  PRIMARY KEY (session_id, start_frame)
+) WITHOUT ROWID;
+
+-- Gait events, keyed by the frame they are attributed to. An event can refer to
+-- a frame already stored: initial contact is timestamped at the strongest impact
+-- inside its window, not at the moment the detector decided (doc 05 §3).
+CREATE TABLE events (
+  session_id   TEXT NOT NULL REFERENCES sessions(session_id),
+  frame_index  INTEGER NOT NULL,
+  timestamp_us INTEGER NOT NULL,
+  kind         TEXT NOT NULL,
+  PRIMARY KEY (session_id, frame_index, kind)
+) WITHOUT ROWID;
 "#;
 
 const MIGRATE_1_TO_2: &str = r#"
 ALTER TABLE sessions ADD COLUMN config_section BLOB;
+"#;
+
+const MIGRATE_2_TO_3: &str = r#"
+-- One row per completed gait cycle, as the device measured it (doc 05 §11).
+-- Derived values, not raw data: a corrected detector produces different rows for
+-- the same recording, which is why the frames are kept separately.
+CREATE TABLE cycles (
+  session_id       TEXT NOT NULL REFERENCES sessions(session_id),
+  start_frame      INTEGER NOT NULL,
+  end_frame        INTEGER NOT NULL,
+  start_us         INTEGER NOT NULL,
+  cycle_time_s     REAL NOT NULL,
+  stance_time_s    REAL NOT NULL,
+  swing_time_s     REAL NOT NULL,
+  stance_ratio     REAL NOT NULL,
+  swing_ratio      REAL NOT NULL,
+  cadence          REAL NOT NULL,
+  peak_shank_dps   REAL NOT NULL,
+  peak_dorsi_deg   REAL NOT NULL,
+  contact_sag_deg  REAL NOT NULL,
+  peak_inv_deg     REAL NOT NULL,
+  distance_m       REAL NOT NULL,
+  speed_mps        REAL NOT NULL,
+  zupt_quality     REAL NOT NULL,
+  valid            INTEGER NOT NULL,
+  PRIMARY KEY (session_id, start_frame)
+) WITHOUT ROWID;
+
+-- Gait events, keyed by the frame they are attributed to. An event can refer to
+-- a frame already stored: initial contact is timestamped at the strongest impact
+-- inside its window, not at the moment the detector decided (doc 05 §3).
+CREATE TABLE events (
+  session_id   TEXT NOT NULL REFERENCES sessions(session_id),
+  frame_index  INTEGER NOT NULL,
+  timestamp_us INTEGER NOT NULL,
+  kind         TEXT NOT NULL,
+  PRIMARY KEY (session_id, frame_index, kind)
+) WITHOUT ROWID;
 "#;
 
 pub const INSERT_FRAME: &str = r#"
@@ -122,3 +197,17 @@ pub fn insert_frame(
         frame.status,
     ])
 }
+
+pub const INSERT_CYCLE: &str = r#"
+INSERT OR REPLACE INTO cycles
+  (session_id, start_frame, end_frame, start_us,
+   cycle_time_s, stance_time_s, swing_time_s, stance_ratio, swing_ratio, cadence,
+   peak_shank_dps, peak_dorsi_deg, contact_sag_deg, peak_inv_deg,
+   distance_m, speed_mps, zupt_quality, valid)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+"#;
+
+pub const INSERT_EVENT: &str = r#"
+INSERT OR IGNORE INTO events (session_id, frame_index, timestamp_us, kind)
+VALUES (?1, ?2, ?3, ?4)
+"#;

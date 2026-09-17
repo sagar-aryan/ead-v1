@@ -413,3 +413,125 @@ fn raw_window_reads_several_signals_on_one_time_base() {
         Err(StoreError::Rejected(_))
     ));
 }
+
+#[test]
+fn gait_cycles_and_events_round_trip() {
+    use crate::protocol::{GaitCycle, GaitEvent, GaitEventType};
+    let (store, _dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let session =
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+
+    let cycle = GaitCycle {
+        start_frame: 1200,
+        end_frame: 1360,
+        start_us: 12_000_000,
+        cycle_time_s: 1.66,
+        stance_time_s: 0.83,
+        swing_time_s: 0.83,
+        stance_ratio: 0.5,
+        swing_ratio: 0.5,
+        cadence_steps_per_min: 72.3,
+        peak_shank_rate_dps: 412.5,
+        peak_dorsiflexion_deg: 16.1,
+        contact_sagittal_deg: -4.2,
+        peak_inversion_deg: 3.1,
+        distance_m: 1.13,
+        speed_mps: 0.68,
+        zupt_quality: 0.22,
+        valid: true,
+    };
+    let events = [
+        GaitEvent {
+            event_type: GaitEventType::InitialContact,
+            frame_index: 1200,
+            timestamp_us: 12_000_000,
+        },
+        GaitEvent { event_type: GaitEventType::ToeOff, frame_index: 1283, timestamp_us: 12_830_000 },
+    ];
+    store.record_gait(&[cycle], &events);
+    // A backfilled batch repeats what was already stored.
+    store.record_gait(&[cycle], &events);
+    store.flush();
+
+    let stored = store.cycles(&session.session_id).unwrap();
+    assert_eq!(stored.len(), 1, "a repeated cycle must not duplicate");
+    assert_eq!(stored[0].start_frame, 1200);
+    assert_eq!(stored[0].cadence_steps_per_min, 72.3);
+    assert_eq!(stored[0].distance_m, 1.13);
+    assert!(stored[0].valid);
+
+    let stored_events = store.events(&session.session_id).unwrap();
+    assert_eq!(stored_events.len(), 2);
+    assert_eq!(stored_events[0].kind, "initial_contact");
+    assert_eq!(stored_events[1].kind, "toe_off");
+}
+
+#[test]
+fn gait_is_only_stored_while_recording() {
+    use crate::protocol::{GaitCycle, GaitEvent, GaitEventType};
+    let (store, _dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let session =
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default()).unwrap();
+    store.stop_session().unwrap();
+
+    store.record_gait(
+        &[GaitCycle {
+            start_frame: 1,
+            end_frame: 2,
+            start_us: 0,
+            cycle_time_s: 1.0,
+            stance_time_s: 0.6,
+            swing_time_s: 0.4,
+            stance_ratio: 0.6,
+            swing_ratio: 0.4,
+            cadence_steps_per_min: 120.0,
+            peak_shank_rate_dps: 0.0,
+            peak_dorsiflexion_deg: 0.0,
+            contact_sagittal_deg: 0.0,
+            peak_inversion_deg: 0.0,
+            distance_m: 0.0,
+            speed_mps: 0.0,
+            zupt_quality: 0.0,
+            valid: true,
+        }],
+        &[GaitEvent {
+            event_type: GaitEventType::FootFlat,
+            frame_index: 1,
+            timestamp_us: 0,
+        }],
+    );
+    store.flush();
+    assert!(store.cycles(&session.session_id).unwrap().is_empty());
+    assert!(store.events(&session.session_id).unwrap().is_empty());
+}
+
+#[test]
+fn schema_upgrades_from_version_2_keeping_frames() {
+    let dir = tempdir::TempDir::new();
+    let path = dir.path().join("ead.sqlite3");
+    {
+        let store = Store::open(&path).expect("create");
+        store.create_patient("P-OLD", "Earlier study").unwrap();
+        let session = store
+            .start_session("P-OLD", SessionKind::Recording, &DeviceIdentity::default())
+            .unwrap();
+        store.record_frames(&[frame(0), frame(1)]);
+        store.flush();
+        let connection = store.reader().unwrap();
+        // Pretend this store predates the gait tables.
+        connection.execute_batch("DROP TABLE events; DROP TABLE cycles; PRAGMA user_version = 2;")
+            .unwrap();
+        drop(connection);
+        assert_eq!(store.frame_count(&session.session_id).unwrap(), 2);
+    }
+    let store = Store::open(&path).expect("migrate");
+    let connection = store.reader().unwrap();
+    let version: i32 = connection.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+    assert_eq!(version, schema::SCHEMA_VERSION);
+    let sessions = store.sessions().unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(store.frame_count(&sessions[0].session_id).unwrap(), 2, "frames survive");
+    assert!(store.cycles(&sessions[0].session_id).unwrap().is_empty());
+}

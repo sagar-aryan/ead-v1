@@ -38,6 +38,9 @@ export interface DeviceStatus {
   calibration_state: number;
   calibration_samples: number;
   calibration_reject: number;
+  /** Gait state index into `Vocabulary.gait_states`. */
+  gait_state: number;
+  cycles_completed: number;
 }
 
 export interface Snapshot {
@@ -102,6 +105,7 @@ export interface Vocabulary {
   device_states: string[];
   fault_names: string[];
   raw_status_names: string[];
+  gait_states: string[];
   default_wifi_url: string;
 }
 
@@ -183,6 +187,35 @@ export interface Calibration {
   shank: CalibrationSensor;
 }
 
+/** A gait cycle as stored (doc 05 §11). */
+export interface Cycle {
+  start_frame: number;
+  end_frame: number;
+  start_us: number;
+  cycle_time_s: number;
+  stance_time_s: number;
+  swing_time_s: number;
+  stance_ratio: number;
+  swing_ratio: number;
+  cadence_steps_per_min: number;
+  peak_shank_rate_dps: number;
+  peak_dorsiflexion_deg: number;
+  contact_sagittal_deg: number;
+  peak_inversion_deg: number;
+  distance_m: number;
+  speed_mps: number;
+  /** Fraction of the cycle in an accepted zero-velocity window. */
+  zupt_quality: number;
+  /** False when a temporal guard rejected it (doc 05 §4). */
+  valid: boolean;
+}
+
+export interface GaitEvent {
+  frame_index: number;
+  timestamp_us: number;
+  kind: string;
+}
+
 export type SignalGroup = "foot_accel" | "foot_gyro" | "shank_accel" | "shank_gyro";
 
 export interface AxisWindow {
@@ -234,6 +267,8 @@ export const api = {
   recordingSession: () => invoke<string | null>("recording_session"),
   sessions: () => invoke<Session[]>("sessions"),
   session: (sessionId: string) => invoke<Session>("session", { sessionId }),
+  cycles: (sessionId: string) => invoke<Cycle[]>("cycles", { sessionId }),
+  events: (sessionId: string) => invoke<GaitEvent[]>("events", { sessionId }),
   startCalibration: (durationMs: number) =>
     invoke<void>("start_calibration", { durationMs }),
   cancelCalibration: () => invoke<void>("cancel_calibration"),

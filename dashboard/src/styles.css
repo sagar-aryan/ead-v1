@@ -469,3 +469,10 @@ tr.selectable:hover td {
 .verdict.fail {
   color: var(--critical);
 }
+
+/* Trend panels: as many per row as fit, each wide enough to read. */
+.trend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 18px 24px;
+}

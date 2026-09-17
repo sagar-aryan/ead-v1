@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use rusqlite::Connection;
 
-use crate::protocol::RawFrame;
+use crate::protocol::{GaitCycle, GaitEvent, RawFrame};
 
 pub use raw::{RawWindow, SignalGroup};
 
@@ -89,8 +89,39 @@ pub struct DeviceIdentity {
     pub config_section: Option<Vec<u8>>,
 }
 
+/// A gait cycle as stored, in physical units (doc 05 §11).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct StoredCycle {
+    pub start_frame: i64,
+    pub end_frame: i64,
+    pub start_us: i64,
+    pub cycle_time_s: f32,
+    pub stance_time_s: f32,
+    pub swing_time_s: f32,
+    pub stance_ratio: f32,
+    pub swing_ratio: f32,
+    pub cadence_steps_per_min: f32,
+    pub peak_shank_rate_dps: f32,
+    pub peak_dorsiflexion_deg: f32,
+    pub contact_sagittal_deg: f32,
+    pub peak_inversion_deg: f32,
+    pub distance_m: f32,
+    pub speed_mps: f32,
+    pub zupt_quality: f32,
+    pub valid: bool,
+}
+
+/// A gait event as stored. `kind` is the protocol's name for it.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct StoredEvent {
+    pub frame_index: i64,
+    pub timestamp_us: i64,
+    pub kind: String,
+}
+
 enum WriteCommand {
     Frames { session_id: String, frames: Vec<RawFrame> },
+    Gait { session_id: String, cycles: Vec<GaitCycle>, events: Vec<GaitEvent> },
     Flush(mpsc::Sender<()>),
     Stop,
 }
@@ -277,6 +308,72 @@ impl Store {
         }
     }
 
+    /// Stores gait cycles and events for the recording session, if any.
+    pub fn record_gait(&self, cycles: &[GaitCycle], events: &[GaitEvent]) {
+        if cycles.is_empty() && events.is_empty() {
+            return;
+        }
+        let Some(session_id) = self.recording_session() else { return };
+        let writer = self.writer.lock().expect("writer");
+        if let Some(writer) = writer.as_ref() {
+            let _ = writer.send(WriteCommand::Gait {
+                session_id,
+                cycles: cycles.to_vec(),
+                events: events.to_vec(),
+            });
+        }
+    }
+
+    /// Every cycle stored for a session, in time order.
+    pub fn cycles(&self, session_id: &str) -> Result<Vec<StoredCycle>> {
+        let connection = self.reader()?;
+        let mut statement = connection.prepare(
+            "SELECT start_frame, end_frame, start_us, cycle_time_s, stance_time_s, swing_time_s,
+                    stance_ratio, swing_ratio, cadence, peak_shank_dps, peak_dorsi_deg,
+                    contact_sag_deg, peak_inv_deg, distance_m, speed_mps, zupt_quality, valid
+             FROM cycles WHERE session_id = ?1 ORDER BY start_frame",
+        )?;
+        let rows = statement.query_map([session_id], |row| {
+            Ok(StoredCycle {
+                start_frame: row.get(0)?,
+                end_frame: row.get(1)?,
+                start_us: row.get(2)?,
+                cycle_time_s: row.get(3)?,
+                stance_time_s: row.get(4)?,
+                swing_time_s: row.get(5)?,
+                stance_ratio: row.get(6)?,
+                swing_ratio: row.get(7)?,
+                cadence_steps_per_min: row.get(8)?,
+                peak_shank_rate_dps: row.get(9)?,
+                peak_dorsiflexion_deg: row.get(10)?,
+                contact_sagittal_deg: row.get(11)?,
+                peak_inversion_deg: row.get(12)?,
+                distance_m: row.get(13)?,
+                speed_mps: row.get(14)?,
+                zupt_quality: row.get(15)?,
+                valid: row.get::<_, i64>(16)? != 0,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Every event stored for a session, in time order.
+    pub fn events(&self, session_id: &str) -> Result<Vec<StoredEvent>> {
+        let connection = self.reader()?;
+        let mut statement = connection.prepare(
+            "SELECT frame_index, timestamp_us, kind FROM events
+             WHERE session_id = ?1 ORDER BY timestamp_us",
+        )?;
+        let rows = statement.query_map([session_id], |row| {
+            Ok(StoredEvent {
+                frame_index: row.get(0)?,
+                timestamp_us: row.get(1)?,
+                kind: row.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     /// Blocks until every queued write is committed.
     pub fn flush(&self) {
         let writer = self.writer.lock().expect("writer");
@@ -372,9 +469,16 @@ fn session_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
 
 fn writer_loop(mut connection: Connection, rx: mpsc::Receiver<WriteCommand>) {
     let mut pending: Vec<(String, Vec<RawFrame>)> = Vec::new();
+    let mut pending_gait: PendingGait = Vec::new();
     let mut last_commit = Instant::now();
     loop {
         match rx.recv_timeout(COMMIT_INTERVAL) {
+            Ok(WriteCommand::Gait { session_id, cycles, events }) => {
+                pending_gait.push((session_id, cycles, events));
+                if last_commit.elapsed() < COMMIT_INTERVAL {
+                    continue;
+                }
+            }
             Ok(WriteCommand::Frames { session_id, frames }) => {
                 pending.push((session_id, frames));
                 if last_commit.elapsed() < COMMIT_INTERVAL {
@@ -382,28 +486,34 @@ fn writer_loop(mut connection: Connection, rx: mpsc::Receiver<WriteCommand>) {
                 }
             }
             Ok(WriteCommand::Flush(done)) => {
-                commit(&mut connection, &mut pending);
+                commit(&mut connection, &mut pending, &mut pending_gait);
                 last_commit = Instant::now();
                 let _ = done.send(());
                 continue;
             }
             Ok(WriteCommand::Stop) => {
-                commit(&mut connection, &mut pending);
+                commit(&mut connection, &mut pending, &mut pending_gait);
                 return;
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
-                commit(&mut connection, &mut pending);
+                commit(&mut connection, &mut pending, &mut pending_gait);
                 return;
             }
         }
-        commit(&mut connection, &mut pending);
+        commit(&mut connection, &mut pending, &mut pending_gait);
         last_commit = Instant::now();
     }
 }
 
-fn commit(connection: &mut Connection, pending: &mut Vec<(String, Vec<RawFrame>)>) {
-    if pending.is_empty() {
+type PendingGait = Vec<(String, Vec<GaitCycle>, Vec<GaitEvent>)>;
+
+fn commit(
+    connection: &mut Connection,
+    pending: &mut Vec<(String, Vec<RawFrame>)>,
+    pending_gait: &mut PendingGait,
+) {
+    if pending.is_empty() && pending_gait.is_empty() {
         return;
     }
     let result = (|| -> rusqlite::Result<()> {
@@ -417,6 +527,27 @@ fn commit(connection: &mut Connection, pending: &mut Vec<(String, Vec<RawFrame>)
                 }
             }
         }
+        {
+            let mut cycle = transaction.prepare_cached(schema::INSERT_CYCLE)?;
+            let mut event = transaction.prepare_cached(schema::INSERT_EVENT)?;
+            for (session_id, cycles, events) in pending_gait.iter() {
+                for c in cycles {
+                    // OR REPLACE: a backfilled cycle is the same measurement.
+                    cycle.execute(rusqlite::params![
+                        session_id, c.start_frame, c.end_frame, c.start_us as i64,
+                        c.cycle_time_s, c.stance_time_s, c.swing_time_s, c.stance_ratio,
+                        c.swing_ratio, c.cadence_steps_per_min, c.peak_shank_rate_dps,
+                        c.peak_dorsiflexion_deg, c.contact_sagittal_deg, c.peak_inversion_deg,
+                        c.distance_m, c.speed_mps, c.zupt_quality, c.valid as i64,
+                    ])?;
+                }
+                for e in events {
+                    event.execute(rusqlite::params![
+                        session_id, e.frame_index, e.timestamp_us as i64, e.event_type.name(),
+                    ])?;
+                }
+            }
+        }
         transaction.commit()
     })();
     if let Err(err) = result {
@@ -424,6 +555,7 @@ fn commit(connection: &mut Connection, pending: &mut Vec<(String, Vec<RawFrame>)
         eprintln!("store: commit failed, {} batches dropped: {err}", pending.len());
     }
     pending.clear();
+    pending_gait.clear();
 }
 
 fn now_utc() -> String {

@@ -19,6 +19,9 @@ impl Sink for StoreSink {
         self.0.record_frames(frames);
     }
     fn status(&self, _status: &Status) {}
+    fn gait(&self, cycles: &[crate::protocol::GaitCycle], events: &[crate::protocol::GaitEvent]) {
+        self.0.record_gait(cycles, events);
+    }
 }
 
 struct TempDir(std::path::PathBuf);

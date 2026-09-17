@@ -23,6 +23,10 @@ impl Sink for Telemetry {
     }
 
     fn status(&self, _status: &Status) {}
+
+    fn gait(&self, cycles: &[crate::protocol::GaitCycle], events: &[crate::protocol::GaitEvent]) {
+        self.store.record_gait(cycles, events);
+    }
 }
 
 pub struct App {
@@ -141,6 +145,8 @@ pub struct Vocabulary {
     pub device_states: [&'static str; 9],
     pub fault_names: [&'static str; 10],
     pub raw_status_names: [&'static str; 9],
+    /// Gait state names in device order (docs/protocol.md §6.6).
+    pub gait_states: [&'static str; 7],
     pub default_wifi_url: &'static str,
 }
 
@@ -150,6 +156,7 @@ pub fn vocabulary() -> Vocabulary {
         device_states: crate::protocol::DEVICE_STATES,
         fault_names: crate::protocol::FAULT_NAMES,
         raw_status_names: crate::protocol::RAW_STATUS_NAMES,
+        gait_states: crate::protocol::GAIT_STATES,
         default_wifi_url: crate::link::ws::DEFAULT_URL,
     }
 }
@@ -223,6 +230,24 @@ pub fn raw_window(
     app.store
         .raw_window(&session_id, &groups, first_frame, last_frame, max_points)
         .map_err(failed)
+}
+
+/// Every gait cycle stored for a session, in time order.
+#[tauri::command]
+pub fn cycles(
+    app: tauri::State<'_, Arc<App>>,
+    session_id: String,
+) -> CommandResult<Vec<crate::store::StoredCycle>> {
+    app.store.cycles(&session_id).map_err(failed)
+}
+
+/// Every gait event stored for a session, in time order.
+#[tauri::command]
+pub fn events(
+    app: tauri::State<'_, Arc<App>>,
+    session_id: String,
+) -> CommandResult<Vec<crate::store::StoredEvent>> {
+    app.store.events(&session_id).map_err(failed)
 }
 
 /// Starts a still window on the device. The record arrives in a later STATUS

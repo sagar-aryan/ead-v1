@@ -177,6 +177,33 @@ export function Live({ device }: { device: DeviceApi }) {
         </div>
       </div>
 
+      <div className="panel">
+        <h2>Gait</h2>
+        <p className="hint">
+          What the device's detector is doing right now. Cycles are counted from
+          boot; the Cycles view has the measurements for a recorded session.
+        </p>
+        <div className="readouts">
+          <div className="readout">
+            <span className="label">Gait state</span>
+            <span className="value" style={{ fontSize: 15 }}>
+              {snapshot?.status
+                ? (vocabulary?.gait_states[snapshot.status.gait_state] ?? "unknown")
+                : <span className="absent">—</span>}
+            </span>
+          </div>
+          <Axis label="cycles" value={snapshot?.status?.cycles_completed ?? null} unit="" />
+          <div className="readout">
+            <span className="label">Zero velocity</span>
+            <span className="value" style={{ fontSize: 15 }}>
+              {snapshot?.status?.gait_state === 4 ? "holding" : (
+                <span className="absent">no</span>
+              )}
+            </span>
+          </div>
+        </div>
+      </div>
+
       <Orientation device={device} />
 
       <div className="panel">

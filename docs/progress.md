@@ -621,8 +621,28 @@ The gait engine works on real walking. The firmware on the device is one version
 behind: it needs a USB connection to flash.
 
 ### Next Steps
-1. Flash the device with the corrected detector and confirm live.
-2. Store cycles and events in the dashboard and build the CYCLES, EVENTS and
-   TRENDS views.
-3. More walks, at different speeds, before trusting the thresholds (they are
+1. Flash the device with the corrected detector and confirm live (needs USB).
+2. More walks, at different speeds, before trusting the thresholds (they are
    fitted to one recording).
+
+## 2026-09-18 — Gait cycles in the dashboard
+
+### Objective
+Store what the device measures per cycle and show it.
+
+### Changes
+- Schema 3: `cycles` and `events` tables, with a tested migration from 2.
+- `Sink::gait` carries EVENT_BATCH and STEP_BATCH from the link into the store.
+- `Cycles` view: session summary, per-cycle table, and eight trends.
+- Live view shows the device's gait state and cycle count from STATUS.
+
+### Verification
+47 Rust tests (3 new), 23 frontend tests, clippy clean, frontend builds.
+Not yet seen with real cycles in the database: that needs the corrected firmware
+flashed and a recorded walk.
+
+### Current Status
+Complete as far as it can go without the device on USB.
+
+### Next Steps
+Flash, record a walk through the dashboard, and read the Cycles view.

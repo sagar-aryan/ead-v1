@@ -53,6 +53,8 @@ fn main() {
             app::sessions,
             app::session,
             app::raw_window,
+            app::cycles,
+            app::events,
             app::start_calibration,
             app::cancel_calibration,
             app::session_config,
