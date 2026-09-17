@@ -35,9 +35,15 @@ static void mpuWriteReg(uint8_t addr, uint8_t reg, uint8_t val) {
 }
 static bool mpuInit(uint8_t addr, const char* name) {
   uint8_t who = mpuReadReg(addr, MPU_WHOAMI);
-  Serial.printf("%s 0x%02X WHO_AM_I=0x%02X %s\n", name, addr, who,
-                (who == 0x68) ? "OK" : "FAIL");
-  if (who != 0x68) return false;
+  // Genuine MPU6050 = 0x68. Boards sold as MPU6050 often carry MPU6500
+  // silicon (WHO = 0x70) — register-compatible for our config (PWR1,
+  // SMPLRT_DIV, CONFIG, GYRO/ACCEL_CFG) with identical sensitivities
+  // (+-4g = 8192 LSB/g, +-500dps = 65.5 LSB/dps). Accept both.
+  bool is6500 = (who == 0x70);
+  Serial.printf("%s 0x%02X WHO_AM_I=0x%02X %s (%s)\n", name, addr, who,
+                (who == 0x68 || is6500) ? "OK" : "FAIL",
+                who == 0x68 ? "MPU6050" : is6500 ? "MPU6500" : "UNKNOWN");
+  if (!(who == 0x68 || is6500)) return false;
   mpuWriteReg(addr, MPU_PWR1, 0x01);      // PLL X gyro ref
   delay(50);
   mpuWriteReg(addr, MPU_SMPLRT, 9);       // 1kHz/10 = 100Hz
@@ -91,6 +97,10 @@ void setup() {
   bool fok = mpuInit(EAD_FOOT_MPU_ADDR, "Foot");
   bool sok = mpuInit(EAD_SHANK_MPU_ADDR, "Shank");
   Serial.printf("Foot %s  Shank %s\n", fok ? "OK" : "FAIL", sok ? "OK" : "FAIL");
+  // Config readback (diagnoses accel-scale issues: expect GYRO_CFG=0x08, ACCEL_CFG=0x08).
+  Serial.printf("Foot CFG GYRO=0x%02X ACCEL=0x%02X | Shank CFG GYRO=0x%02X ACCEL=0x%02X\n",
+    mpuReadReg(EAD_FOOT_MPU_ADDR, MPU_GYRO_CFG), mpuReadReg(EAD_FOOT_MPU_ADDR, MPU_ACCEL_CFG),
+    mpuReadReg(EAD_SHANK_MPU_ADDR, MPU_GYRO_CFG), mpuReadReg(EAD_SHANK_MPU_ADDR, MPU_ACCEL_CFG));
   if (!fok || !sok) Serial.println(F("FAULT: check AD0 wiring (foot->GND, shank->3V3)"));
   else Serial.println(F("Send 'm' to run 6-motor safe test (0.6s each @30%). Motors otherwise OFF."));
 }
@@ -112,6 +122,19 @@ void loop() {
   if (Serial.available()) {
     char c = Serial.read();
     if (c == 'm' || c == 'M') motorTest();
+    if (c == 'c' || c == 'C') {
+      Serial.println(F("--- DIAG ---"));
+      Serial.printf("Foot 0x68 WHO=0x%02X PWR1=0x%02X SMPL=0x%02X CFG=0x%02X GYRO=0x%02X ACCEL=0x%02X INTEN=0x%02X\n",
+        mpuReadReg(EAD_FOOT_MPU_ADDR, MPU_WHOAMI), mpuReadReg(EAD_FOOT_MPU_ADDR, MPU_PWR1),
+        mpuReadReg(EAD_FOOT_MPU_ADDR, MPU_SMPLRT), mpuReadReg(EAD_FOOT_MPU_ADDR, MPU_CONFIG),
+        mpuReadReg(EAD_FOOT_MPU_ADDR, MPU_GYRO_CFG), mpuReadReg(EAD_FOOT_MPU_ADDR, MPU_ACCEL_CFG),
+        mpuReadReg(EAD_FOOT_MPU_ADDR, MPU_INT_EN));
+      Serial.printf("Shank 0x69 WHO=0x%02X PWR1=0x%02X SMPL=0x%02X CFG=0x%02X GYRO=0x%02X ACCEL=0x%02X INTEN=0x%02X\n",
+        mpuReadReg(EAD_SHANK_MPU_ADDR, MPU_WHOAMI), mpuReadReg(EAD_SHANK_MPU_ADDR, MPU_PWR1),
+        mpuReadReg(EAD_SHANK_MPU_ADDR, MPU_SMPLRT), mpuReadReg(EAD_SHANK_MPU_ADDR, MPU_CONFIG),
+        mpuReadReg(EAD_SHANK_MPU_ADDR, MPU_GYRO_CFG), mpuReadReg(EAD_SHANK_MPU_ADDR, MPU_ACCEL_CFG),
+        mpuReadReg(EAD_SHANK_MPU_ADDR, MPU_INT_EN));
+    }
   }
   uint32_t now = millis();
   if (now - s_lastMs >= 10) {  // 100Hz read
@@ -121,17 +144,32 @@ void loop() {
     bool okf = mpuRead6(EAD_FOOT_MPU_ADDR, f, tf);
     bool oks = mpuRead6(EAD_SHANK_MPU_ADDR, s, ts);
     s_n++;
-    if (s_n % 10 == 0) {  // print @10Hz
+    if (s_n % 10 == 0) {  // print @10Hz, anatomical frame (config_v1.h remap)
       int fi = digitalRead(EAD_PIN_FOOT_IMU_INT);
       int si = digitalRead(EAD_PIN_SHANK_IMU_INT);
+      // Foot: identity. Shank: anat = (-chipZ, -chipX, -chipY).
+      float fax = EAD_FOOT_MAP_AX(f.ax, f.ay, f.az) / 8192.0;
+      float fay = EAD_FOOT_MAP_AY(f.ax, f.ay, f.az) / 8192.0;
+      float faz = EAD_FOOT_MAP_AZ(f.ax, f.ay, f.az) / 8192.0;
+      float fgx = EAD_FOOT_MAP_AX(f.gx, f.gy, f.gz) / 65.5;
+      float fgy = EAD_FOOT_MAP_AY(f.gx, f.gy, f.gz) / 65.5;
+      float fgz = EAD_FOOT_MAP_AZ(f.gx, f.gy, f.gz) / 65.5;
+      float sax = EAD_SHANK_MAP_AX(s.ax, s.ay, s.az) / 8192.0;
+      float say = EAD_SHANK_MAP_AY(s.ax, s.ay, s.az) / 8192.0;
+      float saz = EAD_SHANK_MAP_AZ(s.ax, s.ay, s.az) / 8192.0;
+      float sgx = EAD_SHANK_MAP_AX(s.gx, s.gy, s.gz) / 65.5;
+      float sgy = EAD_SHANK_MAP_AY(s.gx, s.gy, s.gz) / 65.5;
+      float sgz = EAD_SHANK_MAP_AZ(s.gx, s.gy, s.gz) / 65.5;
       // +-4g => 8192 LSB/g ; +-500dps => 65.5 LSB/dps
       Serial.printf("F[%d] a=%.2f,%.2f,%.2f g g=%.0f,%.0f,%.0f dps INT=%d | S[%d] a=%.2f,%.2f,%.2f g g=%.0f,%.0f,%.0f dps INT=%d\n",
-        okf, f.ax/8192.0, f.ay/8192.0, f.az/8192.0, f.gx/65.5, f.gy/65.5, f.gz/65.5, fi,
-        oks, s.ax/8192.0, s.ay/8192.0, s.az/8192.0, s.gx/65.5, s.gy/65.5, s.gz/65.5, si);
-      // Machine-readable line for tools/orient_viewer.py (physical units).
+        okf, fax, fay, faz, fgx, fgy, fgz, fi, oks, sax, say, saz, sgx, sgy, sgz, si);
+      // Machine-readable lines for tools/orient_viewer.py (physical units).
+      // RAW = unmapped chip axes (diagnoses mounting/scale); CSV = anatomical.
+      Serial.printf("RAW,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n",
+        f.ax/8192.0, f.ay/8192.0, f.az/8192.0,
+        s.ax/8192.0, s.ay/8192.0, s.az/8192.0);
       Serial.printf("CSV,%.4f,%.4f,%.4f,%.2f,%.2f,%.2f,%.4f,%.4f,%.4f,%.2f,%.2f,%.2f,%d,%d\n",
-        f.ax/8192.0, f.ay/8192.0, f.az/8192.0, f.gx/65.5, f.gy/65.5, f.gz/65.5,
-        s.ax/8192.0, s.ay/8192.0, s.az/8192.0, s.gx/65.5, s.gy/65.5, s.gz/65.5, fi, si);
+        fax, fay, faz, fgx, fgy, fgz, sax, say, saz, sgx, sgy, sgz, fi, si);
     }
   }
 }

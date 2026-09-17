@@ -40,6 +40,23 @@
 
 // ---- Coordinate frame (doc 04) ----
 // X+ forward toward toes, Y+ medial/left (right leg), Z+ up.
+// NOTE: left-handed anatomical frame; chip frames are right-handed,
+// so the shank map below is a reflection (det -1) by construction.
+
+// ---- Per-sensor axis remap: raw chip -> anatomical (verified live) ----
+// Foot (0x68, dorsum, mounted per image): identity. Still-read evidence:
+//   raw a ~ (+0.42,+0.84,+1.81) -> Z dominant up. Gyro quiet.
+// Shank (0x69, anterior shin): board rotated vs image. User-verified live:
+//   chip +Z = posterior (into calf, -anatX); still-read raw
+//   a ~ (+0.16,-1.92,-0.47) -> raw -Y is up, so chip +Y = down (-anatZ).
+// Solved map (applied to accel AND gyro):
+//   anatX = -chipZ, anatY = -chipX, anatZ = -chipY.
+#define EAD_FOOT_MAP_AX(rx, ry, rz) (rx)
+#define EAD_FOOT_MAP_AY(rx, ry, rz) (ry)
+#define EAD_FOOT_MAP_AZ(rx, ry, rz) (rz)
+#define EAD_SHANK_MAP_AX(rx, ry, rz) (-(rz))
+#define EAD_SHANK_MAP_AY(rx, ry, rz) (-(rx))
+#define EAD_SHANK_MAP_AZ(rx, ry, rz) (-(ry))
 
 // ---- Calibration / orientation (doc 04) ----
 #define EAD_CAL_STATIC_S           5u
