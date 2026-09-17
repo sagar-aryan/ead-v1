@@ -380,5 +380,12 @@ Not verified: the rendered view (see Problem 3).
 ### Current Status
 Implemented; visual check pending with the user.
 
+### Follow-up after the user's check
+- Every chart now prints its own time axis. The first version printed it only
+  under the bottom chart to save vertical space, which made the upper charts
+  unreadable in isolation.
+- A dropdown for choosing how many graphs to show was started and abandoned on
+  the user's instruction: the checkbox row is what they want.
+
 ### Next Steps
-User checks the view; then the guided mounting check (M3).
+Guided mounting check (M3).

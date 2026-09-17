@@ -35,7 +35,7 @@ const GROUPS: { id: SignalGroup; label: string }[] = [
 const AXIS_COLORS = ["#2a78d6", "#4a3aa7", "#1baf7a"];
 const MAX_POINTS = 1400;
 const OVERVIEW_POINTS = 700;
-const DETAIL_HEIGHT = 150;
+const DETAIL_HEIGHT = 160;
 const OVERVIEW_HEIGHT = 56;
 /** Charts sharing this key share a cursor, so one crosshair reads all signals. */
 const SYNC_KEY = "raw";
@@ -56,7 +56,6 @@ function EnvelopeChart({
   height,
   onSelect,
   highlight,
-  showTime = true,
 }: {
   /** The window's shared time base. */
   data: RawWindow;
@@ -66,8 +65,6 @@ function EnvelopeChart({
   onSelect: (firstFrame: number, lastFrame: number) => void;
   /** Frame range to mark, for the overview strip. */
   highlight?: [number, number] | null;
-  /** Stacked charts share one time axis, printed under the bottom chart. */
-  showTime?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const plot = useRef<uPlot | null>(null);
@@ -139,7 +136,7 @@ function EnvelopeChart({
         scales: { x: { time: false } },
         // Every chart carries the same y-axis width so the stacked signals and
         // the overview share one vertical grid the eye can read down.
-        axes: [{ ...AXIS_STYLE, show: showTime }, { ...AXIS_STYLE, size: 54 }],
+        axes: [AXIS_STYLE, { ...AXIS_STYLE, size: 54 }],
       },
       values as unknown as uPlot.AlignedData,
       host.current,
@@ -159,7 +156,7 @@ function EnvelopeChart({
       chart.destroy();
       plot.current = null;
     };
-  }, [data, signal, height, showTime, mark]);
+  }, [data, signal, height, mark]);
 
   useEffect(mark, [mark, highlight]);
 
@@ -396,7 +393,7 @@ export function Raw() {
 
       {shown && (
         <div className="panel">
-          {shown.signals.map((signal, index) => (
+          {shown.signals.map((signal) => (
             <div key={signal.group} className="stacked-signal">
               <div className="chart-title">
                 <span className="name">
@@ -419,7 +416,6 @@ export function Raw() {
                 signal={signal}
                 height={DETAIL_HEIGHT}
                 onSelect={(from, to) => place(from, to - from + 1)}
-                showTime={index === shown.signals.length - 1}
               />
             </div>
           ))}

@@ -111,8 +111,10 @@ TEST-026) and guarantees the stacked charts have identical bucket boundaries.
 ### Raw view navigation
 Focus plus context. An overview strip draws the whole session (first selected
 signal, 700 points, loaded once per session/signal) with the visible window
-marked; below it every selected signal is stacked on a shared time axis with a
-cursor synced across charts (uPlot `cursor.sync`). The reader moves by dragging
+marked; below it every selected signal is stacked with a cursor synced across
+charts (uPlot `cursor.sync`). Each chart prints its own time axis rather than
+sharing one under the bottom chart: a reader looking at the third signal down
+should not have to track a tick label across the whole stack. The reader moves by dragging
 a range on any chart, ◀/▶ or arrow keys (pan half a window), In/Out or +/−
 (halve/double the width, centred), or Whole session.
 
