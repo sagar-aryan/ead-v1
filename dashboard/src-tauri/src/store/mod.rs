@@ -286,6 +286,7 @@ impl Store {
         }
         let mut connection = Connection::open(&path)?;
         schema::migrate(&mut connection)?;
+        close_orphaned_sessions(&connection)?;
 
         let (tx, rx) = mpsc::channel::<WriteCommand>();
         std::thread::Builder::new()
@@ -1031,6 +1032,30 @@ fn commit(
     pending.clear();
     pending_gait.clear();
     pending_status.clear();
+}
+
+/// Closes sessions left open when the app last exited mid-recording.
+///
+/// Nothing can be recording at startup, so any session without a stop time
+/// was interrupted — and would otherwise read "recording" forever. It is given
+/// the stop time its own data supports: the start plus the device-time span of
+/// its frames, or the start itself if none were stored. Its open segment is
+/// closed as `session_stopped` for the same reason.
+fn close_orphaned_sessions(connection: &Connection) -> rusqlite::Result<()> {
+    connection.execute_batch(
+        "UPDATE segments SET closed_at = COALESCE(
+             (SELECT strftime('%Y-%m-%dT%H:%M:%fZ', julianday(s.started_at)
+                 + COALESCE((SELECT (MAX(timestamp_us) - MIN(timestamp_us)) / 86400e6
+                             FROM raw_frames f WHERE f.session_id = s.session_id), 0))
+              FROM sessions s WHERE s.session_id = segments.session_id), started_at),
+             closed_by = 'session_stopped'
+         WHERE closed_at IS NULL
+           AND session_id IN (SELECT session_id FROM sessions WHERE stopped_at IS NULL);
+         UPDATE sessions SET stopped_at = strftime('%Y-%m-%dT%H:%M:%fZ', julianday(started_at)
+                 + COALESCE((SELECT (MAX(timestamp_us) - MIN(timestamp_us)) / 86400e6
+                             FROM raw_frames f WHERE f.session_id = sessions.session_id), 0))
+         WHERE stopped_at IS NULL;",
+    )
 }
 
 /// Counts a cycle into the session's open segment and closes that segment when

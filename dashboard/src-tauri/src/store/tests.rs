@@ -863,3 +863,29 @@ fn export_sample_for_the_mat_checker() {
     let summary = crate::export::export_session(&store, &session_id, &target).unwrap();
     println!("{} files in {}", summary.files.len(), summary.directory);
 }
+
+#[test]
+fn a_session_left_open_by_a_crash_is_closed_at_the_next_start() {
+    let dir = tempdir::TempDir::new();
+    let path = dir.path().join("ead.sqlite3");
+    let session_id = {
+        let store = Store::open(&path).unwrap();
+        store.create_patient("P-001", "Reference Walker").unwrap();
+        let session = store
+            .start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None)
+            .unwrap();
+        // Frames 0 and 100 are 1.000 s apart in device time (10 ms each).
+        store.record_frames(&[frame(0), frame(100)]);
+        store.flush();
+        session.session_id
+        // Dropped without stop_session: the app exited mid-recording.
+    };
+    let store = Store::open(&path).unwrap();
+    let session = store.session(&session_id).unwrap();
+    let stopped = session.stopped_at.expect("closed at startup");
+    let started = &session.started_at;
+    // Same second-of-minute arithmetic as the stored strings: one second later.
+    let seconds = |t: &str| t[17..23].parse::<f64>().unwrap();
+    let elapsed = (seconds(&stopped) - seconds(started)).rem_euclid(60.0);
+    assert!((elapsed - 1.0).abs() < 0.01, "{started} -> {stopped}");
+}
