@@ -12,7 +12,7 @@
  * produced a profile is still on disk and can be replayed against a corrected
  * detector later.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   api,
@@ -105,8 +105,27 @@ export function References({ device }: { device: DeviceApi }) {
   const minCycles = device.config?.reference_min_cycles ?? 30;
   const checkTarget = device.config?.reference_check_cycles ?? 10;
 
+  /** A check's reference to select once the patient's versions have loaded. */
+  const pendingSelection = useRef<string | null>(null);
+
   useEffect(() => {
     api.patients().then(setPatients).catch((e) => setError(String(e)));
+  }, []);
+
+  // The session lives in the backend, not in this page: leaving the tab and
+  // coming back must pick a running capture or check back up, not offer to
+  // start another beside it.
+  useEffect(() => {
+    (async () => {
+      const open = await api.recordingSession();
+      if (!open) return;
+      const session = await api.session(open);
+      if (session.kind !== "reference_capture" && session.kind !== "reference_check") return;
+      const check = session.kind === "reference_check";
+      pendingSelection.current = check ? session.reference_id : null;
+      setPatientId(session.patient_id);
+      setRunning({ sessionId: open, check });
+    })().catch((e) => setError(String(e)));
   }, []);
 
   const loadReferences = useCallback(async (id: string) => {
@@ -123,7 +142,10 @@ export function References({ device }: { device: DeviceApi }) {
 
   useEffect(() => {
     setSelected("");
-    loadReferences(patientId);
+    loadReferences(patientId).then(() => {
+      if (pendingSelection.current) setSelected(pendingSelection.current);
+      pendingSelection.current = null;
+    });
   }, [patientId, loadReferences]);
 
   // While a check runs, read back what the device has scored so far.

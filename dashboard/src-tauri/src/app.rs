@@ -267,6 +267,17 @@ pub fn session_blockers(
     if snapshot.link_state != crate::device::LinkState::Connected {
         blockers.push("the device is not connected".into());
     }
+    // A device on another protocol schema cannot run these sessions: older
+    // firmware does not know the session kinds, and its cycle records are a
+    // different size, so every cycle would be dropped as unreadable. This let a
+    // capture run for three minutes collecting nothing on 2026-09-18.
+    if snapshot.schema_mismatch {
+        blockers.push(
+            "the device firmware is a different protocol version from this dashboard; \
+reflash the firmware"
+                .into(),
+        );
+    }
     if patient_id.is_empty() {
         blockers.push("no patient is selected".into());
     }

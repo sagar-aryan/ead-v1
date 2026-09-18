@@ -608,3 +608,46 @@ velocity substate in V1.
 The failure was invisible in every synthetic test, because a synthetic signal is
 generated from a known orientation and so has no tilt error at all. It took one
 walk down a corridor of known length.
+
+## PROB-013 — Reference capture ran for three minutes against old firmware and collected nothing
+
+**Status:** Resolved in the dashboard; the device needs reflashing
+
+### Symptoms
+First real reference capture, over Wi-Fi. The valid-cycle counter never moved.
+Switching to another tab and back reset the References page to "Start capture
+walk", while the capture kept recording in the background; starting again gave
+"another session is already recording".
+
+### Investigation
+The open session in the store held 17,850 frames with no gaps, all flagged
+orientation-valid, and 26 gait events including 3 initial contacts — but 0
+cycles. The frames showed about 20 s of walking and then a still device.
+
+`sessions.firmware` was `0.1.0+a7c6d0d`: firmware built before `adc059d`, the
+schema-4 commit. The device had never been reflashed after M5. The Device page
+said so ("The device speaks a different protocol schema than this build").
+
+### Root cause
+Two, both mine.
+1. **The device was not reflashed after the protocol changed.** Schema-3
+   firmware sends 72-byte cycle records; the schema-4 dashboard expects 132 and
+   rejects every one, so no cycle could ever reach the store. The old firmware
+   also does not know the REFERENCE_CAPTURE session kind.
+2. **The session gate ignored a known schema mismatch.** `schema_mismatch` was
+   detected and displayed, but `session_blockers` did not check it, so the
+   capture was allowed to start.
+
+Separately, the References page kept "a capture is running" in component state,
+which React discards when the view unmounts on a tab switch.
+
+### Resolution
+- `session_blockers` refuses a capture, check or evaluation on a schema mismatch.
+- The References page reads the open session from the backend when it mounts and
+  resumes showing it: patient, counter, and the Stop button.
+- Reflash the device (`pio run -t upload` over USB).
+
+### Lessons
+A protocol schema bump is not finished until the device on the desk runs it.
+Every schema change should end with a flash and a HELLO showing the new schema.
+And a condition the UI already warns about should be a gate, not only a warning.
