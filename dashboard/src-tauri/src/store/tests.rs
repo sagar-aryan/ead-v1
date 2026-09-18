@@ -150,11 +150,17 @@ fn schema_upgrades_from_version_1_without_losing_data() {
     let dir = tempdir::TempDir::new();
     let path = dir.path().join("ead.sqlite3");
     {
-        // A version-1 store: sessions without the configuration column.
+        // A version-1 store: sessions without the configuration column. Only
+        // the columns the upgrade and startup touch are recreated; every real
+        // v1 store also had raw_frames, which startup reads to close sessions
+        // an exit left open.
         let connection = Connection::open(&path).unwrap();
         connection
             .execute_batch(
-                "CREATE TABLE patients (patient_id TEXT PRIMARY KEY, name TEXT NOT NULL,
+                "CREATE TABLE raw_frames (session_id TEXT NOT NULL, frame_index INTEGER NOT NULL,
+                                          timestamp_us INTEGER NOT NULL,
+                                          PRIMARY KEY (session_id, frame_index)) WITHOUT ROWID;
+                 CREATE TABLE patients (patient_id TEXT PRIMARY KEY, name TEXT NOT NULL,
                                         created_at TEXT NOT NULL);
                  CREATE TABLE sessions (session_id TEXT PRIMARY KEY, patient_id TEXT NOT NULL,
                                         kind TEXT NOT NULL, started_at TEXT NOT NULL,

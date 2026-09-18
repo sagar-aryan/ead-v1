@@ -996,3 +996,17 @@ exposed.
 
 ### Verification
 See TEST-038.
+
+## 2026-09-18 — A failing test was committed
+
+Commit `193edff` (close sessions left open at exit) was verified by running only
+its own new test (`cargo test crash`). The full suite was not run, and
+`schema_upgrades_from_version_1_without_losing_data` failed from then on: its
+hand-built v1 store had no `raw_frames` table, which every real v1 store had and
+which the new startup step reads. `146d044` then went out on top of it, because
+the command chain carried on after `cargo test` reported the failure, and its
+message claimed "59 Rust tests" when the suite had 56, one failing.
+
+Fixed by giving the fixture the table. The full suite, 56 tests, passes.
+Lesson: run the whole suite before every commit, and do not chain a commit onto a
+test command whose failure does not stop the chain.

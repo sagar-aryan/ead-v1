@@ -694,7 +694,7 @@ device accepted.
   and leaves the reference unlocked.
 
 ### Verification
-61/61 firmware native tests, 59 Rust tests, zero clippy warnings. On hardware:
+61/61 firmware native tests, 56 Rust tests (all), zero clippy warnings. On hardware:
 pending the reflash.
 
 ### Lessons
