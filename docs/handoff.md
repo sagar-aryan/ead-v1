@@ -179,11 +179,14 @@ M0–M6 are done; `docs/progress.md` has each one's entry. What is left:
   `xwininfo`, not `xdotool getwindowgeometry`, which includes the title bar.
 
 ## How To Run
-- **On a new machine:** `scripts/setup.sh` (Linux, macOS) or `scripts/setup.ps1`
-  (Windows) checks dependencies, clones or updates the repository into
-  `~/ead-v1`, runs `npm ci` and starts the dashboard. Pass `check` to only report
-  dependencies, `build` to produce an installer. The repository is private, so
-  cloning needs `gh auth login` or a token. Verified on Linux only (see TEST-038).
+- **On a new machine:** one script per OS in `scripts/`:
+  `setup-linux.sh`, `setup-macos.sh`, `setup-windows.ps1`. Each checks the
+  dependencies, clones or updates the repository into `~/ead-v1`, runs `npm ci`
+  and starts the dashboard. Arguments: `check` (report only), `build` (an
+  installer: `.app`/`.dmg` on macOS, NSIS `.exe` on Windows), and on macOS and
+  Windows `install` (offer to install each missing item, asking first). The
+  repository is private, so cloning needs `gh auth login`, a token, or Git
+  Credential Manager on Windows. Only the Linux script has been run (TEST-038).
 - Firmware: `cd firmware && pio run` to build, `pio run -t upload` to flash.
 - Firmware unit tests: `cd firmware && pio test -e native`.
 - Talk to the device without the dashboard:

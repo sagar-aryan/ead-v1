@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# EAD V1 dashboard: fetch, check dependencies, and run — Linux and macOS.
+# EAD V1 dashboard: fetch, check dependencies, and run — Linux (Debian/Ubuntu).
 #
-#   bash setup.sh            clone/update, install, and start the dashboard
-#   bash setup.sh build      the same, but produce an installer instead
-#   bash setup.sh check      only report which dependencies are present
+#   bash setup-linux.sh            clone/update, install, and start the dashboard
+#   bash setup-linux.sh build      the same, but produce an installer instead
+#   bash setup-linux.sh check      only report which dependencies are present
 #
 # The repository is private: cloning needs either the GitHub CLI signed in
 # (`gh auth login`) or a personal access token when git asks for a password.
@@ -14,7 +14,6 @@ set -euo pipefail
 REPO="sagar-aryan/ead-v1"
 DIR="${EAD_DIR:-$HOME/ead-v1}"
 MODE="${1:-dev}"
-OS="$(uname -s)"
 missing=0
 
 ok()   { printf '  ok      %s\n' "$1"; }
@@ -25,10 +24,9 @@ has()  { command -v "$1" >/dev/null 2>&1; }
 # Compares dotted versions: true when $1 >= $2.
 at_least() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]; }
 
-echo "Checking dependencies ($OS)"
+echo "Checking dependencies (Linux)"
 
-has git && ok "git $(git --version | awk '{print $3}')" || need git \
-  "$([ "$OS" = Darwin ] && echo 'xcode-select --install' || echo 'sudo apt install git')"
+has git && ok "git $(git --version | awk '{print $3}')" || need git "sudo apt install git"
 
 if has node; then
   v="$(node -v | tr -d v)"
@@ -44,10 +42,7 @@ else
   need "rust >= 1.92" "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
 fi
 
-if [ "$OS" = Darwin ]; then
-  xcode-select -p >/dev/null 2>&1 && ok "Xcode command line tools" \
-    || need "Xcode command line tools" "xcode-select --install"
-else
+{
   # Tauri 2 on Linux: WebKitGTK 4.1 and the usual build chain.
   # https://v2.tauri.app/start/prerequisites/#linux
   pkgs="libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config"
@@ -59,7 +54,7 @@ else
   # The device is a USB serial port; reading it needs the dialout group.
   if id -nG | grep -qw dialout; then ok "in the dialout group (USB serial access)"
   else opt "dialout group" "sudo usermod -aG dialout \$USER, then log out and in"; fi
-fi
+}
 
 # Only for the command-line tools in tools/, not for the dashboard.
 if has python3; then

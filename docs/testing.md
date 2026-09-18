@@ -1117,8 +1117,12 @@ Windows machine was available, and PowerShell is not installed here.
    committed.
 
 ### Result
-PARTIAL. Linux: PASS. `setup.sh` on macOS and `setup.ps1` on Windows have not
-been run anywhere. The dashboard itself has never been built on either; the Rust
+PARTIAL. Linux: PASS. `setup-macos.sh` and `setup-windows.ps1` have not been run
+on their platforms; the user is testing them. What was checked here: `bash -n`
+on the macOS script and its version comparison against five cases (it avoids
+`sort -V`, which the `sort` shipped with macOS lacks); the Windows script parses
+under PowerShell 7.4.6's parser, and its missing-items list was exercised in
+pwsh with one and with two entries. The dashboard itself has never been built on either; the Rust
 code contains nothing platform-specific, but that is an argument, not a test.
 
 ### Notes
