@@ -185,8 +185,13 @@ M0–M6 are done; `docs/progress.md` has each one's entry. What is left:
   and starts the dashboard. Arguments: `check` (report only), `build` (an
   installer: `.app`/`.dmg` on macOS, NSIS `.exe` on Windows), and on macOS and
   Windows `install` (offer to install each missing item, asking first). The
-  repository is private, so cloning needs `gh auth login`, a token, or Git
-  Credential Manager on Windows. Only the Linux script has been run (TEST-038).
+  repository is public, so each runs straight from GitHub:
+  - `curl -fsSL https://raw.githubusercontent.com/sagar-aryan/ead-v1/main/scripts/setup-linux.sh | bash -s -- check`
+  - `curl -fsSL https://raw.githubusercontent.com/sagar-aryan/ead-v1/main/scripts/setup-macos.sh | bash -s -- check`
+  - Windows: `irm https://raw.githubusercontent.com/sagar-aryan/ead-v1/main/scripts/setup-windows.ps1 -OutFile $env:TEMP\ead-setup.ps1`, then
+    `powershell -ExecutionPolicy Bypass -File $env:TEMP\ead-setup.ps1 check`.
+    Not a piped scriptblock: the script's `exit` would close the terminal.
+  Only the Linux script has been run (TEST-038).
 - Firmware: `cd firmware && pio run` to build, `pio run -t upload` to flash.
 - Firmware unit tests: `cd firmware && pio test -e native`.
 - Talk to the device without the dashboard:
@@ -255,6 +260,11 @@ In order. The first four need the user; nothing useful comes before them.
 5. Then: adaptive thresholds (doc 05 §3), and the M7 storage decision.
 
 ## Warnings
+- **The repository is public** (since 2026-09-18). Everything tracked is
+  visible, including history: the contract package `ead_agent_docs_v2/`, the
+  researcher's `Critical Clinical Insights.docx` and the walk recording. Never
+  commit `firmware/include/ead_secrets.h` (the access-point passphrase); it is
+  gitignored and has never been in any commit.
 - Never modify `ead_agent_docs_v2/`. Contract values override library defaults.
 - No battery, switch, BLE, FSR, BNO086 or haptic code (contract + DEC-006).
 - Keep motor GPIOs LOW. Driving them has no effect today, but PROB-004 and

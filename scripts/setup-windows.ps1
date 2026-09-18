@@ -1,13 +1,16 @@
 # EAD V1 dashboard on Windows 10 or 11 (x64).
 #
+# Straight from GitHub (PowerShell). Downloaded to a file and run in its own
+# process, so the script's `exit` cannot close your terminal:
+#   irm https://raw.githubusercontent.com/sagar-aryan/ead-v1/main/scripts/setup-windows.ps1 -OutFile $env:TEMP\ead-setup.ps1
+#   powershell -ExecutionPolicy Bypass -File $env:TEMP\ead-setup.ps1 check
+#
 #   powershell -ExecutionPolicy Bypass -File setup-windows.ps1            check, clone/update, start
 #   powershell -ExecutionPolicy Bypass -File setup-windows.ps1 install    offer to install what is missing
 #   powershell -ExecutionPolicy Bypass -File setup-windows.ps1 check      only report dependencies
 #   powershell -ExecutionPolicy Bypass -File setup-windows.ps1 build      produce an installer instead
 #
 # Written for Windows PowerShell 5.1, which every Windows 10/11 has.
-# The repository is private: cloning signs in through Git Credential Manager
-# (it ships with Git for Windows and opens a browser), or through `gh auth login`.
 # Nothing is installed without asking first.
 param([string]$Mode = "dev")
 # Continue, not Stop: in Windows PowerShell 5.1 a native command's redirected
@@ -132,7 +135,6 @@ if ($script:Missing.Count) {
 
 Write-Host "`nFetching $Repo into $Dir"
 if (Test-Path (Join-Path $Dir ".git")) { git -C $Dir pull --ff-only }
-elseif (Has gh) { gh repo clone $Repo $Dir }
 else { git clone "https://github.com/$Repo.git" $Dir }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

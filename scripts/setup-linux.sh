@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # EAD V1 dashboard: fetch, check dependencies, and run — Linux (Debian/Ubuntu).
 #
+# Straight from GitHub, no download step:
+#   curl -fsSL https://raw.githubusercontent.com/sagar-aryan/ead-v1/main/scripts/setup-linux.sh | bash -s -- check
+#
 #   bash setup-linux.sh            clone/update, install, and start the dashboard
 #   bash setup-linux.sh build      the same, but produce an installer instead
 #   bash setup-linux.sh check      only report which dependencies are present
 #
-# The repository is private: cloning needs either the GitHub CLI signed in
-# (`gh auth login`) or a personal access token when git asks for a password.
 # Missing dependencies are reported with the command that installs them; this
 # script never runs sudo on its own.
 set -euo pipefail
@@ -74,8 +75,6 @@ fi
 echo; echo "Fetching $REPO into $DIR"
 if [ -d "$DIR/.git" ]; then
   git -C "$DIR" pull --ff-only
-elif has gh; then
-  gh repo clone "$REPO" "$DIR"
 else
   git clone "https://github.com/$REPO.git" "$DIR"
 fi

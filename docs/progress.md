@@ -962,3 +962,37 @@ to walk.
 `docs/handoff.md` → Next Steps. In short: a walk recorded through the dashboard,
 then a one-minute reference capture, then a check and an evaluation, then the
 export read end to end.
+
+## 2026-09-18 — The repository is public
+
+### Objective
+The user made `sagar-aryan/ead-v1` public. Adjust to that, and check what is now
+exposed.
+
+### Investigation
+- Secrets: `firmware/include/ead_secrets.h` holds the access-point passphrase. It
+  is gitignored and `git log --all` shows it in **no** commit. The only match for
+  "passphrase" anywhere in history is the code that generates it.
+- **A correction:** in this session I told the user `Critical Clinical
+  Insights.docx` was not in git, and `docs/clinical_requirements.md` said the
+  same. Both were wrong: it was committed on 2026-09-17 in `9238d1c`, so it is now
+  public, in history as well as at HEAD. Whether to remove it is the user's call —
+  removing it from history means rewriting history and force-pushing.
+- Also public by virtue of being tracked: the contract package
+  `ead_agent_docs_v2/`, the 6 m walk recording, and the committer address in the
+  git log.
+
+### Changes
+- The three setup scripts run straight from GitHub (`curl … | bash -s -- check`;
+  on Windows, download to a file and run it with `-File`). The private-repo
+  authentication paths (`gh repo clone`, token notes) are gone.
+- Under `curl | bash`, stdin is the script, so the macOS install prompt reads
+  from `/dev/tty`.
+- The Windows one-liner downloads to a file rather than invoking a scriptblock:
+  a scriptblock's `exit` closes the user's terminal.
+- `setup-windows.ps1` is pure ASCII — Windows PowerShell 5.1 reads a BOM-less
+  UTF-8 file as ANSI — and `.gitattributes` keeps `.ps1` CRLF and `.sh` LF on
+  checkout.
+
+### Verification
+See TEST-038.

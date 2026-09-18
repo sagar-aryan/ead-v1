@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # EAD V1 dashboard on macOS (Apple Silicon or Intel, macOS 11 or newer).
 #
+# Straight from GitHub, no download step:
+#   curl -fsSL https://raw.githubusercontent.com/sagar-aryan/ead-v1/main/scripts/setup-macos.sh | bash -s -- check
+#   curl -fsSL https://raw.githubusercontent.com/sagar-aryan/ead-v1/main/scripts/setup-macos.sh | bash -s -- install
+#
 #   bash setup-macos.sh            check dependencies, clone/update, start the dashboard
 #   bash setup-macos.sh install    offer to install whatever is missing, then continue
 #   bash setup-macos.sh check      only report dependencies
 #   bash setup-macos.sh build      produce EAD Dashboard.app and a .dmg instead
 #
-# The repository is private: cloning needs the GitHub CLI signed in
-# (`gh auth login`) or a personal access token when git asks for a password.
 # Nothing is installed without asking first.
 set -euo pipefail
 
@@ -80,7 +82,8 @@ install_missing() {
   # "unbound" under set -u.
   for item in ${missing[@]+"${missing[@]}"}; do
     what="${item%%|*}"; how="${item#*|}"
-    read -r -p "Install $what with: $how ? [y/N] " answer
+    # From the terminal, not stdin: under `curl | bash` stdin is the script itself.
+    read -r -p "Install $what with: $how ? [y/N] " answer </dev/tty
     [[ "$answer" =~ ^[Yy] ]] || continue
     if [[ "$how" == "xcode-select --install" ]]; then
       xcode-select --install || true
@@ -114,8 +117,6 @@ fi
 echo; echo "Fetching $REPO into $DIR"
 if [ -d "$DIR/.git" ]; then
   git -C "$DIR" pull --ff-only
-elif has gh; then
-  gh repo clone "$REPO" "$DIR"
 else
   git clone "https://github.com/$REPO.git" "$DIR"
 fi
