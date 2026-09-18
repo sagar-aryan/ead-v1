@@ -651,3 +651,58 @@ which React discards when the view unmounts on a tab switch.
 A protocol schema bump is not finished until the device on the desk runs it.
 Every schema change should end with a flash and a HELLO showing the new schema.
 And a condition the UI already warns about should be a gate, not only a warning.
+
+## PROB-014 — The device refused every reference check and evaluation
+
+**Status:** Resolved in firmware `d6c9d84`+1; the device must be reflashed
+
+### Symptoms
+First real reference check, against a profile captured minutes earlier. The
+"Scored cycles" counter stayed at 0 while the user walked.
+
+### Investigation
+The check session in the store held 3,870 frames and 14 cycles, 13 valid — so
+steps were detected and delivered — but every cycle had error score 0 and
+confidence 0: not scored. The capture just before it had worked.
+
+The difference between the two commands is their length. A capture's
+SESSION_START is 4 bytes; a check or an evaluation carries the 64-byte reference
+profile after them, 68 in all. `ead::decodeSessionStart` returned false for any
+length other than 4, so the device answered every check and every evaluation
+with ERROR BadPayload and never entered the session. It kept detecting steps,
+and without a session nothing was scored.
+
+### Root cause
+The decoder was written for schema 2, when SESSION_START was always 4 bytes, and
+not widened when schema 4 appended the profile. The golden vector for exactly
+this message (`reference_profile.hex`) existed, but its firmware test skipped
+the 4-byte head and decoded only the profile — so the one part that was wrong
+was the one part not tested.
+
+A second fault made it silent: the device's ERROR reached the dashboard's
+`last_error`, but the References page never showed it, and the dashboard started
+the recording (and locked the reference) without waiting to hear whether the
+device accepted.
+
+### Resolution
+- `decodeSessionStart` accepts 4 bytes, or 4 + 64; `link.cpp` still refuses a
+  profile on a calibration or a capture.
+- New test `test_session_start_with_reference_decodes` decodes the whole golden
+  message. Verified that it **fails on the old decoder** and passes on the new.
+- The dashboard waits 800 ms after starting a capture, check or evaluation. A
+  refusal fails the Start button with the device's reason, stops the recording,
+  and leaves the reference unlocked.
+
+### Verification
+61/61 firmware native tests, 59 Rust tests, zero clippy warnings. On hardware:
+pending the reflash.
+
+### Lessons
+A golden vector only protects the bytes a test actually decodes. And a command
+the device can refuse must not be reported as started until the device has had
+the chance to say so.
+
+### Side effect already in the store
+Versions 1 and 2 were marked locked when these checks started, although the
+device never scored against either. Locking only prevents a profile's numbers
+from changing, so it does not stop either being used.

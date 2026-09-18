@@ -191,7 +191,11 @@ constexpr size_t kCalibrationPayloadSize = 128;
 constexpr uint16_t kCalibMinDurationMs = 2000;
 constexpr uint16_t kCalibMaxDurationMs = 30000;
 
-/// SESSION_START, host → device.
+/// SESSION_START, host → device. Decodes the 4-byte head: kind and duration.
+/// A check or an evaluation carries the 64-byte reference profile after it
+/// (docs/protocol.md §5.9), so both lengths are accepted here; whether a
+/// profile is required for the kind, and whether it is valid, is the caller's
+/// decision. Anything else is rejected rather than read short.
 bool decodeSessionStart(const uint8_t* payload, size_t len, uint8_t* kind, uint16_t* durationMs);
 size_t encodeSessionStart(uint8_t kind, uint16_t durationMs, uint8_t* out, size_t cap);
 

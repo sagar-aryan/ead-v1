@@ -308,11 +308,27 @@ reflash the firmware"
     blockers
 }
 
+/// The device answers a session it refuses with ERROR and says nothing when it
+/// accepts. Waiting a moment turns a refusal into a failed command, rather than
+/// a recording that runs on collecting cycles nobody will score — which is what
+/// happened when the device refused every check (PROB-014).
+async fn confirm_device_accepted(app: &App) -> CommandResult<()> {
+    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+    match app.device.last_error() {
+        Some(error) => {
+            let _ = app.device.stop_session();
+            let _ = app.store.stop_session();
+            Err(format!("the device refused the session: {error}"))
+        }
+        None => Ok(()),
+    }
+}
+
 /// Starts a reference capture (doc 12 §2): a recording session, and the device
 /// session that collects the patient's own cycles into a profile. Either both
 /// start or neither does.
 #[tauri::command]
-pub fn start_reference_capture(
+pub async fn start_reference_capture(
     app: tauri::State<'_, Arc<App>>,
     patient_id: String,
 ) -> CommandResult<Session> {
@@ -331,10 +347,12 @@ pub fn start_reference_capture(
         .store
         .start_session(&patient_id, SessionKind::ReferenceCapture, &identity, None, None)
         .map_err(failed)?;
+    app.device.clear_error();
     if let Err(e) = app.device.start_reference_capture() {
         let _ = app.store.stop_session();
         return Err(e);
     }
+    confirm_device_accepted(&app).await?;
     Ok(session)
 }
 
@@ -371,7 +389,7 @@ pub async fn finish_reference_capture(
 /// evaluation (scored and segmented, doc 12 §4). Both lock the profile: once it
 /// has judged a session it is immutable.
 #[tauri::command]
-pub fn start_scored_session(
+pub async fn start_scored_session(
     app: tauri::State<'_, Arc<App>>,
     patient_id: String,
     reference_id: String,
@@ -396,10 +414,14 @@ pub fn start_scored_session(
             if check { None } else { limits },
         )
         .map_err(failed)?;
+    app.device.clear_error();
     if let Err(e) = app.device.start_scored_session(check, &reference.profile) {
         let _ = app.store.stop_session();
         return Err(e);
     }
+    // Only a profile the device actually accepted has judged anything, so the
+    // lock waits for that.
+    confirm_device_accepted(&app).await?;
     app.store.lock_reference(&reference_id).map_err(failed)?;
     Ok(session)
 }

@@ -345,6 +345,26 @@ static void test_step_batch_matches_the_vector() {
               ead::kHeaderSize + n);
 }
 
+/// The whole SESSION_START an evaluation sends, head and profile, decoded the
+/// way the device's link handler does. The profile test below skips the head,
+/// and that gap is how the device came to refuse every check (PROB-014).
+static void test_session_start_with_reference_decodes() {
+  const auto v = loadVector("reference_profile.hex");
+  const uint8_t* payload = v.data() + ead::kHeaderSize;
+  const size_t len = v.size() - ead::kHeaderSize;
+  TEST_ASSERT_EQUAL(ead::kSessionStartPayloadSize + ead::kReferencePayloadSize, len);
+
+  uint8_t kind = 0;
+  uint16_t durationMs = 1;
+  TEST_ASSERT_TRUE(ead::decodeSessionStart(payload, len, &kind, &durationMs));
+  TEST_ASSERT_EQUAL_UINT8(uint8_t(ead::SessionKind::Evaluation), kind);
+  TEST_ASSERT_EQUAL_UINT16(0, durationMs);
+  // Any other length is still refused.
+  TEST_ASSERT_FALSE(ead::decodeSessionStart(payload, len - 1, &kind, &durationMs));
+  TEST_ASSERT_FALSE(ead::decodeSessionStart(payload, ead::kSessionStartPayloadSize + 1, &kind,
+                                            &durationMs));
+}
+
 static void test_reference_profile_round_trip() {
   const auto v = loadVector("reference_profile.hex");
   const uint8_t* payload = v.data() + ead::kHeaderSize + ead::kSessionStartPayloadSize;
@@ -393,6 +413,7 @@ static void test_a_reference_with_a_zero_spread_is_refused() {
 
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_session_start_with_reference_decodes);
   RUN_TEST(test_reference_profile_round_trip);
   RUN_TEST(test_a_reference_with_a_zero_spread_is_refused);
   RUN_TEST(test_event_batch_matches_the_vector);

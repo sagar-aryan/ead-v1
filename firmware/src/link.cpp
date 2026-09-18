@@ -94,6 +94,13 @@ void Link::onMessage(const uint8_t* msg, size_t len, int64_t nowUs) {
         return;
       }
       const ead::SessionKind sessionKind = ead::SessionKind(kind);
+      const bool carriesProfile = h.length != ead::kSessionStartPayloadSize;
+      if (carriesProfile && (sessionKind == ead::SessionKind::Calibration ||
+                             sessionKind == ead::SessionKind::ReferenceCapture)) {
+        queueError(h.sequence, h.type, ErrorCode::BadPayload,
+                   "only a check or an evaluation carries a reference profile", nowUs);
+        return;
+      }
       if (sessionKind == ead::SessionKind::Calibration) {
         if (durationMs < ead::kCalibMinDurationMs || durationMs > ead::kCalibMaxDurationMs) {
           queueError(h.sequence, h.type, ErrorCode::BadPayload, "duration_ms must be 2000..30000",

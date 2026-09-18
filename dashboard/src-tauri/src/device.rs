@@ -215,6 +215,16 @@ impl Device {
         Ok(())
     }
 
+    /// Clears the last error, so that one arriving next can be attributed to
+    /// the command about to be sent.
+    pub fn clear_error(&self) {
+        self.state.lock().expect("device state").last_error = None;
+    }
+
+    pub fn last_error(&self) -> Option<String> {
+        self.state.lock().expect("device state").last_error.clone()
+    }
+
     /// Takes the profile from the last completed capture, clearing it.
     pub fn take_reference(&self) -> Option<protocol::ReferenceProfile> {
         self.state.lock().expect("device state").reference.take()

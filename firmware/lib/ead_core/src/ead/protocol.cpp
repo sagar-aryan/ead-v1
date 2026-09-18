@@ -128,8 +128,12 @@ size_t encodeStatusPayload(const StatusInfo& s, uint8_t* out, size_t cap) {
 }
 
 bool decodeSessionStart(const uint8_t* payload, size_t len, uint8_t* kind, uint16_t* durationMs) {
-  if (len != kSessionStartPayloadSize) return false;
-  ByteReader r(payload, len);
+  // Accepting only the bare 4 bytes refused every check and evaluation, which
+  // carry the profile after them: the device never started scoring (PROB-014).
+  if (len != kSessionStartPayloadSize && len != kSessionStartPayloadSize + kReferencePayloadSize) {
+    return false;
+  }
+  ByteReader r(payload, kSessionStartPayloadSize);
   *kind = r.u8();
   r.u8();  // reserved
   *durationMs = r.u16();
