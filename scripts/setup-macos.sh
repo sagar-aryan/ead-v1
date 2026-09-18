@@ -1,29 +1,34 @@
 #!/usr/bin/env bash
-# EAD V1 dashboard on macOS (Apple Silicon or Intel, macOS 11 or newer).
+# EAD V1 dashboard on macOS (Apple Silicon or Intel, macOS 11 or newer):
+# check dependencies, install what is missing, fetch the code and start the
+# dashboard. One command:
 #
-# Straight from GitHub, no download step:
-#   curl -fsSL https://raw.githubusercontent.com/sagar-aryan/ead-v1/main/scripts/setup-macos.sh | bash -s -- check
-#   curl -fsSL https://raw.githubusercontent.com/sagar-aryan/ead-v1/main/scripts/setup-macos.sh | bash -s -- install
+#   curl -fsSL https://raw.githubusercontent.com/sagar-aryan/ead-v1/main/scripts/setup-macos.sh | bash
 #
-#   bash setup-macos.sh            check dependencies, clone/update, start the dashboard
-#   bash setup-macos.sh install    offer to install whatever is missing, then continue
-#   bash setup-macos.sh check      only report dependencies
-#   bash setup-macos.sh build      produce EAD Dashboard.app and a .dmg instead
+# or, once downloaded:
 #
-# Nothing is installed without asking first.
+#   bash setup-macos.sh            check, install what is missing, clone/update, start
+#   bash setup-macos.sh check      only report dependencies; change nothing
+#   bash setup-macos.sh build      as the default, but produce EAD Dashboard.app and a .dmg
+#
+# Asks once before installing. Node comes from Homebrew when it is installed,
+# otherwise from nvm; Rust from rustup. Neither needs an administrator password.
 set -euo pipefail
 
 REPO="sagar-aryan/ead-v1"
 DIR="${EAD_DIR:-$HOME/ead-v1}"
 MODE="${1:-dev}"
+[ "$MODE" = install ] && MODE=dev   # the word earlier instructions used
+NVM_VERSION="v0.40.1"
+NODE_MAJOR=22
 missing=()
 
 ok()   { printf '  ok      %s\n' "$1"; }
-need() { printf '  MISSING %s\n          install: %s\n' "$1" "$2"; missing+=("$1|$2"); }
+need() { printf '  MISSING %s\n' "$1"; missing+=("$2"); }
 opt()  { printf '  --      %s (optional: %s)\n' "$1" "$2"; }
 has()  { command -v "$1" >/dev/null 2>&1; }
 
-# True when dotted version $1 >= $2. Done by hand: the `sort` that ships with
+# True when dotted version $1 >= $2. Done in awk: the `sort` that ships with
 # macOS is too old for `sort -V`.
 at_least() {
   awk -v a="$1" -v b="$2" 'BEGIN {
@@ -32,84 +37,101 @@ at_least() {
     exit 0 }'
 }
 
-# rustup and Homebrew install into places a fresh shell has not got on PATH yet.
-[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
-for brew in /opt/homebrew/bin/brew /usr/local/bin/brew; do
-  [ -x "$brew" ] && eval "$("$brew" shellenv)" && break
-done
+# Homebrew, nvm and rustup install where a non-interactive shell (and
+# `curl | bash` is one) has not got them on PATH.
+load_user_tools() {
+  for brew in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+    if [ -x "$brew" ]; then eval "$("$brew" shellenv)"; break; fi
+  done
+  export NVM_DIR="$HOME/.nvm"
+  # shellcheck disable=SC1091
+  [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use --silent "$NODE_MAJOR" >/dev/null 2>&1 || true
+  # shellcheck disable=SC1091
+  [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env" || true
+  hash -r
+}
 
 check() {
   missing=()
   echo "Checking dependencies (macOS $(sw_vers -productVersion), $(uname -m))"
 
   # Clang, the linker and git all come with the command line tools.
-  if xcode-select -p >/dev/null 2>&1; then ok "Xcode command line tools"
-  else need "Xcode command line tools" "xcode-select --install"; fi
+  if xcode-select -p >/dev/null 2>&1 && has git; then ok "Xcode command line tools (compiler, git)"
+  else need "Xcode command line tools (compiler, git)" xcode; fi
 
-  has git && ok "git $(git --version | awk '{print $3}')" \
-    || need "git" "xcode-select --install"
-
-  has brew && ok "Homebrew" \
-    || opt "Homebrew" 'only used to install node: https://brew.sh'
-
-  if has node; then
-    v="$(node -v | tr -d v)"
-    at_least "$v" 20.0.0 && ok "node $v" || need "node >= 20 (found $v)" "brew install node"
+  if has node && at_least "$(node -v | tr -d v)" 20.0.0; then
+    ok "node $(node -v | tr -d v)"
   else
-    need "node >= 20" "brew install node"
+    need "node >= 20$(has node && echo " (found $(node -v))")" node
   fi
 
-  if has rustc; then
-    v="$(rustc --version | awk '{print $2}')"
-    # krilla, which writes the PDF report, needs 1.92.
-    at_least "$v" 1.92.0 && ok "rust $v" || need "rust >= 1.92 (found $v)" "rustup update stable"
+  # krilla, which writes the PDF report, needs Rust 1.92.
+  if has rustc && at_least "$(rustc --version | awk '{print $2}')" 1.92.0; then
+    ok "rust $(rustc --version | awk '{print $2}')"
   else
-    need "rust >= 1.92" "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+    need "rust >= 1.92$(has rustc && echo " (found $(rustc --version | awk '{print $2}'))")" rust
   fi
 
-  # The device is a native USB CDC port, /dev/cu.usbmodem*: macOS needs no driver.
-  if has python3; then
-    python3 -c 'import serial' 2>/dev/null && ok "python3 + pyserial" \
-      || opt "pyserial" "python3 -m pip install --user pyserial   (tools/eadprobe.py)"
-  else
-    opt "python3" "xcode-select --install   (tools/eadprobe.py)"
-  fi
-  has pio || opt "PlatformIO" "python3 -m pip install --user platformio   (only to reflash firmware)"
+  # The device is a native USB CDC port, /dev/cu.usbmodem*: no driver needed.
+  # Python is only for the command-line tools in tools/, never the dashboard.
+  if has python3 && python3 -c 'import serial' 2>/dev/null; then ok "python3 + pyserial"
+  else opt "pyserial" "python3 -m pip install --user pyserial   (tools/eadprobe.py)"; fi
 }
 
-install_missing() {
-  # ${a[@]+...}: macOS still ships bash 3.2, where an empty array is
-  # "unbound" under set -u.
-  for item in ${missing[@]+"${missing[@]}"}; do
-    what="${item%%|*}"; how="${item#*|}"
-    # From the terminal, not stdin: under `curl | bash` stdin is the script itself.
-    read -r -p "Install $what with: $how ? [y/N] " answer </dev/tty
-    [[ "$answer" =~ ^[Yy] ]] || continue
-    if [[ "$how" == "xcode-select --install" ]]; then
-      xcode-select --install || true
-      echo "A macOS dialog has opened. Finish it, then run this script again."
-      exit 1
-    fi
-    if [[ "$how" == brew* ]] && ! has brew; then
-      echo "Homebrew is not installed. Install it from https://brew.sh first."
-      continue
-    fi
-    bash -c "$how"
-  done
-  [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
-  hash -r
+install_one() {
+  case "$1" in
+    xcode)
+      # This opens a macOS dialog and returns at once; nothing else can be
+      # built until it finishes.
+      xcode-select --install 2>/dev/null || true
+      echo
+      echo "A macOS dialog has opened to install the command line tools."
+      echo "Click Install, wait for it to finish, then run this script again."
+      exit 1 ;;
+    node)
+      if has brew; then
+        brew install node
+      else
+        if [ ! -s "$HOME/.nvm/nvm.sh" ]; then
+          # nvm adds itself to the shell's startup file, so `node` works in
+          # new Terminal windows too. zsh is the macOS default; give nvm a
+          # ~/.zshrc to write to if there is none yet.
+          [ -f "$HOME/.zshrc" ] || touch "$HOME/.zshrc"
+          curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_VERSION/install.sh" | bash
+        fi
+        export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"
+        nvm install "$NODE_MAJOR" && nvm alias default "$NODE_MAJOR"
+      fi ;;
+    rust)
+      if has rustup; then
+        rustup update stable && rustup default stable
+      else
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+      fi ;;
+  esac
 }
 
+load_user_tools
 check
 [ "$MODE" = check ] && exit $(( ${#missing[@]} > 0 ))
 
 if [ ${#missing[@]} -gt 0 ]; then
-  if [ "$MODE" = install ]; then
-    install_missing
-    echo; check
-  fi
+  echo
+  printf 'Install the %d missing item(s) above now? [Y/n] ' "${#missing[@]}"
+  # From the terminal, not stdin: under `curl | bash` stdin is this script.
+  answer=y
+  { read -r answer </dev/tty; } 2>/dev/null || { answer=y; echo; }
+  if [[ "$answer" =~ ^[Nn] ]]; then echo "Nothing installed."; exit 1; fi
+  # ${a[@]+...}: macOS still ships bash 3.2, where an empty array is
+  # "unbound" under set -u.
+  for item in ${missing[@]+"${missing[@]}"}; do
+    echo; echo "== Installing $item"
+    install_one "$item" || { echo "Installing $item failed; see the output above."; exit 1; }
+  done
+  load_user_tools
+  echo; check
   if [ ${#missing[@]} -gt 0 ]; then
-    echo; echo "Install the MISSING items above (or run: bash setup-macos.sh install), then run this again."
+    echo; echo "Something is still missing; see above. Open a new Terminal window and run this again."
     exit 1
   fi
 fi
@@ -119,6 +141,13 @@ if [ -d "$DIR/.git" ]; then
   git -C "$DIR" pull --ff-only
 else
   git clone "https://github.com/$REPO.git" "$DIR"
+fi
+
+# `tauri dev` serves the UI on port 1420. If it is taken, a dashboard is almost
+# certainly open already; say so, rather than fail later with a port error.
+if [ "$MODE" = dev ] && (: </dev/tcp/127.0.0.1/1420) 2>/dev/null; then
+  echo; echo "The dashboard is already running (port 1420 is in use). Close it and run this again."
+  exit 1
 fi
 
 cd "$DIR/dashboard"
@@ -134,5 +163,6 @@ if [ "$MODE" = build ]; then
   echo "open it the first time with right-click > Open."
 else
   echo; echo "Starting the dashboard (first start compiles Rust: several minutes)"
+  echo "Next time, just run this script again, or: cd $DIR/dashboard && npx tauri dev"
   npx tauri dev
 fi

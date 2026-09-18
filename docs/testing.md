@@ -1093,37 +1093,52 @@ The haptic-response plot doc 10 §8 asks for is drawn as an empty panel titled
 has to be able to see that the report was asked for it and that nothing could
 answer it; a missing panel would look like an oversight.
 
-## TEST-038 — Setup scripts and a clean clone
+## TEST-038 — Setup scripts: install and launch from nothing
 
 ### Objective
-That a machine with nothing but the dependencies can go from the GitHub
-repository to a built dashboard.
+That one command takes a machine with missing dependencies to a running
+dashboard: check, install, check again, clone, install packages, start.
 
 ### Environment
-This Linux machine (Ubuntu 24.04, node 24.13.1, rust 1.95.0). No macOS or
-Windows machine was available, and PowerShell is not installed here.
+This Linux machine (Ubuntu 24.04). No macOS or Windows machine, and no
+container runtime, so the system-package step (`apt`, which needs sudo) could
+not be exercised on a clean system.
 
 ### Procedure
-1. `bash scripts/setup.sh check` — the dependency report.
-2. A fresh `gh repo clone sagar-aryan/ead-v1` into an empty directory, then
-   `npm ci`, `npm run build` and `cargo build` in it — the same steps the script
-   runs, without launching the GUI.
+`setup-linux.sh` run under `env -i` with `HOME` set to an empty scratch
+directory and `PATH` reduced to `/usr/local/bin:/usr/bin:/bin`. That hides the
+machine's own nvm Node and rustup Rust, leaving the distribution's Node 18.19.1
+— which also exercises "found, but too old". Run three times.
 
 ### Actual
-1. Every dependency reported present, exit 0.
-2. Clone, `npm ci`, the frontend build and the Rust build all succeeded from the
-   pushed repository (Rust build 1 m 30 s from cold). That confirms nothing the
-   build needs lives only on this machine — the report fonts, for instance, are
-   committed.
+1. **First run.** Check: system libraries ok, `node >= 20 (found v18.19.1)`
+   MISSING, `rust >= 1.92` MISSING. Installed Node 22.23.2 through nvm and Rust
+   1.98.1 through rustup; the second check passed; cloned from GitHub; `npm ci`
+   added 78 packages; `tauri dev` compiled 512 crates in 1 m 59 s and launched —
+   then GTK refused to start. **Test-harness fault, not the script:** `env -i`
+   passed `DISPLAY` but not `XAUTHORITY`, so X refused the connection.
+2. **Second run**, with the display variables passed: everything reported ok,
+   `git pull` said already up to date — and then Vite failed with `Port 1420 is
+   already in use`, because a dashboard had just been started on this machine
+   from the real repository. That process was left alone. **Script change:** a
+   run while a dashboard is open now stops with "The dashboard is already running
+   (port 1420 is in use)" instead of a port error.
+3. **Third run**, port free, display passed: straight through to a running
+   dashboard, alive after 2 m 38 s, no panic, no error in the log.
+
+Also seen and fixed: with no controlling terminal, the confirmation prompt
+printed `/dev/tty: No such device or address` before defaulting to yes.
+
+The macOS script passes `bash -n`; the Windows script parses under PowerShell
+7.4.6's parser. Neither has run on its platform.
 
 ### Result
-PARTIAL. Linux: PASS. `setup-macos.sh` and `setup-windows.ps1` have not been run
-on their platforms; the user is testing them. What was checked here: `bash -n`
-on the macOS script and its version comparison against five cases (it avoids
-`sort -V`, which the `sort` shipped with macOS lacks); the Windows script parses
-under PowerShell 7.4.6's parser, and its missing-items list was exercised in
-pwsh with one and with two entries. The dashboard itself has never been built on either; the Rust
-code contains nothing platform-specific, but that is an argument, not a test.
+Linux: PASS for the user-level installs and the launch. The `apt` install of
+system libraries: not exercised. macOS and Windows: not run.
 
 ### Notes
-Rust must be at least 1.92 (krilla's minimum); the scripts check for it.
+- Rust must be at least 1.92 (krilla's minimum).
+- nvm and rustup are allowed to add themselves to the user's shell startup file,
+  so `node` and `cargo` work in new terminals too. A first attempt to stop nvm
+  editing profiles (`PROFILE=/dev/null`) was reverted before commit for exactly
+  that reason: installed but unusable in the next terminal is not installed.

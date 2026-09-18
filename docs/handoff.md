@@ -179,19 +179,21 @@ M0–M6 are done; `docs/progress.md` has each one's entry. What is left:
   `xwininfo`, not `xdotool getwindowgeometry`, which includes the title bar.
 
 ## How To Run
-- **On a new machine:** one script per OS in `scripts/`:
-  `setup-linux.sh`, `setup-macos.sh`, `setup-windows.ps1`. Each checks the
-  dependencies, clones or updates the repository into `~/ead-v1`, runs `npm ci`
-  and starts the dashboard. Arguments: `check` (report only), `build` (an
-  installer: `.app`/`.dmg` on macOS, NSIS `.exe` on Windows), and on macOS and
-  Windows `install` (offer to install each missing item, asking first). The
-  repository is public, so each runs straight from GitHub:
-  - `curl -fsSL https://raw.githubusercontent.com/sagar-aryan/ead-v1/main/scripts/setup-linux.sh | bash -s -- check`
-  - `curl -fsSL https://raw.githubusercontent.com/sagar-aryan/ead-v1/main/scripts/setup-macos.sh | bash -s -- check`
+- **On a new machine:** one script per OS in `scripts/`, and one command. With
+  no argument each script checks the dependencies, asks once, installs what is
+  missing, checks again, clones or updates the repository into `~/ead-v1`, runs
+  `npm ci` and starts the dashboard — only once nothing is missing.
+  - Linux: `curl -fsSL https://raw.githubusercontent.com/sagar-aryan/ead-v1/main/scripts/setup-linux.sh | bash` (apt, dnf or pacman for
+    system libraries; nvm and rustup for Node and Rust; adds you to the serial
+    group, which needs a log-out to take effect)
+  - macOS: `curl -fsSL https://raw.githubusercontent.com/sagar-aryan/ead-v1/main/scripts/setup-macos.sh | bash` (Xcode command line tools;
+    Node from Homebrew, or nvm without it; rustup)
   - Windows: `irm https://raw.githubusercontent.com/sagar-aryan/ead-v1/main/scripts/setup-windows.ps1 -OutFile $env:TEMP\ead-setup.ps1`, then
-    `powershell -ExecutionPolicy Bypass -File $env:TEMP\ead-setup.ps1 check`.
+    `powershell -ExecutionPolicy Bypass -File $env:TEMP\ead-setup.ps1` (winget).
     Not a piped scriptblock: the script's `exit` would close the terminal.
-  Only the Linux script has been run (TEST-038).
+  Arguments: `check` (report only, change nothing) and `build` (an installer).
+  A script run while a dashboard is open says so instead of failing on port 1420.
+  Linux verified end to end; macOS and Windows not run (TEST-038).
 - Firmware: `cd firmware && pio run` to build, `pio run -t upload` to flash.
 - Firmware unit tests: `cd firmware && pio test -e native`.
 - Talk to the device without the dashboard:

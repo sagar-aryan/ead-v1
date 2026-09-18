@@ -1,18 +1,20 @@
-# EAD V1 dashboard on Windows 10 or 11 (x64).
+# EAD V1 dashboard on Windows 10 or 11 (x64): check dependencies, install what
+# is missing, fetch the code and start the dashboard.
 #
 # Straight from GitHub (PowerShell). Downloaded to a file and run in its own
 # process, so the script's `exit` cannot close your terminal:
 #   irm https://raw.githubusercontent.com/sagar-aryan/ead-v1/main/scripts/setup-windows.ps1 -OutFile $env:TEMP\ead-setup.ps1
-#   powershell -ExecutionPolicy Bypass -File $env:TEMP\ead-setup.ps1 check
+#   powershell -ExecutionPolicy Bypass -File $env:TEMP\ead-setup.ps1
 #
-#   powershell -ExecutionPolicy Bypass -File setup-windows.ps1            check, clone/update, start
-#   powershell -ExecutionPolicy Bypass -File setup-windows.ps1 install    offer to install what is missing
-#   powershell -ExecutionPolicy Bypass -File setup-windows.ps1 check      only report dependencies
-#   powershell -ExecutionPolicy Bypass -File setup-windows.ps1 build      produce an installer instead
+#   ... setup-windows.ps1            check, install what is missing, clone/update, start
+#   ... setup-windows.ps1 check      only report dependencies; change nothing
+#   ... setup-windows.ps1 build      as the default, but produce an installer (.exe)
 #
-# Written for Windows PowerShell 5.1, which every Windows 10/11 has.
-# Nothing is installed without asking first.
+# Written for Windows PowerShell 5.1, which every Windows 10/11 has. Asks once
+# before installing; installs use winget, and Windows may ask for administrator
+# approval for the Visual Studio Build Tools.
 param([string]$Mode = "dev")
+if ($Mode -eq "install") { $Mode = "dev" }   # the word earlier instructions used
 # Continue, not Stop: in Windows PowerShell 5.1 a native command's redirected
 # stderr becomes a terminating error under Stop, so a failed `import serial`
 # would abort the whole script. Native commands are checked by $LASTEXITCODE.
@@ -44,7 +46,7 @@ function Check {
     Write-Host "Checking dependencies (Windows $([Environment]::OSVersion.Version), $env:PROCESSOR_ARCHITECTURE)"
 
     if (Has winget) { Ok "winget" }
-    else { Opt "winget" "install 'App Installer' from the Microsoft Store; used only by 'install'" }
+    else { Opt "winget" "install 'App Installer' from the Microsoft Store; used to install whatever is missing" }
 
     if (Has git) { Ok "git" }
     else { Need "git" "winget install --id Git.Git -e" "Git.Git" }
@@ -101,13 +103,16 @@ function Check {
 function Install-Missing {
     foreach ($item in $script:Missing) {
         $what = $item[0]; $id = $item[1]
+        Write-Host "`n== Installing $what"
         if (-not $id) {
-            $how = if ($what -like "*MSVC toolchain*") { "rustup default stable-msvc" } else { "rustup update stable" }
-            if ((Read-Host "Run '$how' for $what ? [y/N]") -match "^[Yy]") { Invoke-Expression $how }
+            # Rust is present but too old, or the GNU toolchain: rustup fixes both.
+            if ($what -like "*MSVC toolchain*") { rustup default stable-msvc } else { rustup update stable }
             continue
         }
-        if (-not (Has winget)) { Write-Host "winget is not available; install $what by hand."; continue }
-        if ((Read-Host "Install $what with winget ($id) ? [y/N]") -notmatch "^[Yy]") { continue }
+        if (-not (Has winget)) {
+            Write-Host "winget is not available. Install 'App Installer' from the Microsoft Store, or install $what by hand."
+            continue
+        }
         if ($id -eq "Microsoft.VisualStudio.2022.BuildTools") {
             winget install --id $id -e --accept-package-agreements --accept-source-agreements `
                 --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
@@ -125,10 +130,13 @@ Check
 if ($Mode -eq "check") { if ($script:Missing.Count) { exit 1 } else { exit 0 } }
 
 if ($script:Missing.Count) {
-    if ($Mode -eq "install") { Install-Missing; Write-Host ""; Check }
+    $answer = Read-Host "`nInstall the $($script:Missing.Count) missing item(s) above now? [Y/n]"
+    if ($answer -match "^[Nn]") { Write-Host "Nothing installed."; exit 1 }
+    Install-Missing
+    Write-Host ""
+    Check
     if ($script:Missing.Count) {
-        Write-Host "`nInstall the MISSING items above (or run this script with 'install'),"
-        Write-Host "then open a NEW terminal and run it again."
+        Write-Host "`nSomething is still missing; see above. Open a NEW PowerShell window and run this again."
         exit 1
     }
 }
@@ -137,6 +145,13 @@ Write-Host "`nFetching $Repo into $Dir"
 if (Test-Path (Join-Path $Dir ".git")) { git -C $Dir pull --ff-only }
 else { git clone "https://github.com/$Repo.git" $Dir }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+# `tauri dev` serves the UI on port 1420. If it is taken, a dashboard is almost
+# certainly open already; say so, rather than fail later with a port error.
+if ($Mode -eq "dev" -and (Get-NetTCPConnection -LocalPort 1420 -State Listen -ErrorAction SilentlyContinue)) {
+    Write-Host "`nThe dashboard is already running (port 1420 is in use). Close it and run this again."
+    exit 1
+}
 
 Set-Location (Join-Path $Dir "dashboard")
 Write-Host "`nInstalling JavaScript dependencies"
@@ -153,5 +168,6 @@ if ($Mode -eq "build") {
     Write-Host "It is unsigned, so SmartScreen will warn: More info > Run anyway."
 } else {
     Write-Host "`nStarting the dashboard (first start compiles Rust: several minutes)"
+    Write-Host "Next time, just run this script again, or: cd $Dir\dashboard; npx tauri dev"
     npx tauri dev
 }
