@@ -110,6 +110,14 @@ constexpr float kContactRefractoryS = kMinCycleS;
 /// push-off spike arrives within ~100 ms of toe-off and was being read as the
 /// next footfall, splitting every stride in two (TEST-030).
 constexpr float kMinSwingS = 0.20f;
+/// Stance must have lasted this long after a contact before toe-off can be
+/// declared. The foot slapping flat after a heel strike turns as fast as a
+/// lift-off; read as toe-off, it let the next push-off pass as a contact and
+/// split about half the strides of a real walk (PROB-016). Chosen by replay:
+/// any value from 0.15 s fixes the split; 0.25 s is where the benefit levels
+/// off and still leaves margin for fast walking, whose stance is ~0.35-0.4 s.
+/// The 6 m ground-truth course is unchanged (6 cycles, 6.39 m).
+constexpr float kMinStanceS = 0.25f;
 /// Doc 05 §3: a contact candidate requires the angular speed to be decreasing
 /// toward contact. Push-off is the opposite — the foot is speeding up — so a
 /// candidate is only accepted once the rate has fallen this far below the peak
@@ -129,6 +137,7 @@ struct GaitConfig {
   float contactConfirmG = kContactConfirmG;
   float swingGyroDps = kSwingGyroDps;
   float minSwingS = kMinSwingS;
+  float minStanceS = kMinStanceS;
   float contactRateFallRatio = kContactRateFallRatio;
   float contactRefractoryS = kContactRefractoryS;
   float zuptAccelToleranceG = kZuptAccelToleranceG;

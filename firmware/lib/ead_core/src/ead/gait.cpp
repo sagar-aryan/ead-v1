@@ -237,7 +237,13 @@ void GaitEngine::update(const GaitSample& sample) {
     case GaitState::Stance:
     case GaitState::FootFlatZv:
     case GaitState::PreSwing: {
-      const bool leaving = footRate > config_.swingGyroDps || !stillNow;
+      // The foot slapping flat just after a heel strike rotates as fast as a
+      // lift-off. Without a floor on stance it was read as toe-off, the next
+      // push-off then passed as a contact, and strides split in two (PROB-016).
+      const bool stanceLongEnough =
+          lastContactUs_ == 0 ||
+          float(sample.timeUs - lastContactUs_) / 1e6f >= config_.minStanceS;
+      const bool leaving = stanceLongEnough && (footRate > config_.swingGyroDps || !stillNow);
       toeOffMs_ = leaving ? toeOffMs_ + ms : 0.0f;
       if (leaving && state_ != GaitState::PreSwing) state_ = GaitState::PreSwing;
       if (toeOffMs_ >= kToeOffSustainMs && footRate > config_.swingGyroDps) {

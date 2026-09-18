@@ -208,6 +208,37 @@ static void test_the_push_off_spike_is_not_a_contact() {
                                 "push-off must not be counted as a footfall");
 }
 
+static void test_the_foot_slapping_flat_is_not_a_toe_off() {
+  // Measured on the leg (PROB-016): right after a heel strike the foot rotates
+  // flat as fast as it lifts off. Taken for toe-off, it put the engine in swing
+  // during stance, and the push-off impact then passed as the next contact.
+  Run run;
+  run.still(1.0f);
+  run.swing(0.40f);  // contacts are only accepted out of a swing
+  run.contact();
+  for (int i = 0; i < 15; ++i) {  // 150 ms of foot slap, fast plantarflexion
+    const float accel[3] = {0.2f, 0.0f, 1.3f};
+    const float gyro[3] = {0.0f, -220.0f, 0.0f};
+    run.push(accel, gyro, 60.0f);
+  }
+  run.still(0.45f);
+  for (int i = 0; i < 3; ++i) {  // push-off: a hard spike as the heel rises
+    const float accel[3] = {0.0f, 0.0f, 2.3f};
+    const float gyro[3] = {0.0f, 260.0f, 0.0f};
+    run.push(accel, gyro, 250.0f);
+  }
+  run.swing(0.35f);
+  run.contact();
+  run.still(0.30f);
+  // Two heel strikes and nothing between them. Without the stance floor the
+  // slap becomes a toe-off 160 ms after contact and the push-off a third
+  // contact. Toe-offs: the warm-up swing's, and push-off's — not the slap's.
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, run.count(ead::GaitEventType::InitialContact),
+                                "one stride: the heel strike, and the next one");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, run.count(ead::GaitEventType::ToeOff),
+                                "a toe-off at push-off, not at the slap");
+}
+
 static void test_distance_matches_a_known_motion() {
   // A cycle whose swing is a measured out-and-back acceleration: 3 m/s² for
   // 0.2 s then -3 m/s² for 0.2 s travels 0.12 m and ends at rest.
@@ -272,6 +303,7 @@ int main() {
   RUN_TEST(test_a_second_impact_soon_after_is_the_same_footfall);
   RUN_TEST(test_a_cycle_longer_than_the_guard_is_marked_invalid);
   RUN_TEST(test_the_push_off_spike_is_not_a_contact);
+  RUN_TEST(test_the_foot_slapping_flat_is_not_a_toe_off);
   RUN_TEST(test_distance_matches_a_known_motion);
   RUN_TEST(test_a_foot_that_turns_without_translating_travels_nowhere);
   RUN_TEST(test_a_timing_gap_restarts_the_engine);

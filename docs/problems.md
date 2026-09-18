@@ -767,3 +767,54 @@ None has been tested. Root cause: **unknown**.
 A reference is only trustworthy within the wearing and calibration it was
 captured in. Taking the device off, or recalibrating, may shift peak inversion by
 15° or more — enough to classify normal walking as eversion.
+
+## PROB-016 — About half the strides split in two at the foot slap
+
+**Status:** Resolved (firmware `kMinStanceS = 0.25`); flash pending at time of writing
+
+### Symptoms
+Reference version 3 (50 cycles) had a median cycle time of 0.86 s with a spread
+of 0.49 s, and a stance ratio of 0.30 ± 0.26. The walk itself had ~1.35 s
+strides.
+
+### Investigation
+Cycle times in the capture came in pairs summing to one stride — 0.80 + 0.54,
+0.83 + 0.57, 0.86 + 0.50 — with the first of each pair at a stance ratio of
+0.07–0.10: about 60 ms of "stance" after a real heel strike. The same pattern
+existed in the v1 capture on older firmware (1.06 + 0.68, 0.93 + 0.61), less
+often. Event detection does not read the ankle angles, so PROB-015's change was
+not the cause.
+
+Replayed through the device's own code (stored frames converted to an .eadlog)
+the split reproduced exactly.
+
+### Root cause
+After a heel strike the foot rotates flat — the foot slap — as fast as it
+lifts off. Nothing stopped that being taken as toe-off (foot rate > 90 °/s for
+40 ms). The engine then sat in "swing" through stance, and once `kMinSwingS` had
+passed, the real push-off impact qualified as the next contact.
+
+### Resolution
+A floor on stance: toe-off cannot be declared until `minStanceS` after the last
+contact. Swept by replay on the v3 capture:
+
+| minStanceS | cycles | median cycle | strides < 1.0 s | stance median |
+|---|---|---|---|---|
+| 0 | 50 | 0.86 s | 28 | 0.30 |
+| 0.15 | 40 | 1.35 s | 9 | 0.48 |
+| 0.25 | 38 | 1.37 s | 6 | 0.50 |
+| 0.35 | 38 | 1.36 s | 6 | 0.48 |
+
+0.25 s: where the benefit levels off, with margin for fast walking (stance
+~0.35–0.4 s). Regression on the 6 m ground-truth course: unchanged, 6 cycles,
+6.39 m. v1 capture: 8 split strides → 1. v3 check: 18 of 24 → 0.
+
+New test `test_the_foot_slapping_flat_is_not_a_toe_off`: two heel strikes with
+a 150 ms slap and a push-off spike between them. Verified to fail with the floor
+at 0 (a third contact) and pass at 0.25.
+
+### Lessons
+The 6 m course was one walk by one person at one speed; a harder heel strike
+exposed a failure it never showed. Every recording with ground truth should go
+into `recordings/` so the next threshold change is checked against all of them.
+Reference versions 1–3 were captured with this fault and should not be used.

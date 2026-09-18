@@ -135,6 +135,7 @@ int main(int argc, char** argv) {
     else if (flag == "--confirm" && hasValue) config.contactConfirmG = std::stof(argv[++i]);
     else if (flag == "--swing-rate" && hasValue) config.swingGyroDps = std::stof(argv[++i]);
     else if (flag == "--min-swing" && hasValue) config.minSwingS = std::stof(argv[++i]);
+    else if (flag == "--min-stance" && hasValue) config.minStanceS = std::stof(argv[++i]);
     else if (flag == "--rate-fall" && hasValue) config.contactRateFallRatio = std::stof(argv[++i]);
     else if (flag == "--refractory" && hasValue) config.contactRefractoryS = std::stof(argv[++i]);
     else if (flag == "--zupt-accel" && hasValue) config.zuptAccelToleranceG = std::stof(argv[++i]);
