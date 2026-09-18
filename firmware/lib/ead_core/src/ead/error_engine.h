@@ -55,6 +55,12 @@ struct ConfidenceInputs {
 constexpr float kConfidenceForFeedback = 0.75f;
 constexpr float kConfidenceForDisplay = 0.50f;
 
+/// Doc 05 §8: below this zero-velocity quality, distance and speed are reported
+/// as low-confidence rather than as measurements. The engine drops cycle
+/// distance below it for the same reason — on 2026-09-18 cycles at quality
+/// 0.02–0.04 reported 15–48 m strides and scored full deviation (PROB-015).
+constexpr float kDistanceMinZuptQuality = 0.15f;
+
 struct ErrorResult {
   /// [0,1]; the weighted mean of the active features' deviations.
   float score;

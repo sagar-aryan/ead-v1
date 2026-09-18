@@ -706,3 +706,64 @@ the chance to say so.
 Versions 1 and 2 were marked locked when these checks started, although the
 device never scored against either. Locking only prevents a profile's numbers
 from changing, so it does not stop either being used.
+
+## PROB-015 — Peak inversion depends on sensor heading drift, not only on the ankle
+
+**Status:** Partly resolved. Heading drift: fixed. A second shift after the
+device was re-worn and recalibrated: root cause unknown.
+
+### Symptoms
+The first working reference check (against version 2) gave a median error score
+of 0.45, dominated by peak inversion (median deviation 0.88), and classified
+nearly every stride as EVERSION_DEVIATION — for the same person walking the same
+way minutes after capturing the reference. Cycle distance showed a deviation of
+0.00.
+
+### Investigation
+Every frame stores the device's own foot and shank quaternions, so the ankle
+angles were recomputed from the stored data for all eight sessions of the day.
+
+1. **Heading drift.** The heading difference between the foot and shank
+   filters (the transverse part of `inverse(q_shank)·q_foot`) was about 4° after
+   calibration and −44° to −60° ten minutes later, with no recalibration in
+   between. A foot cannot turn 50° on its shank: this is two 6-DoF filters
+   drifting in heading independently, with nothing to correct them. Session
+   averages of peak inversion tracked it: +6° drift → 17°, −50° → 24–25°,
+   +15–20° → 7–10°.
+2. **Removing heading before the decomposition** (turning the foot about world
+   vertical onto the shank's heading) brought the five sessions that shared one
+   calibration from 18–28° to 16–20° per-session median. Sagittal was unchanged.
+3. **The two sessions after the device was re-worn and recalibrated** still read
+   5.5° and −1.3° after that correction, against 16–20° before. Their
+   frontal~sagittal slope rose to 0.23–0.39.
+4. **Tested and rejected:** a hinge-axis correction — the dominant axis of
+   relative angular velocity, taken as the ankle's flexion axis and rotated onto
+   Y. It did not close the gap (3–11° against 17–22°), and the estimated axis
+   moved by 20° between sessions with no change in mounting, so it is not a
+   stable measurement of anything.
+5. Cycle distance: zero-velocity quality was 0 in 16 of 20 check strides. The
+   engine dropped distance only at exactly 0, so strides at 0.02–0.04 — with
+   reported strides of 15–48 m — were scored at full deviation.
+
+### Hypotheses for the unexplained shift (3)
+- The sensors sat differently after the device was taken off to be flashed.
+- A different standing posture during the second calibration (shank tilt 8.4°
+  against 4.4°), setting a different neutral.
+- A real difference in how the walk was done.
+None has been tested. Root cause: **unknown**.
+
+### Resolution so far
+- `ead::relativeOrientation` (and the dashboard's `orientation::relative`) turn
+  the foot onto the shank's heading before composing. Tests on both sides with
+  40° of drift and 12° of dorsiflexion: frontal stays 0 (the old code read
+  7.68°), and a real 10° inversion survives.
+- The engine drops cycle distance below ZUPT quality 0.15, the threshold doc 05
+  §8 already sets for distance; the host's symmetry proxy follows (DEC-013
+  updated).
+- The References check shows "not measured" for a feature no cycle measured,
+  instead of a median of the zeros the device sends for a dropped feature.
+
+### Consequence until (3) is explained
+A reference is only trustworthy within the wearing and calibration it was
+captured in. Taking the device off, or recalibrating, may shift peak inversion by
+15° or more — enough to classify normal walking as eversion.

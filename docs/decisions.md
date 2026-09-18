@@ -418,7 +418,7 @@ like a specified one.
 | Spread floors per feature | 0.5°, 0.5°, 0.5°, 0.010 s, 0.005, 0.020 m, 5 °/s | Doc 06 §2 requires "a minimum floor so zero-variance features do not divide by zero" but gives none. These are roughly the smallest difference in each feature worth calling a deviation, and they are below the cycle-to-cycle variation measured on the 6 m walk. |
 | Reference stability subscore | `cycles / 60`, clamped | Doc 06 §5 names the subscore without defining it. Thirty cycles is the documented minimum for a reference, so a reference at the minimum scores 0.5 and one with twice that scores 1. |
 | "No single class dominates" | Another class within 10 % of the leader's weighted contribution | Doc 06 §4 uses the phrase without a threshold. Ten percent is narrow enough that a clear leader stays primary and wide enough that a near-tie reads as OVERALL_DEVIATION. |
-| Unmeasurable feature | Cycle distance is dropped when ZUPT quality is 0 | Doc 06 §3 says missing features leave the denominator and reduce confidence, without saying which can be missing. Distance is the only feature that depends on a zero-velocity window. |
+| Unmeasurable feature | Cycle distance is dropped when ZUPT quality is below 0.15 (was: exactly 0, changed 2026-09-18, PROB-015) | Doc 06 §3 says missing features leave the denominator and reduce confidence, without saying which can be missing. Distance is the only feature that depends on a zero-velocity window. |
 
 ### Trade-offs
 Every one of these is a guess constrained by measurement rather than a

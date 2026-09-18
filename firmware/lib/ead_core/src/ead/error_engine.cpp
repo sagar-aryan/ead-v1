@@ -79,7 +79,8 @@ ErrorResult scoreCycle(const GaitCycle& cycle, const ReferenceProfile& reference
     // rather than scored as zero deviation (doc 06 §3): distance means nothing
     // without a zero-velocity window to correct it.
     const bool measured =
-        !(feature == GaitFeature::CycleDistance && cycle.zuptQuality <= 0.0f) && ref.spread > 0.0f;
+        !(feature == GaitFeature::CycleDistance && cycle.zuptQuality < kDistanceMinZuptQuality) &&
+        ref.spread > 0.0f;
     result.active[f] = measured;
     if (!measured) continue;
     ++activeFeatures;

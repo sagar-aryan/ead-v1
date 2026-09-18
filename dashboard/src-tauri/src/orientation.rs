@@ -21,9 +21,29 @@ pub fn from_q15(q: [i16; 4]) -> [f32; 4] {
     ]
 }
 
-/// `q_relative = inverse(q_shank) * q_foot` (doc 04 §6): the foot's orientation
-/// with respect to the shank, unaffected by a heading the two segments share.
+/// Rotation about world vertical (yaw), in radians.
+fn heading(q: [f32; 4]) -> f32 {
+    let [w, x, y, z] = q;
+    (2.0 * (w * z + x * y)).atan2(1.0 - 2.0 * (y * y + z * z))
+}
+
+fn multiply(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    [
+        a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3],
+        a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
+        a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1],
+        a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0],
+    ]
+}
+
+/// `q_relative = inverse(q_shank) * q_foot` (doc 04 §6), after turning the foot
+/// about world vertical onto the shank's heading — the same as the device's
+/// `ead::relativeOrientation`. The two filters' headings drift apart with
+/// nothing to correct them, and that drift must not reach the ankle angles
+/// (PROB-015).
 pub fn relative(shank: [f32; 4], foot: [f32; 4]) -> [f32; 4] {
+    let half = -0.5 * (heading(foot) - heading(shank));
+    let foot = multiply([half.cos(), 0.0, 0.0, half.sin()], foot);
     let inverse = [shank[0], -shank[1], -shank[2], -shank[3]];
     let (a, b) = (inverse, foot);
     let mut out = [
@@ -118,6 +138,24 @@ mod tests {
         let angles = ankle_angles(about(0, 15.0));
         assert!((angles.frontal_deg - 15.0).abs() < 0.01, "{angles:?}");
         assert!(angles.sagittal_deg.abs() < 0.01);
+    }
+
+    /// The foot's heading drifted 40° from the shank's, as the two filters do
+    /// (PROB-015). Flexion must stay sagittal, and a real inversion must
+    /// survive; before the heading alignment, the 12° of dorsiflexion read as
+    /// about 7.7° of frontal angle.
+    #[test]
+    fn a_drifted_foot_heading_does_not_leak_into_the_frontal_angle() {
+        let shank = [1.0, 0.0, 0.0, 0.0];
+        let flexed = multiply(about(2, 40.0), about(1, -12.0));
+        let angles = ankle_angles(relative(shank, flexed));
+        assert!((angles.sagittal_deg - 12.0).abs() < 0.01, "{angles:?}");
+        assert!(angles.frontal_deg.abs() < 0.01, "{angles:?}");
+
+        let flexed_and_inverted = multiply(multiply(about(2, 40.0), about(1, -12.0)), about(0, 10.0));
+        let angles = ankle_angles(relative(shank, flexed_and_inverted));
+        assert!((angles.sagittal_deg - 12.0).abs() < 0.01, "{angles:?}");
+        assert!((angles.frontal_deg - 10.0).abs() < 0.01, "{angles:?}");
     }
 
     #[test]

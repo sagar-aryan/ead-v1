@@ -20,7 +20,10 @@ void quaternionConjugate(const float q[4], float out[4]);
 void quaternionNormalize(float q[4]);
 
 /// Relative orientation of the foot with respect to the shank (doc 04 §6):
-/// `q_relative = inverse(q_shank) * q_foot`.
+/// `q_relative = inverse(q_shank) * q_foot`, after turning the foot about world
+/// vertical onto the shank's heading. The two filters' headings drift apart
+/// with nothing to correct them, and that drift must not reach the ankle
+/// angles (PROB-015).
 void relativeOrientation(const float qShank[4], const float qFoot[4], float out[4]);
 
 /// Q15 encoding used by RAW_SAMPLE_BATCH: ±1.0 maps to ±32767.

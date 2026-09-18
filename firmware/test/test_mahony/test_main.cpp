@@ -146,6 +146,26 @@ static void test_q15_encoding_is_symmetric_and_clamped() {
   TEST_ASSERT_EQUAL_INT16(0, out[3]);
 }
 
+/// The foot's heading drifted 40° from the shank's (PROB-015), with the ankle
+/// dorsiflexed 12°. The frontal angle, decomposed as gait.cpp does, must stay
+/// zero; before the heading alignment it read about 7.7°.
+static void test_a_drifted_foot_heading_does_not_leak_into_the_frontal_angle() {
+  const float half = 20.0f * 0.017453292f;   // 40° of heading drift
+  const float flex = -6.0f * 0.017453292f;   // -12° about Y: toes up
+  const float yaw[4] = {std::cos(half), 0.0f, 0.0f, std::sin(half)};
+  const float pitch[4] = {std::cos(flex), 0.0f, std::sin(flex), 0.0f};
+  float foot[4];
+  ead::quaternionMultiply(yaw, pitch, foot);
+  const float shank[4] = {1.0f, 0.0f, 0.0f, 0.0f};
+  float q[4];
+  ead::relativeOrientation(shank, foot, q);
+  const float m02 = 2.0f * (q[1] * q[3] + q[0] * q[2]);
+  const float m12 = 2.0f * (q[2] * q[3] - q[0] * q[1]);
+  const float m22 = q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3];
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 12.0f, -std::atan2(m02, m22) * 57.29578f);
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.0f, std::asin(-m12) * 57.29578f);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_a_still_upright_sensor_stays_upright);
@@ -154,6 +174,7 @@ int main() {
   RUN_TEST(test_free_fall_leaves_the_estimate_to_the_gyroscope);
   RUN_TEST(test_the_quaternion_stays_normalized);
   RUN_TEST(test_relative_orientation_cancels_a_shared_heading);
+  RUN_TEST(test_a_drifted_foot_heading_does_not_leak_into_the_frontal_angle);
   RUN_TEST(test_q15_encoding_is_symmetric_and_clamped);
   return UNITY_END();
 }

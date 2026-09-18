@@ -174,6 +174,16 @@ static void test_an_unmeasurable_feature_leaves_the_denominator() {
   const ead::ErrorResult complete = ead::scoreCycle(typical(2), profile, kGoodInputs);
   TEST_ASSERT_TRUE_MESSAGE(result.confidence < complete.confidence,
                            "a feature that could not be measured must cost confidence");
+
+  // A short, poor window is as unmeasured as none: the distance it gives is not
+  // one doc 05 §8 lets anyone report (PROB-015). At the threshold it counts.
+  ead::GaitCycle poor = typical(2);
+  poor.zuptQuality = 0.04f;
+  TEST_ASSERT_FALSE(ead::scoreCycle(poor, profile, kGoodInputs)
+                        .active[size_t(ead::GaitFeature::CycleDistance)]);
+  poor.zuptQuality = ead::kDistanceMinZuptQuality;
+  TEST_ASSERT_TRUE(ead::scoreCycle(poor, profile, kGoodInputs)
+                       .active[size_t(ead::GaitFeature::CycleDistance)]);
 }
 
 static void test_confidence_weights_and_gates() {

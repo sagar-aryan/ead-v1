@@ -99,6 +99,10 @@ pub fn counts_as_error(cycle: &GaitCycle) -> bool {
 /// Doc 06 §7, mirrored from `ead::kConfidenceForDisplay`.
 const CONFIDENCE_FOR_DISPLAY: f32 = 0.50;
 
+/// Mirrored from `ead::kDistanceMinZuptQuality` (doc 05 §8): below this, a
+/// cycle's distance is not a measurement and is left out of any comparison.
+pub const DISTANCE_MIN_ZUPT_QUALITY: f32 = 0.15;
+
 /// Doc 06 §3 weights, in feature order, mirrored from `ead::kFeatureWeights`.
 const FEATURE_WEIGHTS: [f32; 7] = [0.25, 0.15, 0.15, 0.15, 0.10, 0.10, 0.10];
 /// Doc 06 §2: three spreads out is a deviation of 1.
@@ -123,7 +127,10 @@ fn symmetry_proxy(current: &StoredCycle, previous: &StoredCycle, spreads: &[f32;
         if spreads[feature] <= 0.0 {
             continue;
         }
-        if feature == 5 && (current.zupt_quality <= 0.0 || previous.zupt_quality <= 0.0) {
+        if feature == 5
+            && (current.zupt_quality < DISTANCE_MIN_ZUPT_QUALITY
+                || previous.zupt_quality < DISTANCE_MIN_ZUPT_QUALITY)
+        {
             continue;
         }
         let difference = (feature_value(current, feature)

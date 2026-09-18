@@ -45,10 +45,28 @@ void quaternionNormalize(float q[4]) {
   for (int i = 0; i < 4; ++i) q[i] /= length;
 }
 
+/// Rotation about world vertical (yaw), in radians.
+float heading(const float q[4]) {
+  const float w = q[0], x = q[1], y = q[2], z = q[3];
+  return std::atan2(2.0f * (w * z + x * y), 1.0f - 2.0f * (y * y + z * z));
+}
+
 void relativeOrientation(const float qShank[4], const float qFoot[4], float out[4]) {
+  // A 6-DoF filter has no reference for heading, so the foot's and the shank's
+  // drift apart independently — by 40–60° within ten minutes on 2026-09-18
+  // (PROB-015). Any heading difference then leaks into the ankle angles: with
+  // the ankle flexed, a heading offset turns part of the sagittal angle into a
+  // frontal one. So the foot is first turned about world vertical onto the
+  // shank's heading, and the ankle angles rest on what the filters do measure,
+  // each segment's tilt against gravity. The cost is internal/external rotation,
+  // which is never a feature (doc 04 §6) and was drift anyway.
+  const float half = -0.5f * (heading(qFoot) - heading(qShank));
+  const float turn[4] = {std::cos(half), 0.0f, 0.0f, std::sin(half)};
+  float footAligned[4];
+  quaternionMultiply(turn, qFoot, footAligned);
   float inverse[4];
   quaternionConjugate(qShank, inverse);
-  quaternionMultiply(inverse, qFoot, out);
+  quaternionMultiply(inverse, footAligned, out);
   quaternionNormalize(out);
 }
 
