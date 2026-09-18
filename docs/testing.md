@@ -1092,3 +1092,34 @@ The haptic-response plot doc 10 §8 asks for is drawn as an empty panel titled
 "Haptic response — no drivers fitted (DEC-006)" rather than omitted. A reader
 has to be able to see that the report was asked for it and that nothing could
 answer it; a missing panel would look like an oversight.
+
+## TEST-038 — Setup scripts and a clean clone
+
+### Objective
+That a machine with nothing but the dependencies can go from the GitHub
+repository to a built dashboard.
+
+### Environment
+This Linux machine (Ubuntu 24.04, node 24.13.1, rust 1.95.0). No macOS or
+Windows machine was available, and PowerShell is not installed here.
+
+### Procedure
+1. `bash scripts/setup.sh check` — the dependency report.
+2. A fresh `gh repo clone sagar-aryan/ead-v1` into an empty directory, then
+   `npm ci`, `npm run build` and `cargo build` in it — the same steps the script
+   runs, without launching the GUI.
+
+### Actual
+1. Every dependency reported present, exit 0.
+2. Clone, `npm ci`, the frontend build and the Rust build all succeeded from the
+   pushed repository (Rust build 1 m 30 s from cold). That confirms nothing the
+   build needs lives only on this machine — the report fonts, for instance, are
+   committed.
+
+### Result
+PARTIAL. Linux: PASS. `setup.sh` on macOS and `setup.ps1` on Windows have not
+been run anywhere. The dashboard itself has never been built on either; the Rust
+code contains nothing platform-specific, but that is an argument, not a test.
+
+### Notes
+Rust must be at least 1.92 (krilla's minimum); the scripts check for it.
