@@ -1010,3 +1010,76 @@ message claimed "59 Rust tests" when the suite had 56, one failing.
 Fixed by giving the fixture the table. The full suite, 56 tests, passes.
 Lesson: run the whole suite before every commit, and do not chain a commit onto a
 test command whose failure does not stop the chain.
+
+## 2026-09-23 — One BNO086 on the bench: wiring check, identity, tilt viewer
+
+### Objective
+
+The user wired one BNO086 and asked for software that shows how the sensor is being
+tilted, after first checking that the part is a genuine BNO086 and that every GPIO
+going to it works.
+
+### Approach
+
+A separate PlatformIO project, `firmware/bench/bno086`, using SparkFun's BNO08x
+library (which carries CEVA's SH-2 driver). Deliberately a third-party driver: if the
+bench test fails, the wiring is at fault, not new code of ours. The product firmware
+keeps its no-external-dependency rule, and the product SH-2 driver is written after
+the wiring is proven.
+
+The firmware runs three things in order, and prints one line per result:
+
+1. **Wiring.** Every line is read back with the ESP32's pull-up and then its
+   pull-down, with the sensor held in reset, which finds shorts and misplaced wires.
+   Then reset is released and the time for INT to assert is measured, which exercises
+   RST and INT together. Then, once SH-2 is up and before any report is enabled,
+   WAKE is pulled low and INT must answer, which exercises WAKE.
+2. **Identity.** The SH-2 product ID request, and a probe that tries to enable the
+   features only genuine CEVA firmware has.
+3. **Data.** Rotation vector, accelerometer and gyro at 100 Hz, as one CSV line per
+   orientation report, plus a two-second at-rest sanity check on gravity and the gyro.
+
+`tools/bno_view.py` reads those lines, prints the checks, and draws a block that
+tilts with the sensor (roll/pitch/yaw, accelerometer, gyro, report rate). Its
+quaternion maths is checked against scipy over 200 random quaternions.
+
+### Changes
+
+Added:
+- `firmware/bench/bno086/platformio.ini`, `firmware/bench/bno086/src/main.cpp`
+- `tools/bno_view.py`
+
+Documented: `docs/hardware.md` (bench pin table and measurements), `docs/testing.md`
+(TEST-039), `docs/problems.md` (PROB-017).
+
+### Problems
+
+1. **Nothing at all came out over USB**, for the bench firmware, a bare
+   `Serial.println` sketch, and the product firmware alike. PROB-017: the chip was
+   sitting in the ROM bootloader after DTR/RTS had been toggled by hand on the open
+   port, and the device node had moved to `/dev/ttyACM1`. Recovered with
+   `esptool --after watchdog_reset`.
+2. **The SH-2 driver blocks waiting for INT**, so a dead INT line hung the sketch
+   inside `beginSPI` with nothing on the serial port. The firmware now refuses to
+   call the driver unless its own INT check passed, and says so.
+3. **The checks run once at boot, but a monitor is attached later**, so every line is
+   kept in a transcript and re-sent whenever the host sends a byte; `bno_view.py`
+   sends one on connect.
+
+### Verification
+
+TEST-039, on the hardware: all checks PASS, 99.9 Hz for 30 s, |a| = 9.752 m/s² and
+|ω| = 0.005 rad/s at rest, SH-2 firmware 3.12.6 with four product-ID entries and the
+full feature set. The plotting window was not exercised here (no display in this
+session); its maths was checked against scipy.
+
+### Current Status
+
+Complete for one sensor on the bench. The product BNO086 driver is not started.
+
+### Next Steps
+
+1. Watch the tilt view on the bench and confirm the sensor follows the hand.
+2. Decide and record the two-sensor SPI pin map as a DEC (it replaces the doc 03 I²C
+   map), then write the product SH-2 driver behind the existing sensor abstraction.
+3. Decide the ERM motor mapping against the new motor GPIOs.

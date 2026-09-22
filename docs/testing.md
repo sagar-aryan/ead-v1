@@ -1142,3 +1142,73 @@ system libraries: not exercised. macOS and Windows: not run.
   so `node` and `cargo` work in new terminals too. A first attempt to stop nvm
   editing profiles (`PROFILE=/dev/null`) was reverted before commit for exactly
   that reason: installed but unusable in the next terminal is not installed.
+
+## TEST-039 — One BNO086 over SPI: wiring, identity, orientation stream
+
+### Objective
+
+Before any product driver is written: prove the bench wiring of one BNO086, check
+that the part answers as genuine CEVA/Hillcrest silicon, and stream orientation so
+the sensor's tilt can be watched.
+
+### Environment
+
+- Seeed XIAO ESP32-S3, wiring as in `docs/hardware.md` "BNO086 bench test".
+- `firmware/bench/bno086` (separate PlatformIO project; SparkFun BNO08x library
+  1.0.6, which carries CEVA's SH-2 driver). Not the product firmware, which stays
+  dependency-free.
+- Host: `tools/bno_view.py`, USB CDC at /dev/ttyACM1.
+- Sensor lying still on a desk, unmounted.
+
+### Procedure
+
+1. `pio run -d firmware/bench/bno086 -t upload`.
+2. `python3 tools/bno_view.py --checks-only --log bench.csv` (the tool asks the
+   firmware to re-send the checks, which run once at boot).
+3. Let it stream for 30 s, then count samples and report types in the log.
+
+### Expected
+
+Every check PASS; a product ID response; ~100 Hz of rotation-vector samples;
+|a| ≈ 9.81 m/s² and |ω| ≈ 0 while still.
+
+### Actual
+
+```
+PASS int_idle_in_reset      INT high while RST low
+INFO readback_miso          1/1        INFO readback_cs   1/0
+INFO readback_sck           1/1        INFO readback_mosi 1/1
+PASS rst_int                INT asserted 115 ms after reset released
+PASS spi_init               SH-2 opened at 3 MHz, SPI mode 3
+id   0,part=10004563,ver=3.12.6,build=62,reset_cause=4
+id   1,part=10003606,ver=1.10.10,build=404,reset_cause=0
+id   2,part=10004135,ver=5.7.17,build=319,reset_cause=0
+id   3,part=10004149,ver=5.3.14,build=226,reset_cause=0
+PASS wake                   INT answered the wake request in 1 ms
+INFO features               arvr_stabilized_rv=1 gyro_integrated_rv=1
+                            stability_classifier=1 magnetometer=1 tap_detector=1
+PASS reports                rotation_vector=1 accel=1 gyro=1
+PASS still                  |a|=9.752 m/s^2 over 249 accel reports,
+                            |w|=0.0050 rad/s over 199 gyro reports
+```
+
+Stream: 2952 samples over 29 539 ms = 99.9 Hz, gyro components up to 0.025 rad/s
+(desk vibration), rotation-vector accuracy field 180° throughout.
+
+### Result
+
+PASS.
+
+### Notes
+
+- Confirmed: the part runs CEVA SH-2 application firmware 3.12.6, answers the
+  product ID request with four entries, accepts the whole SH-2 feature set, and
+  fuses correctly (gravity within 0.6 % of 9.81 m/s², gyro at rest ≈ 0).
+- Unknown: the datasheet publishes no table of SH-2 part numbers, so these values
+  cannot *prove* the die is a BNO086 rather than another BNO08x. Nothing in the
+  responses suggests a relabelled or counterfeit part, and 3.12.6 is well past the
+  BNO080-era 3.2.x firmware.
+- The 180° accuracy field is the uncalibrated magnetometer, not an error; the
+  rotation vector is 9-axis. Tilt is correct, heading is unreferenced.
+- `tools/bno_view.py` without `--checks-only` draws the tilting block; that view was
+  exercised by the user, not in this session (no display here).

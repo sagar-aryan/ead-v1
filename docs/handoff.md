@@ -102,8 +102,15 @@ and USB links → Rust backend with SQLite → React views and exports.
 - M6 the whole doc 10 export package including the PDF report (2026-09-18).
 
 ## Current Work
-Nothing is in progress. The next work is not code: it is the hardware
-verification that M5 and M6 have never had. See Next Steps.
+BNO086 bring-up on the bench, ahead of replacing the MPU6500s. One sensor is
+wired over SPI and verified (TEST-039, wiring table in `docs/hardware.md`):
+`firmware/bench/bno086` checks every GPIO going to the sensor, reads its SH-2
+identity and streams orientation at 100 Hz, and `tools/bno_view.py` shows the
+tilt. This is bench-only; no product code touches the BNO086 yet, and the
+two-sensor pin map is proposed but not yet a DEC.
+
+The other open work is the hardware verification that M5 and M6 have never had.
+See Next Steps.
 
 ## Milestone Plan
 M0–M6 are done; `docs/progress.md` has each one's entry. What is left:
@@ -234,6 +241,11 @@ M0–M6 are done; `docs/progress.md` has each one's entry. What is left:
   `python3 tools/check_pdf.py dashboard/src-tauri/target/export-sample`.
   Both need scipy and poppler respectively.
 
+- BNO086 bench: `pio run -d firmware/bench/bno086 -t upload`, then
+  `python3 tools/bno_view.py` for the tilt window or
+  `python3 tools/bno_view.py --checks-only` for the wiring and identity checks.
+  If the board goes silent on USB, read PROB-017 before suspecting the code.
+
 ## How To Verify
 - Builds and tests: `pio run`, `pio test -e native`, `cargo test`,
   `npm run build` — all clean, no warnings from project code.
@@ -261,6 +273,13 @@ In order. The first four need the user; nothing useful comes before them.
    whether ±4 g clips at heel strike (PROB-011).
 5. Then: adaptive thresholds (doc 05 §3), and the M7 storage decision.
 
+BNO086 track, once the parts are all in hand:
+
+6. Wire the second sensor, record the two-sensor SPI pin map as a DEC (it
+   replaces the doc 03 I²C map), and write the product SH-2 driver behind the
+   existing sensor abstraction.
+7. Decide the ERM motor mapping (doc 06 §7–8) against the motor GPIOs.
+
 ## Warnings
 - **The repository is public** (since 2026-09-18). Everything tracked is
   visible, including history: the contract package `ead_agent_docs_v2/`, the
@@ -268,7 +287,11 @@ In order. The first four need the user; nothing useful comes before them.
   commit `firmware/include/ead_secrets.h` (the access-point passphrase); it is
   gitignored and has never been in any commit.
 - Never modify `ead_agent_docs_v2/`. Contract values override library defaults.
-- No battery, switch, BLE, FSR, BNO086 or haptic code (contract + DEC-006).
+- No battery, switch, BLE, FSR or haptic code in the product firmware
+  (contract + DEC-006). The BNO086 exclusion no longer holds: the user is
+  moving to BNO086 sensors, and `firmware/bench/bno086` is the bench project
+  for them. It is a separate PlatformIO project with a third-party library on
+  purpose; the product build keeps its no-external-dependency rule.
 - Keep motor GPIOs LOW. Driving them has no effect today, but PROB-004 and
   future drivers make any change safety-relevant.
 - The root file `wide_infographic_diagram_on_a_white_background_sho.png` is an

@@ -818,3 +818,58 @@ The 6 m course was one walk by one person at one speed; a harder heel strike
 exposed a failure it never showed. Every recording with ground truth should go
 into `recordings/` so the next threshold change is checked against all of them.
 Reference versions 1–3 were captured with this fault and should not be used.
+
+## PROB-017 — The board went completely silent on USB: it was sitting in the ROM bootloader
+
+**Status:** Resolved
+
+### Symptoms
+
+While bringing up the BNO086 bench firmware, nothing at all arrived on USB: not the
+bench firmware's own lines, not a bare `Serial.println` sketch, and not the product
+firmware answering `eadprobe hello`. `/dev/ttyACM0` opened normally and held open.
+
+### Environment
+
+XIAO ESP32-S3, USB Serial/JTAG (303a:1001), Linux host, 2026-09-23.
+
+### Investigation
+
+1. Flashed a three-line `Serial.println` sketch: silent. Consistent with PROB-006
+   (Arduino's HWCDC is unreliable on this chip), so that told us little.
+2. Rewrote the bench output on the low-level `usb_serial_jtag_ll` path that
+   `firmware/src/link_usb.cpp` already uses: still silent.
+3. Reflashed the product firmware and ran `eadprobe --usb hello`: also silent. A
+   host-side or chip-state cause, then, not the sketch.
+4. No ModemManager, no other process holding the port, port node freshly created.
+5. `esptool --before no_reset --after no_reset flash_id` **succeeded**, which only
+   works when the ROM loader is running.
+
+### Root Cause
+
+The chip was sitting in ROM download mode, so no application was running at all. It
+was put there earlier in the session by hand-toggling DTR/RTS on the open port to
+try to reset the board: on the ESP32-S3's USB Serial/JTAG peripheral those two lines
+drive a reset/strapping state machine, and the sequence used selected download mode.
+Repeated `--after hard_reset` did not get it out.
+
+### Resolution
+
+`esptool --before no_reset --after watchdog_reset` left download mode and started the
+application. The USB device then re-enumerated as **/dev/ttyACM1**, and reads of the
+old `/dev/ttyACM0` name would have stayed silent anyway.
+
+### Verification
+
+A tick sketch on the low-level writer printed continuously; the bench firmware then
+ran end to end (TEST-039).
+
+### Lessons
+
+- Do not hand-toggle DTR/RTS on this chip to reset it. Use
+  `esptool --after hard_reset`, or `watchdog_reset` to recover, or unplug it.
+- Total USB silence means "check whether the application is running at all" before
+  suspecting the code: `esptool --before no_reset flash_id` succeeding is the tell.
+- Re-enumerate the port after every reset; the device node number changes.
+- Confirmed again, independently of PROB-006: an Arduino `Serial.println` sketch on
+  this board produces no bytes at all. The direct USB Serial/JTAG writer works.

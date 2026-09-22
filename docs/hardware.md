@@ -108,3 +108,48 @@ are driven LOW as the first action in `setup()`.
 - **Fixed sensor ranges (doc 00):** ±4 g and ±500 °/s may clip foot impacts and fast
   swing. The M3 recordings measure how often samples saturate before any change is
   proposed.
+
+## BNO086 bench test (one sensor, SPI)
+
+A single BNO086 breakout (7Semi, CEVA/Hillcrest SH-2) wired to a XIAO ESP32-S3 for
+bring-up. Edge pins only, so nothing has to be soldered to the pads under the board.
+This is the bench layout; it is not the product pin map, because D0–D3 are the
+motor outputs in the product.
+
+| Function | XIAO pin | ESP32-S3 GPIO |
+|---|---|---:|
+| 3V3 | 3V3 | — |
+| GND | GND | — |
+| SPI SCK | D8 | 7 |
+| SPI MISO | D9 | 8 |
+| SPI MOSI | D10 | 9 |
+| CS | D3 | 4 |
+| INT | D2 | 3 |
+| RST | D1 | 2 |
+| WAKE (= PS0 net on this board) | D0 | 1 |
+
+PS0, PS1, BOOT, SDA, SCL and both Qwiic connectors are left unconnected. The board's
+PS0/PS1 solder jumpers were opened by the user, so the on-board pull-ups hold both
+high at reset and the part comes up in SPI mode; its I²C connectors no longer work.
+WAKE and PS0 are the same net, so WAKE must be driven high before reset is released,
+or the part would latch a UART mode instead.
+
+Measured on this board, 2026-09-23 (TEST-039):
+
+- Line readback (ESP32 pull-up / pull-down, sensor held in reset): CS 1/0 (floating,
+  as expected); SCK, MISO and MOSI all 1/1, because on the BNO086 those are the same
+  chip pins as SCL, SDA and SA0, which carry the breakout's I²C pull-ups. 0/0 on any
+  line would mean it is held low: a short to ground or a wire on the wrong pin.
+- INT is high while RST is held low, and goes low 112–115 ms after reset is released.
+- SH-2 opens at 3 MHz, SPI mode 3.
+- Product ID: 4 entries, the application firmware being part 10004563, version
+  3.12.6, build 62, reset cause 4 (external reset — the RST pulse).
+- Feature probe: ARVR-stabilised RV, gyro-integrated RV, stability classifier,
+  magnetometer and tap detector all accept a set-feature request.
+- Pulling WAKE low with no reports enabled made the sensor assert INT within 1 ms.
+- At rest: |a| = 9.752 m/s² over 249 accelerometer reports, |ω| = 0.005 rad/s over
+  199 gyro reports. Rotation vector, accelerometer and gyro stream together at
+  99.9 Hz (2952 samples over 29.5 s).
+- The rotation vector's accuracy field stays at 180° because the magnetometer has
+  not been calibrated. Tilt is still correct; only heading is unreferenced. The
+  product should use the game rotation vector (6-axis), which needs no magnetometer.
