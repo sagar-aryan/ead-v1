@@ -171,6 +171,124 @@ void printIds() {
                          " cannot is not running CEVA/Hillcrest firmware)");
 }
 
+// What the part says about its own hardware, which is stronger evidence than the
+// firmware version alone: each sensor's SH-2 metadata carries the vendor's name
+// and part number for the MEMS behind it, plus its range and resolution, and the
+// FRS holds a per-unit serial number. A relabelled or cloned part cannot produce
+// a consistent set of these.
+void checkIdentity() {
+  struct Probe { const char* name; sh2_SensorId_t id; };
+  static const Probe kProbes[] = {
+      {"accel", SH2_ACCELEROMETER},
+      {"gyro", SH2_GYROSCOPE_CALIBRATED},
+      {"mag", SH2_MAGNETIC_FIELD_CALIBRATED},
+      {"rotation_vector", SH2_ROTATION_VECTOR},
+  };
+  for (const Probe& p : kProbes) {
+    sh2_SensorMetadata_t meta;
+    const int status = sh2_getMetadata(p.id, &meta);
+    if (status != SH2_OK) {
+      info((String("meta_") + p.name).c_str(), "SH-2 error " + String(status));
+      continue;
+    }
+    // vendorId is length-counted, not necessarily terminated.
+    char vendor[49];
+    const uint32_t len = meta.vendorIdLen < sizeof(vendor) - 1 ? meta.vendorIdLen : sizeof(vendor) - 1;
+    memcpy(vendor, meta.vendorId, len);
+    vendor[len] = '\0';
+    info((String("meta_") + p.name).c_str(),
+         String("vendor=\"") + vendor + "\" range=" + meta.range + " res=" + meta.resolution +
+             " min_period_us=" + meta.minPeriod_uS + " me=" + meta.meVersion + " mh=" +
+             meta.mhVersion + " sh=" + meta.shVersion + " q=" + meta.qPoint1);
+  }
+
+  uint32_t serial[8] = {0};
+  uint16_t words = 8;
+  const int frs = sh2_getFrs(SERIAL_NUMBER, serial, &words);
+  if (frs == SH2_OK && words > 0) {
+    String text;
+    for (uint16_t i = 0; i < words; i++) text += String(serial[i]) + " ";
+    info("serial_number", text + "(" + String(words) + " words)");
+  } else {
+    info("serial_number", "SH-2 error " + String(frs) + ", words=" + String(words));
+  }
+
+  sh2_OscType_t osc = SH2_OSC_INTERNAL;
+  const int oscStatus = sh2_getOscType(&osc);
+  info("oscillator", oscStatus == SH2_OK
+                         ? String(osc) + " (0 internal, 1 external crystal, 2 external clock)"
+                         : "SH-2 error " + String(oscStatus));
+}
+
+// The three things the CEVA datasheet lists as BNO086-only, as far as they can be
+// reached over SPI:
+//   - Interactive Calibration: the Motion Intent command and the Motion Request
+//     report (datasheet: "MI - Motion Intent - BNO086 only", "MR - Motion Request
+//     - BNO086 only"). A part without them rejects the command or the report.
+//   - 14-bit accelerometer: measured from the raw accelerometer counts. If the
+//     data were 12-bit in a 16-bit field the low bits would always be zero, so
+//     every count would be a multiple of 4.
+//   - Lower idle power: needs a current meter, so it is not testable here.
+void check086() {
+  const int intent = sh2_setIZro(SH2_IZRO_MI_STATIONARY_NO_VIBRATION);
+  chk("izro_motion_intent", intent == SH2_OK,
+      intent == SH2_OK ? "accepted (Interactive Calibration, BNO086 only)"
+                       : "SH-2 error " + String(intent));
+
+  const bool mr = imu.enableReport(SH2_IZRO_MOTION_REQUEST, 100000);
+  String seen = mr ? "report enabled" : "report refused";
+  if (mr) {
+    const uint32_t start = millis();
+    while (millis() - start < 2000) {
+      if (imu.getSensorEvent() && imu.getSensorEventID() == SH2_IZRO_MOTION_REQUEST) {
+        seen += ", request=" + String(imu.sensorValue.un.izroRequest.request) +
+                " intent=" + String(imu.sensorValue.un.izroRequest.intent);
+        break;
+      }
+    }
+    imu.enableReport(SH2_IZRO_MOTION_REQUEST, 0);
+  }
+  chk("izro_motion_request", mr, seen);
+
+  // How many bits the accelerometer data really carries. The BMA280 puts 14-bit
+  // data in the top bits of a 16-bit field, so the counts come out as multiples
+  // of 4; what matters is the step size relative to full scale. Held still the
+  // vector magnitude is 1 g, so counts-per-g times the full-scale range (8 g
+  // either way, from the metadata above) gives the usable count range.
+  // The raw report only flows while the calibrated accelerometer runs, which by
+  // now it does.
+  if (!imu.enableReport(SH2_RAW_ACCELEROMETER, kReportMs)) {
+    chk("accel_bits", false, "raw accelerometer report refused");
+    return;
+  }
+  uint32_t divisor = 0, n = 0;
+  double magSum = 0;
+  const uint32_t start = millis();
+  while (millis() - start < 2000) {
+    if (!imu.getSensorEvent() || imu.getSensorEventID() != SH2_RAW_ACCELEROMETER) continue;
+    const int16_t axis[3] = {imu.getRawAccelX(), imu.getRawAccelY(), imu.getRawAccelZ()};
+    for (int16_t v : axis) {
+      uint32_t a = uint32_t(v < 0 ? -int32_t(v) : int32_t(v)), b = divisor;
+      while (a != 0) { const uint32_t t = b % a; b = a; a = t; }  // gcd
+      divisor = b;
+    }
+    magSum += sqrt(double(axis[0]) * axis[0] + double(axis[1]) * axis[1] + double(axis[2]) * axis[2]);
+    n++;
+  }
+  imu.enableReport(SH2_RAW_ACCELEROMETER, 0);
+  if (n == 0 || divisor == 0) {
+    chk("accel_bits", false, "no raw accelerometer reports arrived");
+    return;
+  }
+  const double countsPerG = magSum / n / divisor;   // steps per g, shift removed
+  const double bits = log(16.0 * countsPerG) / log(2.0);  // +-8 g, both signs
+  chk("accel_bits", bits > 13.5,
+      String(countsPerG, 1) + " steps per g over +-8 g = " + String(bits, 2) +
+          " bits (14-bit fusion is BNO086 only; counts are multiples of " +
+          String(divisor) + ", the 14-bit field left-aligned in 16), " + String(n) +
+          " samples");
+}
+
 // The host's wake line: pulling PS0/WAKE low asks a sleeping sensor for a
 // transfer, and the sensor answers by asserting INT. Run with no reports
 // enabled, so INT is only low because of the request.
@@ -278,6 +396,7 @@ void setup() {
   }
   chk("spi_init", true, "SH-2 opened at " + String(kSpiHz / 1000000) + " MHz, SPI mode 3");
   printIds();
+  checkIdentity();
   checkWake();
   checkFeatures();
 
@@ -286,6 +405,7 @@ void setup() {
   const bool gyr = imu.enableGyro(kReportMs);
   chk("reports", rv && acc && gyr,
       String("rotation_vector=") + rv + " accel=" + acc + " gyro=" + gyr);
+  check086();
   checkStill();
   emit("# streaming: D,t_ms,qi,qj,qk,qr,acc_deg,ax,ay,az,gx,gy,gz");
 }

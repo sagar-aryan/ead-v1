@@ -153,3 +153,20 @@ Measured on this board, 2026-09-23 (TEST-039):
 - The rotation vector's accuracy field stays at 180° because the magnetometer has
   not been calibrated. Tilt is still correct; only heading is unreferenced. The
   product should use the game rotation vector (6-axis), which needs no magnetometer.
+
+### What the BNO086 says about its own hardware (TEST-040, 2026-09-23)
+
+| Reading | Value |
+|---|---|
+| Accelerometer | `Bosch Sensortec BMA280`, range 20082 (Q8 → 78.4 m/s² = ±8 g), q = 8 |
+| Gyroscope | `Bosch Sensortec BMI055`, range 17863 (Q9 → 34.9 rad/s = ±2000 °/s), q = 9 |
+| Magnetometer | `Bosch Sensortec BMM150`, range 32000, q = 4 |
+| Rotation vector | range 16384, q = 14 |
+| Oscillator | external crystal |
+| FRS serial number | record present, empty |
+| Interactive Calibration (BNO086 only) | Motion Intent accepted, Motion Request report accepted |
+| Accelerometer resolution | 1120 steps per g over ±8 g = 14.1 bits (14-bit fusion is BNO086 only) |
+
+Raw accelerometer counts come out as multiples of 4: the BMA280's 14-bit value sits
+left-aligned in a 16-bit field. Lower idle power, the third BNO086-only item, needs a
+current meter and has not been measured.

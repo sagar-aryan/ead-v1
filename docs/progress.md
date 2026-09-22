@@ -1083,3 +1083,52 @@ Complete for one sensor on the bench. The product BNO086 driver is not started.
 2. Decide and record the two-sensor SPI pin map as a DEC (it replaces the doc 03 I²C
    map), then write the product SH-2 driver behind the existing sensor abstraction.
 3. Decide the ERM motor mapping against the new motor GPIOs.
+
+## 2026-09-23 — Checking that the part is a BNO086, not just a BNO08x
+
+### Objective
+
+The user found the CEVA datasheet's list of BNO086-only features — 14-bit
+accelerometer fusion, lower idle power, Interactive Calibration (Motion Intent and
+Motion Request) — and asked whether they can be verified.
+
+### Approach
+
+Two additions to the bench firmware:
+
+- `checkIdentity()` reads what the part says about its own hardware: each sensor's
+  SH-2 metadata (the vendor's part number for the MEMS behind it, range, resolution,
+  q points), the FRS serial-number record, and the oscillator type.
+- `check086()` exercises the datasheet's 086-only features: the Motion Intent
+  command, the Motion Request report, and the accelerometer's real resolution,
+  measured from raw counts rather than taken on trust.
+
+### Problems
+
+1. The raw accelerometer report produced nothing, and then the at-rest check lost its
+   accelerometer reports too. Cause: the probe ran before any report was enabled, and
+   the raw report only flows while the calibrated accelerometer is running. Moved the
+   probe to after the reports are up; both then worked.
+2. First reading of the resolution test was wrong on its own terms. It looked for
+   counts that were not multiples of 4, called the multiples-of-4 result a failure,
+   and would have reported a 14-bit part as 12-bit. The BMA280 puts its 14-bit value
+   left-aligned in a 16-bit field, so multiples of 4 are exactly what a 14-bit part
+   gives. Replaced with the measurement that actually answers the question: steps per
+   g against the ±8 g full scale the metadata declares.
+
+### Verification
+
+TEST-040, on the hardware: Bosch BMA280 / BMI055 / BMM150 declared, external crystal,
+Motion Intent accepted, Motion Request report accepted, 1120 steps per g over ±8 g =
+14.1 bits. At rest |a| = 9.805 m/s², |ω| = 0.0004 rad/s.
+
+### Current Status
+
+Complete, with two honest limits: idle power needs a current meter, and no readable
+value can rule out a BNO085 physically relabelled as a BNO086 — only the package
+marking can.
+
+### Next Steps
+
+Unchanged. One addition worth remembering: Interactive Calibration exists to remove
+gyro zero-rate offset more often, which is the heading-drift problem in PROB-015.

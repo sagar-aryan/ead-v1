@@ -1212,3 +1212,67 @@ PASS.
   rotation vector is 9-axis. Tilt is correct, heading is unreferenced.
 - `tools/bno_view.py` without `--checks-only` draws the tilting block; that view was
   exercised by the user, not in this session (no display here).
+
+## TEST-040 — Is the part really a BNO086? The hardware identity and the 086-only features
+
+### Objective
+
+TEST-039 showed the part runs genuine CEVA SH-2 firmware, but not that the die is a
+BNO086 rather than another BNO08x. The CEVA datasheet lists three things as BNO086
+only: 14-bit accelerometer fusion, lower idle power, and Interactive Calibration
+(the Motion Intent command and the Motion Request report). This tests what can be
+reached over SPI.
+
+### Environment
+
+As TEST-039. `firmware/bench/bno086` gained `checkIdentity()` (SH-2 metadata, FRS
+serial number, oscillator type) and `check086()` (the 086-only features).
+
+### Procedure
+
+1. Read each sensor's SH-2 metadata, the FRS serial-number record and the
+   oscillator type.
+2. Send Motion Intent (`sh2_setIZro(SH2_IZRO_MI_STATIONARY_NO_VIBRATION)`) and
+   enable the Motion Request report.
+3. With the calibrated accelerometer running, enable the raw accelerometer report
+   for 2 s, take the greatest common divisor of the counts and their mean vector
+   magnitude while the board is still, and work out the step size relative to the
+   ±8 g full scale the metadata declares.
+
+### Actual
+
+```
+meta_accel            vendor="Bosch Sensortec BMA280" range=20082 res=9 q=8
+meta_gyro             vendor="Bosch Sensortec BMI055" range=17863 res=1 q=9
+meta_mag              vendor="Bosch Sensortec BMM150" range=32000 res=5 q=4
+meta_rotation_vector  vendor=""                       range=16384 res=1 q=14
+serial_number         request succeeded, record empty (0 words)
+oscillator            1 (external crystal)
+izro_motion_intent    PASS  accepted
+izro_motion_request   PASS  report enabled (no request arrived in 2 s)
+accel_bits            PASS  1120.5 steps per g over +-8 g = 14.13 bits
+                            (counts are multiples of 4: a 14-bit field left-aligned in 16)
+still                 PASS  |a|=9.805 m/s^2, |w|=0.0004 rad/s
+```
+
+### Result
+
+PASS.
+
+### Notes
+
+- Confirmed: the part declares Bosch BMA280 / BMI055 / BMM150 hardware, accepts the
+  Motion Intent command and the Motion Request report — both listed as BNO086 only —
+  and its accelerometer really carries ~14 bits (a 12-bit part would give about
+  280 steps per g, i.e. 12.1 bits).
+- Not testable here: lower idle power needs a current meter.
+- No Motion Request arrived in the 2 s window. Expected: the hub asks for a
+  stationary period only when it wants one, so this is not evidence either way.
+- The FRS serial-number record is present but empty on this unit, so it cannot serve
+  as identity evidence.
+- Still open: nothing above rules out a BNO085 physically relabelled as a BNO086,
+  because a relabel would still answer as the die it is — and this die answers as a
+  BNO086. The remaining check is the package marking, by eye.
+- Useful beyond identity: Interactive Calibration exists to remove gyro zero-rate
+  offset more often than opportunistic calibration does, which is exactly the
+  heading-drift problem in PROB-015. Worth considering for the product.
