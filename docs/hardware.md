@@ -173,6 +173,17 @@ current meter and has not been measured.
 
 ## Worn assembly (planned, DEC-015)
 
+![Worn assembly: foot IMU, shank IMU, controller and the six-motor band](images/worn_assembly.png)
+
+*`docs/images/worn_assembly.png`. Generated illustration, checked against the
+contract and this table. **Two known errors, both in panel A only:** the
+controller is drawn on the inner side of the leg — panel B has it correctly on
+the outer side — and the foot is drawn as a left foot, with the big toe on the
+outer edge. Everything else was verified: the six motor angles and their
+clockwise order, the fibula on the lateral side, M2 toward the toes and M3
+toward the calf in the side view, both sensor axis triads, and the conductor
+counts.*
+
 Two separate straps on the right shank, plus the foot module. Nothing below is
 built yet: the ERM drivers are not fitted (DEC-006) and the BNO086 sensors are
 still on the bench.
