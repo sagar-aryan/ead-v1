@@ -170,3 +170,35 @@ Measured on this board, 2026-09-23 (TEST-039):
 Raw accelerometer counts come out as multiples of 4: the BMA280's 14-bit value sits
 left-aligned in a 16-bit field. Lower idle power, the third BNO086-only item, needs a
 current meter and has not been measured.
+
+## Worn assembly (planned, DEC-015)
+
+Two separate straps on the right shank, plus the foot module. Nothing below is
+built yet: the ERM drivers are not fitted (DEC-006) and the BNO086 sensors are
+still on the bench.
+
+| Item | Position | Notes |
+|---|---|---|
+| Shank IMU (BNO086) | Anterior shin, 10–15 cm below the knee, on the upper strap | Doc 01 §2 |
+| Controller + battery | Lateral side of the same upper strap | Position not specified by the contract; chosen to keep every cable short except the foot run |
+| Six ERM motors | Lower strap, around the fullest part of the calf, below the upper strap | Angles per doc 06 §7: M1 anterior 0°, then clockwise viewed from above |
+| Foot IMU (BNO086) | Dorsum of the foot, midfoot, lying flat | Doc 01 §2 |
+
+Cable runs: 9 conductors to each IMU (3V3, GND, SCK, MISO, MOSI, CS, INT, RST,
+WAKE), and 7 to the motor band — six switched returns plus one shared positive,
+because the drivers are low-side N-channel MOSFETs (IRLML6344).
+
+Practical points for the build, none of them yet verified on a leg:
+
+- Leave at least 5 cm between the two straps, and do not let them touch: touching
+  straps couple vibration mechanically, on top of what travels through tissue.
+- The calf tapers below its fullest point, so the motor band will tend to slide
+  down. A short vertical strap between the two bands, doubling as the cable
+  channel, holds it up.
+- Anchor the foot cable to the **motor** band before it runs down the shin. A tug
+  on that cable must not reach the IMU strap, because rotating that strap
+  invalidates the shank mount map mid-session.
+- Keep the controller enclosure on the lateral side, off the tibia, and tight
+  enough not to bounce; its mass sits on the same strap as the IMU.
+- Leave slack in the strap-to-strap wiring: calf circumference changes as the
+  muscle contracts.

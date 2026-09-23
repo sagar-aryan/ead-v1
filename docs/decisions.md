@@ -490,3 +490,79 @@ segment boundary: haptics gated per segment, or on-device storage writing a
 segment footer (doc 09 §10). Both are the point at which the protocol change
 earns its cost. `roll_segment` and `counts_as_error` in
 `dashboard/src-tauri/src/store/mod.rs` are the two places to look.
+
+## DEC-015 — The haptic band goes on the calf, on its own strap below the IMU
+
+**Date:** 2026-09-23
+
+**Status:** Accepted for placement. The motor count (six vs four cue directions)
+stays open until the localisation test below is run.
+
+### Context
+Doc 01 §2 asks for "a circumferential band around the lower shank" with six ERMs
+at 60°, "intentionally separated from the IMU boards to reduce motion/vibration
+contamination". Doc 06 §7 fixes the angles: M1 anterior 0°, M2 60°, M3 120°,
+M4 180°, M5 240°, M6 300°. Doc 01 §2 also puts the shank IMU 10–15 cm below the
+knee on the anterior/anteromedial shin.
+
+Three facts argue against a band low on the shank:
+
+1. **Spacing.** The distal shank is the narrowest part of the leg, roughly
+   22–26 cm around on an adult, so six motors at 60° sit 3.7–4.3 cm apart.
+   Vibrotactile localisation on the lower leg is of that same order, and
+   vibration spreads through skin and along bone. At the fullest calf, ~32 cm,
+   the same six sit ~5.3 cm apart.
+2. **Sensation.** Post-stroke sensory loss is typically worse distally. The
+   distal shank is the least sensate, least fleshy, most bone-covered part of
+   the affected leg.
+3. **The contract's own evidence.** Doc 16 reference 3 (JMIR 2020, rhythmic
+   haptic cueing for hemiparesis) places the tactors "on the lower leg **near
+   the knee**" and separates them from the IMU. Reference 1 (Afzal 2015) fixes
+   the six-tactor count, not the height.
+
+### Options Considered
+1. A band low on the shank, as doc 01 §2 is worded.
+2. A band on the fullest part of the calf, on its own strap, below the strap
+   carrying the shank IMU.
+3. The band above the IMU, immediately below the knee.
+4. Four motors at 90° instead of six at 60°, since the doc 06 §8 class map only
+   ever produces four cue directions (M2/M3 always fire together, as do M5/M6).
+
+### Decision
+Option 2, chosen by the user on 2026-09-23. Two separate straps:
+
+| Strap | Position | Carries |
+|---|---|---|
+| Upper | 10–15 cm below the knee | Shank IMU on the anterior shin; controller and battery on the lateral side |
+| Lower | Fullest part of the calf, below the upper strap | The six ERM motors at the doc 06 §7 angles |
+
+Option 3 is rejected on safety as well as geometry: the common peroneal nerve
+crosses the fibular neck just below the knee, and a clamped band with a motor
+over it is a compression risk in a population already at risk of foot drop.
+
+Option 4 stays open. It is a deviation from doc 06 §7 and needs evidence.
+
+### Trade-offs
+Gained: roughly 40 % more spacing between motors, muscle bulk instead of bone
+for coupling and comfort, and a more sensate site. Lost: distance from the IMU,
+which is the reason doc 01 §2 wanted them apart. Both straps clamp the same
+bone, so separation was never going to stop bone conduction anyway; the
+contamination has to be measured rather than designed away.
+
+### Consequences
+- This contradicts the wording of doc 01 §2. The contract file is not modified;
+  this entry and `docs/hardware.md` are the as-built record, as with DEC-009.
+- Three measurements are required before the placement is called validated, and
+  none can be made until the ERM drivers are fitted:
+  1. **Contamination.** Run each motor at maximum duty with the wearer still and
+     measure the shank IMU's noise floor against the same measurement with the
+     motors off. If it rises enough to affect the gait features, gate scoring
+     while motors run rather than moving the sensor.
+  2. **Localisation.** One motor at a time, 300 ms, ten random repeats each,
+     wearer names the direction, standing and then walking. Build the confusion
+     matrix. If neighbouring motors confuse above chance, collapse to four cue
+     directions (option 4) and record that as its own decision.
+  3. **Minimum perceivable duty.** Doc 06 §10 sets the floor at 20 % (51/255).
+     An ERM couples amplitude to frequency and may not spin up reliably at that
+     duty under band preload. Measure the lowest duty reliably felt at this band
+     position and raise the floor to it.
