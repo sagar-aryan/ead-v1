@@ -139,8 +139,13 @@ did not have. Three measures make that link robust:
    delay — irrelevant at 3 MHz. Recommended engineering practice, not in the
    contract.
 2. **A ground conductor on each side of SCK** in the foot cable (§11).
-3. **Run the bus at 1 MHz.** Two sensors streaming three reports each at
-   100 Hz need well under 20 kB/s; 1 MHz gives 125 kB/s, over six times that. Move to 3 MHz only after a soak test
+3. **Run the bus at 1 MHz — and no slower.** Two sensors streaming three
+   reports each at 100 Hz need well under 20 kB/s; 1 MHz gives 125 kB/s, over
+   six times that. The floor comes from latency, not bandwidth: CEVA asks for
+   each interrupt to be serviced "typically within 1/10 of the fastest sensor
+   period" **[DS]** CEVA §1.2.4.1 — 1 ms at 100 Hz. If both sensors interrupt
+   together, the second waits for the first transfer, about half a millisecond
+   at 1 MHz. Move to 3 MHz only after a soak test
    on the real harness shows zero errors. This is a firmware setting.
 
 The two boards' I²C pull-ups on SCK, MISO and MOSI end up in parallel. Every
@@ -303,8 +308,10 @@ planned, which MCP73833 board it is, and whether the cell is protected.
    "no data", not noise.
 4. Hold both CS lines high whenever the bus is idle.
 5. Start the SPI bus at 1 MHz (§5).
-6. Answer INT within 10 ms; the BNO086 times out and retries after that **[DS]**
-   CEVA §1.2.4.1.
+6. Service each INT within about 1 ms — CEVA's guidance is "typically within
+   1/10 of the fastest sensor period" — and never later than 10 ms, when the
+   BNO086 times out and retries **[DS]** CEVA §1.2.4.1. Late service costs the
+   sensor processing time and degrades its outputs.
 
 ## 11. Harnesses — conductor by conductor
 
@@ -399,6 +406,7 @@ Every rule a pin can break, checked against the final map.
 | Flash and octal-PSRAM pins GPIO26–37 untouched | **Pass** | ESP-IDF GPIO docs |
 | Chip selects high through boot | **Pass** — GPIO43/44 have internal pull-ups | [DS] Table 2-1 |
 | Boot log on GPIO43 reaching the foot CS | **No effect** — no clock on SCK; the shank CS stays high, so MISO is never contested | [DS] |
+| Two sensors sharing SCK, MISO and MOSI | **Supported by the manufacturer** — "Multiple slave devices can exist on a SPI interface by the use of a chip select signal"; MISO is driven only after CS falls (CS-to-MISO 31 ns). Proven on these boards only by bring-up step 3, both sensors together | [DS] CEVA §1.2.4.2, §6.5.2 |
 | One sensor on MISO at a time | **Firmware rule** — never assert both CS together | §10 |
 | Sensors come up in SPI mode | **Pass** — both boards hold PS0/WAKE and PS1 high | [DS] CEVA §1.2.4, [USER] |
 | RST held high through boot | **Pass** — 10 kΩ on each board | [USER] |
