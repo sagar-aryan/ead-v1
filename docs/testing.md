@@ -1393,3 +1393,43 @@ is wired to DEC-016 and cannot run the product firmware.
 ### Result
 
 PARTIAL — the unit tests PASS; the hardware steps were not run.
+
+## TEST-043 — Each BNO086 on the DEC-016 wiring (bench firmware, one at a time)
+
+### Objective
+
+First power-on check of the soldered DEC-016 build: each sensor and its cable
+answers on the shared SPI bus, identifies as the same BNO086 seen in TEST-039/040,
+and streams sensible data, with the motor gates held LOW throughout.
+
+### Environment
+
+The DEC-016 build (user, 2026-10-02: everything soldered). `firmware/bench/bno086`
+at the commit that moved it to DEC-016, SPI 1 MHz mode 3, USB. Not yet run.
+
+### Procedure
+
+1. Board on USB. `pio run -d firmware/bench/bno086 -e foot -t upload`.
+2. `python3 tools/bno_view.py --checks-only`; then without `--checks-only`, tilt the
+   foot sensor and watch the block follow.
+3. Repeat with `-e shank`.
+
+### Expected
+
+For each sensor, from TEST-039/040 on the bench part:
+- `int_idle_in_reset` PASS; `other_rst_int` "high in reset, low after release".
+- Readback (sensor in reset): MISO, SCK, MOSI 1/1 (the boards' I2C pull-ups on the
+  shared pins); CS 1/0. 0/0 on any line is a fault.
+- `rst_int` PASS, INT within about 112–115 ms of reset release.
+- `spi_init` PASS at 1 MHz; product ID part 10004563 (version 3.12.6 on the bench
+  part; the second part may differ).
+- `still`: |a| about 9.8 m/s², |ω| near 0, held still.
+- No motor runs at any point.
+
+### Actual
+
+Not run (the board was not connected on 2026-10-02).
+
+### Result
+
+NOT RUN

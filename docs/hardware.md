@@ -171,6 +171,25 @@ Raw accelerometer counts come out as multiples of 4: the BMA280's 14-bit value s
 left-aligned in a 16-bit field. Lower idle power, the third BNO086-only item, needs a
 current meter and has not been measured.
 
+### The bench project on the DEC-016 wiring (2026-10-02)
+
+The one-sensor bench wiring above no longer exists: the user reported on
+2026-10-02 that the XIAO is now wired to DEC-016 with everything soldered. On that
+wiring the old bench pins D0, D1 and D3 are motor gates 1, 2 and 4, so
+`firmware/bench/bno086` was moved to the DEC-016 pins:
+
+- One sensor per build: `-e foot` (CS GPIO43, INT GPIO39) or `-e shank` (CS GPIO44,
+  INT GPIO40); RST GPIO41 and WAKE GPIO3 are shared. The SparkFun library cannot
+  drive two sensors at once: its pins are file-scope globals and CEVA's `sh2.c`
+  inside it has one global instance (read in the library source, v1.0.6).
+- First action: the six motor gates (GPIO1, 2, 42, 4, 5, 6) LOW, then both CS high.
+  A `static_assert` refuses any build that puts a sensor line on a motor pin.
+- SPI at 1 MHz (`docs/wiring_reference.md` rule 5), not the 3 MHz used on the bench.
+- Also reports whether the other sensor's INT is high in reset and low after the
+  shared RST is released, without talking to it.
+
+Not yet run on hardware (TEST-043).
+
 ## Connection reference
 
 `docs/wiring_reference.md` carries every electrical connection in one place:

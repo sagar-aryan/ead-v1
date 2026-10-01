@@ -1,11 +1,20 @@
-// EAD-V1 bench test — ONE BNO086 over SPI on a Seeed XIAO ESP32-S3.
+// EAD-V1 bench test — the BNO086s on the final DEC-016 wiring, one at a time.
 //
 // Not product firmware. Purpose, in order:
 //   1. check the wiring of every GPIO going to the sensor,
 //   2. read the sensor's identity so a relabelled / wrong part shows up,
 //   3. stream orientation so tools/bno_view.py can show how it is tilted.
 //
-// Wiring: docs/hardware.md, "BNO086 bench test (one sensor)".
+// Wiring: docs/wiring_reference.md (DEC-016): both sensors share SCK, MISO,
+// MOSI, RST and WAKE; each has its own CS and INT. Motor gates sit on six of
+// the XIAO's pins, so this firmware drives them LOW before anything else and
+// never touches them again.
+//
+// One sensor per build (env:foot, env:shank): the SparkFun library keeps its
+// pins in file-scope globals and CEVA's sh2.c inside it has a single global
+// instance, so it cannot run two sensors at once. The other sensor's CS is
+// held high throughout, so it never drives MISO.
+//
 // Output: one line per event on USB CDC.
 //   CHK,<name>,<PASS|FAIL|INFO>,<detail>
 //   ID,<entry>,part=<n>,ver=<a.b.c>,build=<n>,reset_cause=<n>
@@ -19,12 +28,41 @@
 
 namespace {
 
-constexpr uint8_t kPinCs = D3;    // GPIO4
-constexpr uint8_t kPinInt = D2;   // GPIO3
-constexpr uint8_t kPinRst = D1;   // GPIO2
-constexpr uint8_t kPinWake = D0;  // GPIO1, the sensor's PS0/WAKE net
+#if defined(EAD_BENCH_SENSOR_FOOT)
+constexpr const char* kSensor = "foot";
+constexpr uint8_t kPinCs = 43;        // D6
+constexpr uint8_t kPinInt = 39;       // MTCK back pad
+constexpr uint8_t kPinOtherCs = 44;   // D7, shank
+constexpr uint8_t kPinOtherInt = 40;  // MTDO back pad, shank
+#elif defined(EAD_BENCH_SENSOR_SHANK)
+constexpr const char* kSensor = "shank";
+constexpr uint8_t kPinCs = 44;
+constexpr uint8_t kPinInt = 40;
+constexpr uint8_t kPinOtherCs = 43;
+constexpr uint8_t kPinOtherInt = 39;
+#else
+#error "build env:foot or env:shank"
+#endif
+constexpr uint8_t kPinRst = 41;   // MTDI back pad, both sensors
+constexpr uint8_t kPinWake = 3;   // D2, both sensors' PS0/WAKE net
+// Motors 1, 2, 3, 4, 5, 6 (DEC-016). A floating gate is pulled off by its
+// 100 kOhm resistor, but driving it LOW does not depend on that.
+constexpr uint8_t kMotorPins[] = {1, 2, 42, 4, 5, 6};
 
-constexpr uint32_t kSpiHz = 3000000;  // BNO08x maximum (CEVA datasheet §6.2)
+constexpr bool isMotorPin(uint8_t pin) {
+  for (uint8_t motor : kMotorPins) {
+    if (motor == pin) return true;
+  }
+  return false;
+}
+static_assert(!isMotorPin(kPinCs) && !isMotorPin(kPinInt) && !isMotorPin(kPinOtherCs) &&
+                  !isMotorPin(kPinOtherInt) && !isMotorPin(kPinRst) && !isMotorPin(kPinWake) &&
+                  !isMotorPin(SCK) && !isMotorPin(MISO) && !isMotorPin(MOSI),
+              "a sensor line on a motor gate would switch the motor");
+
+// docs/wiring_reference.md firmware rule 5: start at 1 MHz on the long foot
+// cable; 3 MHz (the BNO08x maximum) only after a soak test on the harness.
+constexpr uint32_t kSpiHz = 1000000;
 constexpr uint16_t kReportMs = 10;    // 100 Hz, the rate the product uses
 
 BNO08x imu;
@@ -106,11 +144,12 @@ String readBack(uint8_t pin) {
   return String(high) + "/" + String(low);
 }
 
-// Waits for INT to reach `level`, returns the time it took, or -1 on timeout.
-int32_t waitInt(int level, uint32_t timeoutMs) {
+// Waits for an INT line to reach `level`, returns the time it took, or -1 on
+// timeout.
+int32_t waitInt(uint8_t pin, int level, uint32_t timeoutMs) {
   const uint32_t start = millis();
   while (millis() - start < timeoutMs) {
-    if (digitalRead(kPinInt) == level) return int32_t(millis() - start);
+    if (digitalRead(pin) == level) return int32_t(millis() - start);
     delay(1);
   }
   return -1;
@@ -127,7 +166,9 @@ bool checkWiring() {
   delay(20);
 
   pinMode(kPinInt, INPUT_PULLUP);
+  pinMode(kPinOtherInt, INPUT_PULLUP);  // wiring rule 6: pull-ups on both INT lines
   const bool intIdle = digitalRead(kPinInt) == HIGH;
+  const bool otherIdle = digitalRead(kPinOtherInt) == HIGH;
   chk("int_idle_in_reset", intIdle,
       intIdle ? "INT high while RST low" : "INT stuck low: short to GND, or INT on the wrong pin");
 
@@ -144,10 +185,15 @@ bool checkWiring() {
   digitalWrite(kPinCs, HIGH);
 
   // RST and INT together: releasing reset must make the sensor boot and
-  // announce itself by pulling INT low.
+  // announce itself by pulling INT low. RST is shared, so the other sensor
+  // boots too; its INT is reported as well, without talking to it.
   pinMode(kPinInt, INPUT_PULLUP);
   digitalWrite(kPinRst, HIGH);
-  const int32_t t = waitInt(LOW, 500);
+  const int32_t t = waitInt(kPinInt, LOW, 500);
+  const bool otherBooted = waitInt(kPinOtherInt, LOW, 500) >= 0;
+  info("other_rst_int", String("other sensor INT ") + (otherIdle ? "high" : "LOW") +
+                            " in reset, " + (otherBooted ? "low" : "still HIGH") +
+                            " after release (expected: high, then low)");
   if (t >= 0) {
     chk("rst_int", true, "INT asserted " + String(t) + " ms after reset released");
     return true;
@@ -304,7 +350,7 @@ void checkWake() {
     return;
   }
   digitalWrite(kPinWake, LOW);
-  const int32_t t = waitInt(LOW, 100);
+  const int32_t t = waitInt(kPinInt, LOW, 100);
   digitalWrite(kPinWake, HIGH);
   if (t >= 0) {
     chk("wake", true, "INT answered the wake request in " + String(t) + " ms");
@@ -368,13 +414,24 @@ void checkStill() {
 }  // namespace
 
 void setup() {
+  // Wiring rules 1 and 3: motor gates LOW, then both chip selects high, before
+  // anything else.
+  for (uint8_t pin : kMotorPins) {
+    pinMode(pin, OUTPUT);
+    digitalWrite(pin, LOW);
+  }
+  for (uint8_t pin : {kPinCs, kPinOtherCs}) {
+    pinMode(pin, OUTPUT);
+    digitalWrite(pin, HIGH);
+  }
+
   // No Serial.begin: the USB endpoint is written directly (see usbWrite).
   // Checks printed before a monitor attaches are kept in `transcript` and
   // re-sent whenever the host sends a byte.
   delay(1500);  // let the host enumerate the USB device
-  emit("# EAD bench: one BNO086 over SPI");
+  emit(String("# EAD bench: ") + kSensor + " BNO086 over SPI, DEC-016 wiring");
   char pins[128];
-  snprintf(pins, sizeof(pins), "# pins cs=%u int=%u rst=%u wake=%u sck=%u miso=%u mosi=%u", kPinCs,
+  snprintf(pins, sizeof(pins), "# gpio cs=%u int=%u rst=%u wake=%u sck=%u miso=%u mosi=%u", kPinCs,
            kPinInt, kPinRst, kPinWake, SCK, MISO, MOSI);
   emit(pins);
 

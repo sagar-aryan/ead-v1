@@ -1246,3 +1246,57 @@ Completed in code. Hardware steps of TEST-042 pending the DEC-016 product firmwa
 
 P1 of the handoff: bring the stale files in `docs/` back to the actual state,
 including the board now being the DEC-016 build.
+
+## 2026-10-02 — Bench firmware moved to the DEC-016 pins
+
+### Objective
+
+The user reported the XIAO is now wired to DEC-016 with everything soldered,
+including the motors. Have a firmware ready that can check the sensors on that
+wiring without driving a motor gate, for when the board is next on USB.
+
+### Investigation
+
+- `firmware/bench/bno086` drove D0/D1/D3 (GPIO1, 2, 4) as WAKE, RST and CS; on
+  DEC-016 those are motor gates 1, 2 and 4.
+- The SparkFun BNO08x library (v1.0.6, the bench's known-good driver) keeps CS, INT
+  and RST in file-scope globals, and CEVA's `sh2.c` inside it has a single global
+  `sh2_t`. Two sensors cannot be driven at once with it.
+- The product firmware cannot be used either: it still has the doc-03 pins.
+
+### Approach
+
+Keep the known-good driver and test one sensor per build, holding the other's CS
+high. A two-sensor bring-up needs our own SH-2 driver, which is the P3/DEC-017
+question for the user. Adapted the existing project rather than adding one, so the
+repository no longer holds a bench firmware with motor-gate pins.
+
+### Changes
+
+Modified:
+- `firmware/bench/bno086/platformio.ini`: envs `foot` and `shank`
+  (`default_envs = foot`, so an upload without `-e` flashes one, not both).
+- `firmware/bench/bno086/src/main.cpp`: DEC-016 pins; motors LOW and both CS high
+  first; pull-ups on both INT lines; SPI 1 MHz; other-sensor INT report;
+  `static_assert` that no sensor line is a motor pin.
+- `docs/hardware.md`, `docs/testing.md` (TEST-043, not run).
+
+### Problems
+
+The first draft timed the other sensor's INT from after the selected sensor's INT
+had arrived, so its "ms after reset" figure would have been wrong. Replaced with a
+level report (high in reset, low after release) before building.
+
+### Verification
+
+Both envs build (RAM 6.6 %, flash 8.6 %). The `static_assert` was checked by moving
+RST to GPIO42 (motor 3): the build failed with the assertion; restored. Not run on
+hardware.
+
+### Current Status
+
+Built, not run. TEST-043 holds the procedure.
+
+### Next Steps
+
+Run TEST-043 when the board is on USB.
