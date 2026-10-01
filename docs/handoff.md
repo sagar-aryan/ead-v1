@@ -182,7 +182,9 @@ calf; DEC-016 final pin map, all 15 GPIOs used, GPIO39 never a motor.
   `score`, `reopen`; add `--ws ws://192.168.4.1:8080/ws` for Wi-Fi.
 - After any protocol change: `python3 protocol/vectors/generate.py`, both test
   suites, `python3 tools/eadprobe.py vectors`, and reflash (PROB-013).
-- Dashboard: `cd dashboard && npm install && npx tauri dev`. Database:
+- Dashboard: `ead` from any terminal (a link in `~/.local/bin` to the release
+  build; set up and rebuilt as in `dashboard/README.md`), or
+  `cd dashboard && npm install && npx tauri dev` for development. Database:
   `~/.local/share/com.ead.dashboard/ead.sqlite3`; exports beside it.
 - Replay: build `tools/replay/main.cpp` with the `ead_core` sources (command in
   `recordings/README.md`), then

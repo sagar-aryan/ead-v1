@@ -29,6 +29,17 @@ npm test                           # frontend logic tests
 (cd src-tauri && cargo test)       # backend tests; -- --ignored needs the device
 ```
 
+## The `ead` command
+
+```sh
+npx tauri build --no-bundle
+ln -sf "$PWD/src-tauri/target/release/ead-dashboard" ~/.local/bin/ead
+```
+
+`ead` then opens the dashboard from any terminal, on the same database as
+`tauri dev`. The link follows the build: rerun the first command after pulling
+changes. Set up on the development machine on 2026-10-02.
+
 ## Icons
 
 `app-icon.svg` is the source. After editing it run `npx tauri icon app-icon.svg`,

@@ -11,10 +11,11 @@ Every row states its evidence; "unverified" means nobody has measured it yet.
 |---|---|---|
 | Wiring | DEC-016 exactly: two BNO086 on SPI, six motor channels, two HT7833 rails, battery. Every connection in `docs/wiring_reference.md` §3–§11 | User, 2026-10-02, against `EAD_V1_XIAO_connections.pdf` (whose pins match DEC-016) |
 | Parts fitted | Everything, including the six motors | User, 2026-10-02 |
+| Motors | The user tested them with a plain PWM signal (how, and from what, not recorded) | User, 2026-10-02 |
 | Powered | Yes, since assembly | User, 2026-10-02 |
 | `wiring_reference.md` §13 pre-power checks | Not recorded | — |
 | HT7833 part and the pinout it was soldered by | Not recorded (§7 said not to solder by the Airupton table until the part is known) | — |
-| Which XIAO | Not recorded. The XIAO measured in TEST-041 (MAC `44:b1:76:af:fb:7c`) was left running `firmware/bench/padstate` | — |
+| Which XIAO | Unknown; the user is not sure. Its USB serial number is its MAC, so `lsusb -v` answers it once plugged in. The XIAO measured in TEST-041 is MAC `44:b1:76:af:fb:7c` | User, 2026-10-02 |
 | Firmware on it | `firmware/bench/padstate`, if it is the TEST-041 XIAO. Whether it has booted on the new wiring is not known to the user | — |
 | Measured on the assembled build | Nothing yet (TEST-043 not run) | — |
 

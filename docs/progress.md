@@ -1361,3 +1361,42 @@ Completed.
 
 TEST-043 when the board is on USB; the user's decisions on PROB-019, DEC-017 and
 DEC-006.
+
+## 2026-10-02 — `ead` command; check mode requested
+
+### Objective
+
+The user asked to start the dashboard by typing `ead`, and for an `ead --check`
+mode that tests every wire of both BNO086s and each ERM motor individually.
+
+### Investigation
+
+- `~/.local/bin` is on the user's PATH; no `ead` command existed.
+- `tauri build --no-bundle` builds the release binary with the frontend embedded
+  and installs nothing.
+- The contract already defines the motor half: a service-test mode, one motor at
+  a time by default, hard safety limits always on, refused during a patient
+  session, events marked `SERVICE_TEST` (doc 07 §7, doc 08 0x12, doc 11 §6).
+  Doc 13 §1.7 asks for flyback-diode polarity to be checked by hand before any
+  motor test.
+- The user reported the motors were tested with a plain PWM signal, and is not
+  sure which XIAO is in the build.
+
+### Approach
+
+`ead` is a symlink from `~/.local/bin` to the release binary in the repository,
+so a rebuild updates it and nothing needs root. The check mode is not built: it
+needs device firmware that does not exist yet (the DEC-016 pins, our own SH-2
+driver for two sensors, motor output). It waits for the user's DEC-017 and
+DEC-006 decisions.
+
+### Verification
+
+`ead` started under X11 (`GDK_BACKEND=x11`, only so `xdotool` could see the
+window): window present after 0.5 s, the process holding `ead.sqlite3` open.
+Launched natively under Wayland it ran 20 s with nothing on stderr; that window
+could not be observed with the tools available.
+
+### Current Status
+
+`ead` done on this machine. `ead --check` designed only (questions to the user).
