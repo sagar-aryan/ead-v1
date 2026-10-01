@@ -171,6 +171,13 @@ Raw accelerometer counts come out as multiples of 4: the BMA280's 14-bit value s
 left-aligned in a 16-bit field. Lower idle power, the third BNO086-only item, needs a
 current meter and has not been measured.
 
+## Connection reference
+
+`docs/wiring_reference.md` carries every electrical connection in one place:
+the XIAO's full pin map, both BNO086 pinouts, the six ERM motor channels, the
+haptic rails and the power input, each row marked built, bench, proposed or not
+fitted. It is the document to hand to whoever builds the board.
+
 ## Worn assembly (planned, DEC-015)
 
 ![Worn assembly: foot IMU, shank IMU, controller and the six-motor band](images/worn_assembly.png)
