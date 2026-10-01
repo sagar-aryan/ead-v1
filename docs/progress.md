@@ -1132,3 +1132,59 @@ marking can.
 
 Unchanged. One addition worth remembering: Interactive Calibration exists to remove
 gyro zero-rate offset more often, which is the heading-drift problem in PROB-015.
+
+## 2026-10-01 — Final wiring reference; the motor band needs 8 wires, not 7
+
+### Objective
+
+The builder confirmed a 10 kΩ pull-up on RST on the BNO086 breakout and asked for
+a final wiring PDF with no guessed connections.
+
+### Approach
+
+Every connection in `docs/wiring_reference.md` now carries its evidence:
+datasheet, bench measurement, builder confirmation, contract, or decision.
+Sources read for this revision: the CEVA BNO08X datasheet (pin functions,
+SPI-mode strapping, supply current, absolute maxima), the 7Semi breakout manual
+(exact pad names), the Infineon IRLML6344 datasheet (SOT-23 pinout: 1 gate,
+2 source, 3 drain; threshold 0.5–1.1 V), the ESP32-S3 datasheet, Seeed's XIAO
+wiki (BAT pad polarity, 3V3 current, charge current), the Shenzhen Airupton
+HT78XX datasheet and Holtek's LDO application note.
+
+### Problems
+
+1. **The motor-band wire count was wrong in three places** — the previous
+   wiring reference, `docs/hardware.md`, and the generated assembly image — all
+   saying 7 conductors, six returns plus one shared positive. The contract keeps
+   the two HT7833 outputs apart (doc 02 §5), so motors 1–3 and 4–6 each need
+   their own positive: **8 conductors**. A shared positive would have tied the
+   two regulator outputs together. Corrected in the reference and in
+   `docs/hardware.md`; the image is left as it is, with the error stated in its
+   caption.
+2. **The HT7833 pinout cannot be stated without knowing the part's maker.** At
+   least two manufacturers sell a 3.3 V 500 mA LDO marked HT7833 (Holtek, and
+   Shenzhen Airupton). Airupton's datasheet was read; Holtek's official datasheet
+   link returned "file not found". The reference prints the Airupton table and
+   says not to solder by it until the package and seller are known.
+3. **The XIAO's charge current** appears in a mis-formatted row of Seeed's spec
+   table. Read from the table's HTML: 50 mA fast charge for the plain XIAO
+   ESP32-S3 (the Plus variant is 100 mA). Either way the XIAO's charger is too
+   slow for a 2000 mAh cell, so the MCP73833 module is the charger.
+
+### Changes
+
+- `docs/wiring_reference.md` rewritten: evidence marks on every connection;
+  exact 7Semi pad names; IRLML6344 pin numbers; SPI robustness for the long foot
+  cable (33 Ω series on SCK and MOSI, a ground each side of SCK, 1 MHz bus);
+  conductor-by-conductor harness tables; power and charging wiring; firmware
+  rules the wiring depends on; and §16, five questions that each block one
+  specific connection.
+- `docs/hardware.md`: wire count corrected, image caption updated.
+- RST open item closed: two boards' 10 kΩ pull-ups in parallel give 5 kΩ, which
+  GPIO41 pulls low with 0.66 mA.
+
+### Current Status
+
+Every signal connection is final. Five items remain, all about specific parts:
+the HT7833 package and seller, the ERM motor part, the MCP73833 board, whether
+the cell has a protection circuit, and whether there is a power switch.

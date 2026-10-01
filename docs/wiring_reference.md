@@ -1,380 +1,427 @@
-# EAD V1 — Complete connection reference
+# EAD V1 — Wiring reference
 
-Every electrical connection in the device: the XIAO ESP32-S3, both BNO086 IMUs,
-the six ERM motor channels, the haptic power rails, and the power input.
+Every electrical connection in the device: the XIAO ESP32-S3, both BNO086
+breakouts, the six ERM motor channels, the two haptic power rails, the
+harnesses and the power input. Pin assignment fixed by DEC-016.
 
-Generated from the contract (`ead_agent_docs_v2/02_HARDWARE_WIRING.md`,
-`03_GPIO_PIN_MAP.md`, `17_HARDWARE_BOM_AND_OWNED_PARTS.md`), the decision log
-(`docs/decisions.md`) and the measured bench results (`docs/testing.md`
-TEST-039, TEST-040).
+## 1. How to trust this document
 
-## 1. How to read the status column
+Every connection carries the evidence behind it. Nothing here is an estimate.
+Where a fact depends on a part whose exact type is not yet known, the document
+says so and §16 lists the question.
 
-| Status | Meaning |
+| Mark | Meaning |
 |---|---|
-| **BUILT** | Wired and working on the current device |
-| **BENCH** | Wired and measured on the bench, one sensor only |
-| **PROPOSED** | Decided on paper, nothing soldered, no firmware yet |
-| **NOT FITTED** | Parts owned, nothing built; firmware holds these pins LOW |
+| **[DS]** | Read from the manufacturer's datasheet (sources in §17) |
+| **[MEAS]** | Measured on this project's hardware (`docs/testing.md`) |
+| **[USER]** | Confirmed by the builder looking at the actual part |
+| **[CONTRACT]** | Fixed by `ead_agent_docs_v2/` |
+| **[DEC]** | Decided in `docs/decisions.md` |
 
-The target build in sections 3–9 is **PROPOSED** as a whole. Only the bench
-sensor of section 10 has been powered and measured.
+Build status: **nothing in the target build is soldered yet.** The current
+device runs two MPU6500s on I²C (§15); one BNO086 has been wired and measured on
+the bench (TEST-039, TEST-040); the ERM drivers are not fitted.
 
-## 2. What connects to what
+## 2. Parts
 
-```text
-                 USB-C (programming, bench power)
-                        |
-  BNO086 #1  --SPI+3 ---+                  +-- 3V3 logic --- both BNO086
-  (foot)                |                  |
-                   XIAO ESP32-S3 ----------+
-  BNO086 #2  --SPI+3 ---+                  |
-  (shank)               |              6 x PWM
-                        |                  |
-                   battery 1S         6 x IRLML6344 low-side switch
-                   3.7 V 2000 mAh          |
-                        |            +-----+-----+
-                   MCP73833 charger   HT7833 A   HT7833 B
-                        |            M1 M2 M3    M4 M5 M6
-                        +----------- (haptic rails, kept separate)
-```
+| Part | Qty | Exact type | Role |
+|---|---:|---|---|
+| Controller | 1 | Seeed XIAO ESP32-S3 (**plain, not Sense**) | Everything |
+| IMU | 2 | 7Semi BNO086 breakout (ES-12143), PS0/PS1 jumpers opened | Foot, shank |
+| Motor | 6 | ERM coin vibration motor — **part number not yet known, §16** | Feedback |
+| MOSFET | 6 | Infineon IRLML6344, SOT-23 | Low-side switch per motor |
+| Diode | 6 | 1N5819W, SOD-123 Schottky | Flyback per motor |
+| Resistor | 6 | 100 Ω, 1206 | Gate series |
+| Resistor | 6 | 100 kΩ, 1206 | Gate pulldown |
+| Regulator | 2 | HT7833, 3.3 V 500 mA LDO — **package not yet known, §16** | Haptic rails A and B |
+| Capacitor | 2 | 220 µF polymer | Bulk, one per haptic rail |
+| Capacitor | 4 | 1 µF, 1206 | HT7833 input + output, each regulator |
+| Capacitor | 2+ | 100 nF, 1206 | At each sensor's 3V3 pad |
+| Capacitor | 1+ | 10 µF, 1206 | Logic 3V3 rail |
+| Capacitor | 0 | 10 nF, 1206 | Footprint across each motor, **not fitted** by default |
+| Resistor | 2 | 33 Ω, 1206 | SPI series termination, §5 (recommended, not in the contract) |
+| Cell | 1 | 1S Li-ion/LiPo, 3.7 V nominal, ~2000 mAh | Power |
+| Charger | 1 | MCP73833 module — **exact board not yet known, §16** | Charging |
 
-Counts: 1 controller, 2 IMUs, 6 motors, 6 MOSFETs, 6 flyback diodes,
-6 gate resistors, 6 gate pulldowns, 2 regulators, 1 battery, 1 charger.
+## 3. XIAO ESP32-S3 — every pin
 
-## 3. XIAO ESP32-S3 — every pin, target build
+All 15 usable GPIOs are used. There is no spare. **[DEC-016]**
 
-All 15 usable GPIOs are consumed: 6 motors, 9 for the two IMUs. There is no
-spare GPIO in this build. The assignment is fixed by DEC-016; §14 explains why
-each awkward pin carries what it carries, and §15 is the conflict check.
-
-| XIAO pin | GPIO | Direction | Connects to | Status |
+| XIAO pin | GPIO | Dir | Connects to | Evidence |
 |---|---:|---|---|---|
-| D0 | 1 | Output | Motor 1 gate drive, via 100 Ω | PROPOSED |
-| D1 | 2 | Output | Motor 2 gate drive, via 100 Ω | PROPOSED |
-| D2 | 3 | Output | Wake / PS0 — shared by both sensors | PROPOSED |
-| D3 | 4 | Output | Motor 4 gate drive, via 100 Ω | PROPOSED |
-| D4 | 5 | Output | Motor 5 gate drive, via 100 Ω | PROPOSED |
-| D5 | 6 | Output | Motor 6 gate drive, via 100 Ω | PROPOSED |
-| D6 | 43 | Output | Chip select, **foot** BNO086 (active low) | PROPOSED |
-| D7 | 44 | Output | Chip select, **shank** BNO086 (active low) | PROPOSED |
-| D8 | 7 | Output | SPI clock, SCK — shared by both sensors | PROPOSED |
-| D9 | 8 | Input | SPI data in, MISO — shared by both sensors | PROPOSED |
-| D10 | 9 | Output | SPI data out, MOSI — shared by both sensors | PROPOSED |
-| Back pad MTCK | 39 | Input | Data-ready interrupt, **foot** BNO086 | PROPOSED |
-| Back pad MTDO | 40 | Input | Data-ready interrupt, **shank** BNO086 | PROPOSED |
-| Back pad MTDI (D12) | 41 | Output | Reset, RST — shared by both sensors (active low) | PROPOSED |
-| Back pad MTMS (D11) | 42 | Output | Motor 3 gate drive, via 100 Ω | PROPOSED |
-| 3V3 | — | Power out | Logic supply to both BNO086 boards | PROPOSED |
-| GND | — | Power | Common ground: sensors, gate pulldowns, haptic ground | PROPOSED |
-| 5V | — | Power | Unused in V1 |  |
-| BAT+ / BAT− (underside) | — | Power in | 1S battery, via the charger — see §9 | PROPOSED |
-| USB-C | — | Data + power | Programming and the bench link | BUILT |
+| D0 | 1 | Out | Motor 1 gate network (§6) | [DEC] no internal pull at reset [DS] |
+| D1 | 2 | Out | Motor 2 gate network | [DEC] no internal pull [DS] |
+| D2 | 3 | Out | **WAKE** pad on both BNO086 boards | [DEC] strapping pin, see §14 |
+| D3 | 4 | Out | Motor 4 gate network | [DEC] no internal pull [DS] |
+| D4 | 5 | Out | Motor 5 gate network | [DEC] no internal pull [DS] |
+| D5 | 6 | Out | Motor 6 gate network | [DEC] no internal pull [DS] |
+| D6 | 43 | Out | **CS** pad, foot BNO086 | [DEC] internal pull-up keeps it deselected through boot [DS] |
+| D7 | 44 | Out | **CS** pad, shank BNO086 | [DEC] same [DS] |
+| D8 | 7 | Out | **SCK** pad on both boards, via 33 Ω | [DEC] |
+| D9 | 8 | In | **MISO** pad on both boards | [DEC] |
+| D10 | 9 | Out | **MOSI** pad on both boards, via 33 Ω | [DEC] |
+| Back pad MTCK | 39 | In | **INT** pad, foot BNO086 | [DEC] weak pull-up after reset — never a motor [DS] |
+| Back pad MTDO | 40 | In | **INT** pad, shank BNO086 | [DEC] |
+| Back pad MTDI | 41 | Out | **RST** pad on both boards | [DEC] |
+| Back pad MTMS | 42 | Out | Motor 3 gate network | [DEC] no internal pull, no power-up glitch [DS] |
+| 3V3 | — | Power out | **3V3** pad on both boards; 700 mA available | [DS] Seeed |
+| GND | — | Power | Common ground | — |
+| 5V | — | — | **Leave unconnected.** Dead when running from battery | [DS] Seeed |
+| BAT+ / BAT− pads (underside) | — | Power in | Battery, §9. **BAT− is the pad nearer the USB port**; confirm against the silkscreen before soldering | [DS] Seeed |
+| USB-C | — | — | Programming and the bench link | [MEAS] |
 
-Pins deliberately not used: GPIO0 (BOOT strapping), GPIO19/20 (USB), GPIO26–37
-(SPI flash / PSRAM), GPIO45/46 (strapping), GPIO21 (on-board LED, not brought out).
+Never connected: GPIO0, 45, 46 (strapping), GPIO19/20 (USB), GPIO26–37 (flash
+and octal PSRAM). On the **Sense** variant the four back pads belong to the
+camera — this map is for the plain XIAO ESP32-S3 only.
 
-Using GPIO39–42 means the JTAG header on those pads is no longer available.
-Debugging stays on USB, which is how the firmware already works.
+## 4. BNO086 breakout — every pad on each board
 
-## 4. BNO086 — every pad on each board
+Pad names exactly as printed on the 7Semi board. **[DS]** 7Semi ES-12143 §3.
 
-Both boards are wired identically except for chip select and interrupt. Nine
-conductors per sensor.
+| Pad | Foot board | Shank board | On-board state | Evidence |
+|---|---|---|---|---|
+| 3V3 | XIAO 3V3 | XIAO 3V3 | Supply, **3.3 V only** (chip max 3.63 V) | [DS] CEVA §6.1 |
+| GND | GND | GND | — | — |
+| MISO | D9 / GPIO8 | D9 / GPIO8 | Same chip pin as SDA, so it carries the I²C pull-up | [MEAS] TEST-039 |
+| SCK | D8 / GPIO7 via 33 Ω | D8 / GPIO7 via 33 Ω | Same chip pin as SCL, pulled up | [MEAS] TEST-039 |
+| MOSI | D10 / GPIO9 via 33 Ω | D10 / GPIO9 via 33 Ω | Same chip pin as SA0, pulled up | [MEAS] TEST-039 |
+| CS | D6 / GPIO43 | D7 / GPIO44 | No pull-up on the board | [MEAS] TEST-039 |
+| WAKE | D2 / GPIO3 | D2 / GPIO3 | Pulled up; **same net as PS0** | [USER] |
+| RST | GPIO41 pad | GPIO41 pad | **10 kΩ pull-up on each board** | [USER] |
+| INT | GPIO39 pad | GPIO40 pad | Active-low output | [DS] CEVA fig. 1-6 |
+| BOOT | open | open | Pulled high (the bench part booted its application firmware, which needs BOOT high at reset) | [MEAS] TEST-040 |
+| PS1 | open | open | Pulled up; jumper opened | [USER] [MEAS] |
+| PS0 | open | open | Same net as WAKE — drive it through the WAKE pad only | [USER] |
+| SCL | open | open | Same net as SCK | [DS] CEVA fig. 1-6 |
+| SDA | open | open | Same net as MISO | [DS] CEVA fig. 1-6 |
+| Qwiic ×2 | open | open | I²C only; dead in SPI mode | [MEAS] |
 
-| BNO086 pad | Foot sensor goes to | Shank sensor goes to | Note |
-|---|---|---|---|
-| 3V3 | XIAO 3V3 | XIAO 3V3 | **3.3 V only, never 5 V** |
-| GND | XIAO GND | XIAO GND | Common ground |
-| SCK (shares SCL) | D8 / GPIO7 | D8 / GPIO7 | Shared clock |
-| MISO (shares SDA) | D9 / GPIO8 | D9 / GPIO8 | Shared data in |
-| MOSI (shares SA0) | D10 / GPIO9 | D10 / GPIO9 | Shared data out |
-| CS | D6 / GPIO43 | D7 / GPIO44 | One per sensor; idles high |
-| INT | GPIO39 pad | GPIO40 pad | One per sensor; sensor pulls it low when it has data |
-| RST | GPIO41 pad | GPIO41 pad | Shared; both sensors reset together |
-| PS0 / WAKE | D2 / GPIO3 | D2 / GPIO3 | Shared; one net on this board, see below |
-| PS1 | leave open | leave open | Pulled high on the board |
-| BOOT | leave open | leave open | Firmware update only |
-| Qwiic connectors ×2 | leave open | leave open | I²C only; unusable in SPI mode |
+Nine pads wired per board: 3V3, GND, MISO, SCK, MOSI, CS, WAKE, RST, INT.
 
-Three things about this board, confirmed by measurement on the bench (TEST-039):
+Consequences worth knowing:
 
-- **PS0 and WAKE are the same net.** The board has pull-ups on PS0, PS1 and
-  WAKE. With the PS0/PS1 solder jumpers opened — which has been done — both read
-  high at reset, so the part comes up in **SPI mode**, and its Qwiic/I²C
-  connectors stop working.
-- **Start-up order matters.** Drive WAKE high, then pulse RST low, then wait for
-  the first INT. Never pulse RST while WAKE is low: PS0 would be sampled low and
-  the part would come up in a UART mode instead of SPI.
-- **SCK, MISO and MOSI sit on pads that carry the board's I²C pull-ups**, so
-  those three lines read high with the sensor deselected. That is normal here,
-  not a fault.
+- **RST is pulled up twice** — two 10 kΩ in parallel is 5 kΩ. GPIO41 pulls that
+  low with 0.66 mA, nothing. The line no longer floats during boot, so the
+  open item from the previous revision is closed. **[USER]**
+- **SPI mode is latched by the boards themselves.** PS0/WAKE and PS1 are pulled
+  high on each board, and CEVA requires exactly that: "Both pins must be high
+  from before reset until after the first assertion of H_INTN to select the SPI
+  interface." **[DS]** CEVA §1.2.4. The firmware therefore keeps WAKE high from
+  reset until the first INT, and never pulses RST while WAKE is low.
+- **No firmware update of the BNO086 from the XIAO.** CEVA recommends wiring BOOT
+  to a GPIO for that; there is no spare GPIO. A sensor firmware update would need
+  temporary wiring.
 
-SPI settings: **mode 3** (clock idles high, data sampled on the rising edge),
-MSB first, **3 MHz maximum**. Measured working at 3 MHz, 99.9 Hz per sensor.
-
-## 5. Shared SPI bus — net list
+## 5. SPI bus
 
 | Net | XIAO | Foot BNO086 | Shank BNO086 |
 |---|---|---|---|
-| SCK | D8 / GPIO7 | SCK | SCK |
+| SCK | D8 / GPIO7 → 33 Ω | SCK | SCK |
+| MOSI | D10 / GPIO9 → 33 Ω | MOSI | MOSI |
 | MISO | D9 / GPIO8 | MISO | MISO |
-| MOSI | D10 / GPIO9 | MOSI | MOSI |
 | CS_FOOT | D6 / GPIO43 | CS | — |
 | CS_SHANK | D7 / GPIO44 | — | CS |
 | INT_FOOT | GPIO39 | INT | — |
 | INT_SHANK | GPIO40 | — | INT |
 | RST | GPIO41 | RST | RST |
-| WAKE | D2 / GPIO3 | PS0/WAKE | PS0/WAKE |
+| WAKE | D2 / GPIO3 | WAKE | WAKE |
 | 3V3 | 3V3 | 3V3 | 3V3 |
 | GND | GND | GND | GND |
 
-Keep the three shared lines as short as the build allows, and run a ground
-conductor alongside the foot sensor's cable, which is the long one.
+Settings: **SPI mode 3**, MSB first, **3 MHz maximum** **[DS]**. Measured working
+at 3 MHz on short bench wires **[MEAS]**.
 
-## 6. One ERM motor channel — repeated six times
+The foot sensor sits at the end of a long cable (§11), which the bench test
+did not have. Three measures make that link robust:
 
-From `ead_agent_docs_v2/02_HARDWARE_WIRING.md` §4, unchanged.
+1. **33 Ω in series on SCK and MOSI, at the XIAO end.** Damps ringing on the
+   long run. With the line's few tens of pF this adds about a nanosecond of
+   delay — irrelevant at 3 MHz. Recommended engineering practice, not in the
+   contract.
+2. **A ground conductor on each side of SCK** in the foot cable (§11).
+3. **Run the bus at 1 MHz.** Two sensors streaming three reports each at
+   100 Hz need well under 20 kB/s; 1 MHz gives 125 kB/s, over six times that. Move to 3 MHz only after a soak test
+   on the real harness shows zero errors. This is a firmware setting.
+
+The two boards' I²C pull-ups on SCK, MISO and MOSI end up in parallel. Every
+one of those lines is driven push-pull in SPI mode, so the pull-ups only add a
+little static current.
+
+## 6. One motor channel — repeated six times
+
+**[CONTRACT]** `02_HARDWARE_WIRING.md` §4. Pin numbers **[DS]** Infineon.
 
 ```text
-  3V3_HAPTIC  ------+-------------------+
-                    |                   |
-                    |              cathode (stripe)
-                  ERM +              1N5819W
-                    |               anode
-                  ERM -                 |
-                    +-------------------+----- Drain   IRLML6344
-                                                 Source ----- GND_HAPTIC
-                                                 Gate
-  XIAO PWM pin ---- 100 R ------------------------+
-                                                  |
-                                                100 k
-                                                  |
-                                                 GND
+  3V3_HAPTIC_A or _B ---+------------------+
+                        |                  |
+                        |           cathode (band)
+                      ERM +            1N5819W
+                        |               anode
+                      ERM -                |
+                        +------------------+------ pin 3  DRAIN
+                                                   IRLML6344
+  XIAO GPIO --- 100 R ---------------------+------ pin 1  GATE
+                                           |       pin 2  SOURCE ---- GND
+                                         100 k
+                                           |
+                                          GND
 ```
 
-Per channel: one ERM coin motor, one IRLML6344 N-channel MOSFET, one 1N5819W
-Schottky flyback diode, one 100 Ω gate resistor, one 100 kΩ gate pulldown.
+| Part | Pin | Connects to |
+|---|---|---|
+| IRLML6344 (SOT-23) | 1, gate | 100 Ω from the GPIO, and 100 kΩ to GND |
+| | 2, source | GND |
+| | 3, drain | ERM − and the diode's anode |
+| 1N5819W (SOD-123) | cathode — the **band** end | The channel's haptic rail (ERM +) |
+| | anode | The MOSFET drain (ERM −) |
+| ERM motor | + | The channel's haptic rail, A or B |
+| | − | The MOSFET drain |
 
-- The diode's **stripe goes to the positive rail**, its other end to the drain.
-  Backwards, it shorts the rail.
-- The 100 kΩ pulldown holds the motor off while the ESP32 boots, before the
-  firmware drives the pin.
-- A 10 nF suppression capacitor footprint across each motor is allowed but
-  **not populated** by default. Fit it only if EMI testing shows it helps.
+Why it is safe:
+
+- Gate threshold is 0.5–1.1 V; on-resistance at most 37 mΩ at 2.5 V gate
+  **[DS]**. The ESP32's 3.3 V drive turns it fully on.
+- The 100 kΩ pulldown holds the gate at 0 V from power-up until firmware drives
+  the pin. That only works because no motor GPIO has an internal pull-up (§14).
+- Diode backwards = a dead short across the rail. **Check every band.**
+- The diode sits on the board, across the channel's two wires — not at the motor.
+- The 10 nF footprint across each motor stays empty unless EMI testing shows a
+  need **[CONTRACT]**.
 
 ### All six channels
 
-| Motor | Position on the band | Gate driven by | Rail |
-|---|---|---|---|
-| M1 | Anterior, 0° | D0 / GPIO1 | HT7833 A |
-| M2 | Anterolateral, 60° | D1 / GPIO2 | HT7833 A |
-| M3 | Posterolateral, 120° | GPIO42 pad (MTMS) | HT7833 A |
-| M4 | Posterior, 180° | D3 / GPIO4 | HT7833 B |
-| M5 | Posteromedial, 240° | D4 / GPIO5 | HT7833 B |
-| M6 | Anteromedial, 300° | D5 / GPIO6 | HT7833 B |
+| Motor | On the band | XIAO pin | GPIO | Rail | Rail wire in the band harness |
+|---|---|---|---:|---|---|
+| M1 | Anterior, 0° | D0 | 1 | A | +A |
+| M2 | Anterolateral, 60° | D1 | 2 | A | +A |
+| M3 | Posterolateral, 120° | back pad MTMS | 42 | A | +A |
+| M4 | Posterior, 180° | D3 | 4 | B | +B |
+| M5 | Posteromedial, 240° | D4 | 5 | B | +B |
+| M6 | Anteromedial, 300° | D5 | 6 | B | +B |
 
-Angles are measured from the front of the shin, clockwise seen from above, on
-the right leg (`ead_agent_docs_v2/06_ERROR_AND_HAPTIC_ENGINE.md` §7).
-
-PWM, when the firmware is written: 200 Hz, 8-bit, duty between 51 and 204
-(20 %–80 %). All six pins are driven LOW as the first action at boot and stay
-LOW until the device reaches READY with healthy sensors.
+Angles from the front of the shin, clockwise seen from above, right leg
+**[CONTRACT]** `06_ERROR_AND_HAPTIC_ENGINE.md` §7. Rail A feeds the front-lateral
+half of the band, rail B the back-medial half.
 
 ## 7. Haptic power rails
 
-Two regulators, three motors each, outputs kept apart.
+**[CONTRACT]** `02_HARDWARE_WIRING.md` §5.
 
-| From | To | Component | Note |
-|---|---|---|---|
-| Battery + | HT7833 A input | — | 1 µF input capacitor |
-| Battery + | HT7833 B input | — | 1 µF input capacitor |
-| HT7833 A output | 3V3_HAPTIC_A → M1, M2, M3 | 220 µF polymer + 1 µF | — |
-| HT7833 B output | 3V3_HAPTIC_B → M4, M5, M6 | 220 µF polymer + 1 µF | — |
-| Both MOSFET source groups | GND_HAPTIC | — | Joins the common ground plane |
+| From | To | Capacitors |
+|---|---|---|
+| Switched battery + (§9) | HT7833 A — VIN | 1 µF VIN to GND |
+| Switched battery + | HT7833 B — VIN | 1 µF VIN to GND |
+| HT7833 A — VOUT | Rail A → M1, M2, M3 positive | 1 µF + 220 µF VOUT to GND |
+| HT7833 B — VOUT | Rail B → M4, M5, M6 positive | 1 µF + 220 µF VOUT to GND |
+| HT7833 A and B — GND | Common ground | — |
 
-**The two regulator outputs must never be tied together.** The firmware neither
-controls nor monitors them; they are always on with the battery connected.
+- **The two VOUT pins must never touch.** **[CONTRACT]**
+- Motors are never powered from the XIAO's 3V3 pin.
+- **HT7833 pin numbers depend on who made the part.** At least two different
+  manufacturers sell a 3.3 V, 500 mA LDO marked HT7833: Holtek, and Shenzhen
+  Airupton. The Airupton datasheet gives **[DS]**:
 
-Motors are never powered from the XIAO's own 3V3 pin. That pin feeds the two
-sensors only.
+  | Package | GND | VIN | VOUT | EN |
+  |---|---:|---:|---:|---:|
+  | SOT-89 | 1 | 2 | 3 | — |
+  | SOT-23-3 | 1 | 3 | 2 | — |
+  | SOT-23-5 | 2 | 1 | 5 | 3, tie to VIN |
 
-## 8. Logic power and decoupling
+  Holtek's own HT78xx datasheet link is dead at the time of writing, so its
+  table could not be read. **Do not solder by this table** until the package
+  and seller are known (§16); a regulator fitted backwards puts battery voltage
+  on the motor rail.
+
+Thermal check, worst case: full cell 4.2 V, three motors running. Dissipation
+is (4.2 − 3.3) V × I. At 300 mA that is 0.27 W; a SOT-89 at 200 °C/W **[DS]**
+Holtek AN0553 runs 54 °C above ambient. Acceptable for a pulsed load; the real
+current needs the motor part number (§16).
+
+Low-battery behaviour: dropout is 220 mV at 200 mA **[DS]** Airupton. Below a
+cell voltage of about 3.5 V the rails fall below 3.3 V and the motors weaken.
+Expected, not a fault.
+
+## 8. Logic power
 
 | Item | Value | Where |
 |---|---|---|
-| Sensor decoupling | 100 nF | As close as possible to each BNO086's 3V3 pin |
-| Rail decoupling | 10 µF | On the logic 3V3 rail |
-| Controller decoupling | — | The XIAO module carries its own |
+| Sensor decoupling | 100 nF | At each BNO086's 3V3 pad |
+| Logic rail | 10 µF | On the 3V3 line near the XIAO |
+| Sensor current | 10.7 mA each at 100 Hz rotation vector (3.18 mA VDDIO + 7.50 mA VDD) | [DS] CEVA fig. 6-18 |
+| Available | 700 mA from the XIAO 3V3 pin | [DS] Seeed |
 
-Keep the sensor signal and power region physically away from the motor current
-paths; do not route motor current under a sensor footprint; use a solid ground
-plane and wide haptic supply and ground buses.
+Two sensors take about 22 mA of the 700 mA available. The XIAO itself draws
+about 100 mA with Wi-Fi active **[DS]** Seeed.
 
-## 9. Power input
+Layout rule **[CONTRACT]**: keep the sensor region away from motor current; no
+motor current under a sensor footprint; solid ground plane; wide haptic supply
+and ground buses.
 
-The contract puts the charger, battery protection, fuse and power management
-outside the software scope, so no wiring for them is specified. The owned parts
-are a 1S 3.7 V ~2000 mAh cell and an MCP73833 charger module; the cell reaches
-the XIAO through its BAT pads. There is no battery sense wire, no fuel gauge, no
-ADC and no power switch input — the firmware has no way to read the battery, by
-decision, so none should be added to the harness expecting software to use it.
+## 9. Power input and charging
 
-## 10. What is actually wired today
+The contract leaves this outside its scope. These are the facts that fix it:
 
-**Current device — BUILT.** Two MPU6500 breakouts on I²C, which the BNO086 build
-replaces:
+- The XIAO has its own charger on the BAT pads, at **50 mA** fast charge
+  **[DS]** Seeed spec table. That takes about 40 hours to fill a 2000 mAh cell,
+  so the MCP73833 module is the practical charger.
+- With two chargers on one cell, the XIAO's would also charge whenever USB-C is
+  plugged into the XIAO.
+- A charger cannot detect "full" while the device is drawing current from the
+  same cell.
 
-| Function | XIAO pin | GPIO |
-|---|---|---:|
-| I²C SDA, both IMUs | D4 | 5 |
-| I²C SCL, both IMUs | D5 | 6 |
-| Foot IMU INT (address 0x68) | D8 | 7 |
-| Shank IMU INT (address 0x69) | D9 | 8 |
-| Six motor outputs, held LOW | D0, D1, D3, D10, D6, D7 | 1, 2, 4, 9, 43, 44 |
+Recommended wiring, which gives one charger and a clean full-charge cut-off:
 
-Foot AD0 to GND gives 0x68; shank AD0 to 3V3 gives 0x69. The breakouts carry
-their own I²C pull-ups. **No ERM drivers are fitted** — nothing is connected to
-the six motor pins.
+```text
+                       +------------------ MCP73833 module BAT+
+                       |
+  Cell + (protected) --+---- SWITCH ---+---- XIAO BAT+
+                                       +---- HT7833 A VIN
+                                       +---- HT7833 B VIN
 
-**Bench — BENCH.** One BNO086 on edge pins only, so nothing needs soldering to
-the back pads. This is a test layout, not the product one:
+  Cell - --------------+------------------ MCP73833 module BAT-
+                       +------------------ XIAO BAT- , HT7833 GND x2,
+                                           all six MOSFET sources (common GND)
+```
 
-| BNO086 | XIAO pin | GPIO |
-|---|---|---:|
-| 3V3, GND | 3V3, GND | — |
-| SCK | D8 | 7 |
-| MISO | D9 | 8 |
-| MOSI | D10 | 9 |
-| CS | D3 | 4 |
-| INT | D2 | 3 |
-| RST | D1 | 2 |
-| WAKE | D0 | 1 |
+- **Charge with the switch OFF.** The MCP73833 then sees only the cell and
+  terminates properly; the XIAO's own charger is disconnected.
+- With the switch ON and USB-C in the XIAO (bench use), the XIAO's 50 mA charger
+  can also reach the cell. Harmless, but avoid charging that way.
+- The cell must have its own protection circuit. A body-worn lithium cell
+  without one is not acceptable.
+- Battery wires: heavier gauge than signal wire **[CONTRACT]**.
 
-## 11. Cautions, each with its reason
+Three things here are not known yet and are in §16: whether a switch is
+planned, which MCP73833 board it is, and whether the cell is protected.
 
-1. **Never put a motor on GPIO39 (the MTCK back pad).** The ESP32-S3 datasheet
-   v2.2, Table 2-1, marks MTCK with footnote 7: "Depends on the value of
-   EFUSE_DIS_PAD_JTAG — 0: WPU is enabled; 1: pin floating", and §3 states that
-   eFuse defaults to 0 on an unburnt chip. So GPIO39 comes out of reset with its
-   internal weak pull-up on, 45 kΩ typical (Table 5-4). Against the contract's
-   100 kΩ gate pulldown that is 3.3 × 100/145 = **2.3 V at the gate**, far above
-   the IRLML6344's threshold. A motor there would spin from power-up until the
-   firmware turned the pull-up off — and would stay on indefinitely if the board
-   ever sat in download mode or a hung bootloader. The target map uses GPIO39 for
-   the foot sensor's interrupt instead, where a pull-up is harmless.
+## 10. Firmware rules the wiring depends on
 
-   The other three pads — GPIO40 (MTDO), GPIO41 (MTDI), GPIO42 (MTMS) — have no
-   pull at reset or after it, are not strapping pins, and do not appear in the
-   power-up glitch table (Table 2-2 lists only GPIO1–20 and the 32 kHz crystal
-   pins). They are safe as motor outputs: the external 100 kΩ pulldown is the only
-   thing on the line until the firmware drives it.
+1. Drive all six motor GPIOs LOW as the first action in `setup()`.
+2. Drive WAKE high, then pulse RST low, then wait for the first INT before
+   touching the sensors. Never pulse RST while WAKE is low.
+3. Enable the internal pull-up on both INT inputs, so a broken INT wire reads
+   "no data", not noise.
+4. Hold both CS lines high whenever the bus is idle.
+5. Start the SPI bus at 1 MHz (§5).
+6. Answer INT within 10 ms; the BNO086 times out and retries after that **[DS]**
+   CEVA §1.2.4.1.
 
-2. **GPIO3 (D2) carries WAKE, not a motor.** GPIO3 is a strapping pin, which
-   `03_GPIO_PIN_MAP.md` §2 reserves, and it drives low for about 60 µs at
-   power-up (datasheet Table 2-2). Both of those are tolerable for WAKE and not
-   for a motor: GPIO3 only selects the JTAG source, and only if
-   EFUSE_STRAP_JTAG_SEL is burnt, which it is not by default; and both sensor
-   boards hold PS0/WAKE high through their own pull-ups, so the line's level
-   during boot is set from outside the microcontroller. The power-up glitch is
-   over long before the sensors release their own power-on reset, and the
-   firmware re-latches SPI mode anyway by driving WAKE high and pulsing RST.
+## 11. Harnesses — conductor by conductor
 
-3. **GPIO43/44 carry the ROM boot log.** GPIO43 is UART0 TX and idles high before
-   firmware runs (PROB-004). In the target build these two pins drive chip
-   select, which idles high anyway — so the risk the contract's motor map carried
-   disappears. Do not put motors back on them.
-4. **Never pulse RST while WAKE is low.** PS0 is sampled at reset; low selects a
-   UART mode and the sensors go silent on SPI.
-5. **3.3 V only at every sensor pin.** The BNO086 is not 5 V tolerant.
-6. **Keep the two haptic rails separate**, and keep motor current off the sensor
-   region.
-7. **Check the flyback diode orientation on all six channels** before applying
-   power: stripe to the positive rail.
-8. **The shank IMU and the motor band clamp the same bone.** Vibration will reach
-   the sensor; measure it once the drivers are fitted (DEC-015).
+No connectors in V1; conductors soldered to the board **[CONTRACT]**.
 
-## 12. Conductor count per harness run
+**Shank sensor — 9 conductors** (short run on the same strap):
+3V3, GND, SCK, MOSI, MISO, CS_SHANK, INT_SHANK, RST, WAKE.
 
-| Run | Conductors | Contents |
-|---|---:|---|
-| Controller → shank BNO086 | 9 | 3V3, GND, SCK, MISO, MOSI, CS, INT, RST, WAKE |
-| Controller → foot BNO086 | 9 | same, with its own CS and INT |
-| Controller → motor band | 7 | 6 switched returns + 1 shared positive |
-| Battery → board | 2 | heavier gauge than signal wire |
+**Foot sensor — 10 conductors**, in this order in a flat cable, or with SCK
+twisted against a ground in a round one:
 
-No connectors are used in V1: harness conductors are soldered directly to the
-board.
+| # | Signal |
+|---:|---|
+| 1 | GND |
+| 2 | SCK |
+| 3 | GND |
+| 4 | MOSI |
+| 5 | MISO |
+| 6 | CS_FOOT |
+| 7 | INT_FOOT |
+| 8 | RST |
+| 9 | WAKE |
+| 10 | 3V3 |
+
+**Motor band — 8 conductors:**
+
+| # | Signal |
+|---:|---|
+| 1 | Rail A + — to M1, M2, M3 |
+| 2 | Rail B + — to M4, M5, M6 |
+| 3–8 | M1 − … M6 −, one return per motor, to its MOSFET drain |
+
+The earlier revision of this document said 7 conductors with one shared
+positive. That was wrong: the contract keeps the two regulator outputs apart, so
+each half of the band needs its own positive wire.
+
+**Battery — 2 conductors**, heavier gauge than signal wire.
+
+## 12. Cautions
+
+1. **Never put a motor on GPIO39.** It comes out of reset with a 45 kΩ weak
+   pull-up unless an eFuse is burnt; against the 100 kΩ gate pulldown that is
+   2.3 V on the gate, above the 1.1 V maximum threshold. The motor would run
+   from power-up until firmware intervened **[DS]**.
+2. **3.3 V only at every sensor pad.** Absolute maximum 3.63 V **[DS]**.
+3. **Diode band to the rail**, on all six channels.
+4. **HT7833 pinout varies by manufacturer.** Confirm before soldering (§7).
+5. **Keep rail A and rail B apart.**
+6. **Never pulse RST while WAKE is low.**
+7. **Plain XIAO ESP32-S3 only** — on the Sense variant the back pads are taken.
+8. **The shank IMU and the motor band clamp the same bone.** Measure vibration
+   pickup once the drivers are fitted (DEC-015).
 
 ## 13. Before first power-up
 
-1. Measure 3V3 to GND for a short, with power off.
-2. Confirm each BNO086 reads about 3.3 V on PS0, PS1 and WAKE.
-3. Confirm all six gates read near 0 V through their pulldowns.
-4. Check all six diode stripes face the positive rail.
-5. Confirm the two HT7833 outputs are not connected to each other.
-6. Confirm the shared RST line is pulled up, or fit a 10 kΩ resistor to 3V3.
-7. Power up with no motors fitted, run the bench check, then fit the motors.
+1. Power off: measure 3V3 to GND, rail A to GND, rail B to GND, battery + to
+   GND. None may read as a short.
+2. Confirm rail A and rail B are not connected to each other.
+3. Confirm every diode's band faces its rail.
+4. Confirm each HT7833's VIN, VOUT and GND against the seller's pinout.
+5. Power on with **no motors fitted**: rails A and B read 3.3 V; each BNO086
+   reads ~3.3 V on PS0, PS1 and WAKE; all six gates read ~0 V.
+6. Flash `firmware/bench/padstate` and confirm the pad states of §14 on the
+   actual chip.
+7. Run the bench sensor check on both sensors, then fit the motors one at a time.
 
-## 14. Why the pins are arranged this way
+## 14. Why each awkward pin carries what it carries
 
-All 15 usable GPIOs are taken and there is no spare, so each awkward pin had to
-go to whichever signal minds it least (DEC-016).
-
-| Awkward pin | What is wrong with it | What it ended up carrying | Why that is safe |
+| Pin | The problem with it | Carries | Why that is safe |
 |---|---|---|---|
-| GPIO39 (MTCK pad) | Weak pull-up enabled after reset unless an eFuse is burnt | Foot sensor interrupt, an input | A pull-up on an input that idles high is welcome. A motor here would run at every boot |
-| GPIO3 (D2) | Strapping pin; drives low for 60 µs at power-up | WAKE, shared | Only matters if an eFuse is burnt, which it is not; the sensor boards' own pull-ups set this line's boot level |
-| GPIO43, GPIO44 (D6, D7) | UART0 — GPIO43 carries the ROM boot log at every start | Chip select, one per sensor | Both have internal pull-ups, so they idle high, which is deselected. The boot-log wiggle on GPIO43 reaches the foot sensor's CS, but with no clock on SCK no transaction can occur |
-| GPIO40, 41, 42 pads | Nothing — no pulls at or after reset, not strapping, no power-up glitch | Shank interrupt, RST, Motor 3 | Clean pins; the motor's external 100 kΩ pulldown is the only thing on its gate until firmware drives it |
-| GPIO1, 2, 4, 5, 6 | 60 µs low-level glitch at power-up | Motors 1, 2, 4, 5, 6 | Low means the motor is off, so the glitch costs nothing. The datasheet shows no internal pull on any of them |
+| GPIO39 | Weak pull-up after reset unless EFUSE_DIS_PAD_JTAG is burnt **[DS]** | Foot INT, an input | A pull-up suits an input that idles high |
+| GPIO3 | Strapping pin; 60 µs low glitch at power-up **[DS]** | WAKE | Only selects the JTAG source if an eFuse is burnt; the boards' own pull-ups set WAKE's boot level |
+| GPIO43/44 | UART0; GPIO43 carries the ROM boot log | Chip selects | Internal pull-ups keep them high; with no clock on SCK the boot-log wiggle transfers nothing |
+| GPIO40, 41, 42 | Nothing — no pull, not strapping, no power-up glitch **[DS]** | Shank INT, RST, Motor 3 | Clean pins |
+| GPIO1, 2, 4, 5, 6 | 60 µs **low** glitch at power-up **[DS]** | Motors 1, 2, 4, 5, 6 | Low is "off"; none has an internal pull |
 
-### Evidence behind this section
+## 15. What is wired today
 
-| Fact | Source |
+**Current device — built.** Two MPU6500s on I²C, which the BNO086 build replaces.
+
+| Function | XIAO pin | GPIO |
+|---|---|---:|
+| I²C SDA | D4 | 5 |
+| I²C SCL | D5 | 6 |
+| Foot INT (address 0x68) | D8 | 7 |
+| Shank INT (address 0x69) | D9 | 8 |
+| Motor outputs, held LOW, nothing connected | D0, D1, D3, D10, D6, D7 | 1, 2, 4, 9, 43, 44 |
+
+**Bench — one BNO086** (edge pins only; not the product layout):
+3V3→3V3, GND→GND, SCK→D8, MISO→D9, MOSI→D10, CS→D3, INT→D2, RST→D1, WAKE→D0.
+
+## 16. Still needed from the builder
+
+Each item blocks one specific connection. Everything else is final.
+
+| # | Question | Blocks | Fastest way to answer |
+|---:|---|---|---|
+| 1 | HT7833: which package, and from which seller? | The regulator's three solder joints (§7) | The product page link, or a photo of the part's marking |
+| 2 | ERM motor: part number, or rated voltage and current? | The rail current budget and thermal check (§7) | Product page link |
+| 3 | MCP73833 module: which board? | Its four connections (§9) | Product page link or photo |
+| 4 | Does the cell have a protection circuit? | Whether one must be added (§9) | A small board under the tape at the wire end of the cell |
+| 5 | Is there a power switch? | The charge-with-switch-off arrangement (§9) | Yes or no |
+
+## 17. Sources
+
+| Source | Used for |
 |---|---|
-| MTCK/GPIO39 keeps a weak pull-up unless EFUSE_DIS_PAD_JTAG is burnt | ESP32-S3 datasheet v2.2, Table 2-1 footnote 7 |
-| Those eFuses default to 0, i.e. not burnt | ESP32-S3 datasheet v2.2, §3 |
-| GPIO40/41/42 have no pull at or after reset | ESP32-S3 datasheet v2.2, Table 2-1 |
-| Internal pull-up and pull-down are both 45 kΩ typical | ESP32-S3 datasheet v2.2, Table 5-4 |
-| Strapping pins are GPIO0, GPIO3, GPIO45, GPIO46; GPIO3 defaults to floating | ESP32-S3 datasheet v2.2, Table 3-1 |
-| Power-up glitches affect GPIO1–20 only, and are low-level except GPIO18/19/20 | ESP32-S3 datasheet v2.2, Table 2-2 |
-| Default drive strength 20 mA; 40 mA source / 28 mA sink capability | ESP32-S3 datasheet v2.2, Table 2-1 footnote 5, Table 5-4 |
-| GPIO39–42 carry no usage restriction | ESP-IDF GPIO documentation, ESP32-S3 |
-| The plain XIAO ESP32-S3 exposes MTCK, MTDO, MTDI and MTMS on the back pads | Seeed Studio XIAO ESP32-S3 wiki |
-
-On the **Sense** variant of this board those same pads are wired to the camera,
-so this only holds for the plain XIAO ESP32-S3.
-
-`firmware/bench/padstate` reads the pull-up, pull-down, input-enable, drive
-strength and function bits the bootloader leaves on each pad, plus the JTAG
-eFuses, so this can be confirmed on the actual chip rather than taken from the
-datasheet. It builds and is ready to run; it has not been run yet, because the
-board was disconnected at the time.
-
-## 15. Conflict check
-
-Run against the final map, pin by pin and rule by rule.
-
-| Check | Result |
-|---|---|
-| Every GPIO used exactly once | **Pass.** 15 distinct pins: 1, 2, 3, 4, 5, 6, 7, 8, 9, 39, 40, 41, 42, 43, 44 |
-| No motor on a pin with an internal pull-up | **Pass.** Motors sit on GPIO1, 2, 4, 5, 6 and the GPIO42 pad. The datasheet shows no pull on any of them, at reset or after |
-| No motor on GPIO39 | **Pass.** GPIO39 carries the foot interrupt, an input |
-| Strapping pins | **Pass.** GPIO0, 45 and 46 are not brought out and are unused. GPIO3 is used, for WAKE — see §14 |
-| USB pins untouched | **Pass.** GPIO19 and 20 are left to USB |
-| Flash and PSRAM pins untouched | **Pass.** GPIO26–37 are unused; this module has octal PSRAM, so 33–37 would have been unusable |
-| Enough PWM channels | **Pass.** Six motors against the LEDC peripheral's eight channels |
-| Chip selects idle high during boot | **Pass.** GPIO43 and 44 have internal pull-ups |
-| Boot log on GPIO43 reaching the foot sensor's CS | **No effect.** A chip select with no clock on SCK transfers nothing |
-| SPI lines glitching at power-up | **No effect.** GPIO7, 8, 9 glitch low for 60 µs, but both chip selects are held high by their pull-ups, so no transaction can start |
-| Sensors latch SPI mode at power-up | **Pass**, from outside the microcontroller: both boards pull PS0/PS1/WAKE high themselves, and the firmware re-latches it with a WAKE-high, RST-low sequence |
-| JTAG debugging over the pads | **Lost, by choice.** Debugging is over USB Serial/JTAG on GPIO19/20, which this build does not touch |
-| Board variant | **Check before building.** The four back pads are MTCK/MTDO/MTDI/MTMS on the plain XIAO ESP32-S3. On the **Sense** variant the same pads belong to the camera |
-| RST line during boot | **Open item.** GPIO41 has no internal pull, so the shared RST line floats for the few hundred milliseconds before firmware drives it. Whether the breakout pulls RST up has not been measured. Fit a 10 kΩ pull-up to 3V3 on the board unless measurement shows the breakout already has one |
-
-Nothing in the list blocks the board. The one open item is cheap insurance, not
-a redesign.
+| Espressif, ESP32-S3 Series Datasheet v2.2 — Tables 2-1, 2-2, 3-1, 5-4 | Pad states at and after reset, glitches, strapping, pull resistors, drive current |
+| ESP-IDF GPIO documentation, ESP32-S3 | Pin restrictions |
+| Seeed Studio, XIAO ESP32-S3 wiki | Back pads, BAT pad polarity, 50 mA charge current, 700 mA 3V3 output, 5V pin on battery |
+| CEVA, BNO08X Datasheet 1000-3927 v1.17 | Pin functions, SPI-mode strapping, power, absolute maxima, INT timeout |
+| 7Semi, BNO086 breakout manual ES-12143 v1.0 | Pad names |
+| Infineon, IRLML6344 datasheet v01_01 | Pinout, gate threshold, on-resistance |
+| Shenzhen Airupton, HT78XX datasheet V1.0 | HT7833 pinout by package, dropout |
+| Holtek, AN0553 application note | SOT-89 thermal resistance, capacitor use |
+| `ead_agent_docs_v2/02, 03, 06, 17` | Motor channel, rails, band angles, parts |
+| `docs/testing.md` TEST-039, TEST-040 | Measured board behaviour |
 
 ---
 

@@ -175,8 +175,8 @@ current meter and has not been measured.
 
 `docs/wiring_reference.md` carries every electrical connection in one place:
 the XIAO's full pin map, both BNO086 pinouts, the six ERM motor channels, the
-haptic rails and the power input, each row marked built, bench, proposed or not
-fitted. It is the document to hand to whoever builds the board.
+haptic rails, the harnesses and the power input, each connection marked with
+the evidence behind it. It is the document to hand to whoever builds the board.
 
 ## Worn assembly (planned, DEC-015)
 
@@ -186,10 +186,13 @@ fitted. It is the document to hand to whoever builds the board.
 contract and this table. **Two known errors, both in panel A only:** the
 controller is drawn on the inner side of the leg — panel B has it correctly on
 the outer side — and the foot is drawn as a left foot, with the big toe on the
-outer edge. Everything else was verified: the six motor angles and their
-clockwise order, the fibula on the lateral side, M2 toward the toes and M3
-toward the calf in the side view, both sensor axis triads, and the conductor
-counts.*
+outer edge. **A third error, found later (2026-10-01): the motor cable label
+"7 wires (6 returns + 1 shared +V)" is wrong — it is 8**, because the two haptic
+regulators' outputs must stay separate, so each half of the band needs its own
+positive wire (`docs/wiring_reference.md` §11). Everything else was verified: the
+six motor angles and their clockwise order, the fibula on the lateral side, M2
+toward the toes and M3 toward the calf in the side view, and both sensor axis
+triads.*
 
 Two separate straps on the right shank, plus the foot module. Nothing below is
 built yet: the ERM drivers are not fitted (DEC-006) and the BNO086 sensors are
@@ -202,9 +205,13 @@ still on the bench.
 | Six ERM motors | Lower strap, around the fullest part of the calf, below the upper strap | Angles per doc 06 §7: M1 anterior 0°, then clockwise viewed from above |
 | Foot IMU (BNO086) | Dorsum of the foot, midfoot, lying flat | Doc 01 §2 |
 
-Cable runs: 9 conductors to each IMU (3V3, GND, SCK, MISO, MOSI, CS, INT, RST,
-WAKE), and 7 to the motor band — six switched returns plus one shared positive,
-because the drivers are low-side N-channel MOSFETs (IRLML6344).
+Cable runs: 9 conductors to the shank IMU (3V3, GND, SCK, MISO, MOSI, CS, INT,
+RST, WAKE), 10 to the foot IMU (the same plus a second ground beside SCK, for
+the long run), and **8 to the motor band**: six switched returns, one positive
+from haptic rail A for M1–M3, and one from rail B for M4–M6. The two rails come
+from separate regulators whose outputs must never be joined
+(`ead_agent_docs_v2/02_HARDWARE_WIRING.md` §5). An earlier revision said 7 with
+one shared positive; that would have tied the two regulator outputs together.
 
 Practical points for the build, none of them yet verified on a leg:
 
