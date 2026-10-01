@@ -252,24 +252,43 @@ the back pads. This is a test layout, not the product one:
 
 ## 11. Cautions, each with its reason
 
-1. **GPIO3 (D2) is a strapping pin.** `03_GPIO_PIN_MAP.md` §2 says not to use it.
-   The target build puts Motor 3 there because the SPI bus needs D6–D10. Its
-   100 kΩ gate pulldown holds it low through boot, which is a defined state, but
-   this is a deviation from the contract and needs a recorded decision before the
-   board is made. If it has to be avoided, the shared WAKE line is the only
-   other candidate to move, because every remaining pin is spoken for.
-2. **GPIO43/44 carry the ROM boot log.** GPIO43 is UART0 TX and idles high before
+1. **Never put a motor on GPIO39 (the MTCK back pad).** The ESP32-S3 datasheet
+   v2.2, Table 2-1, marks MTCK with footnote 7: "Depends on the value of
+   EFUSE_DIS_PAD_JTAG — 0: WPU is enabled; 1: pin floating", and §3 states that
+   eFuse defaults to 0 on an unburnt chip. So GPIO39 comes out of reset with its
+   internal weak pull-up on, 45 kΩ typical (Table 5-4). Against the contract's
+   100 kΩ gate pulldown that is 3.3 × 100/145 = **2.3 V at the gate**, far above
+   the IRLML6344's threshold. A motor there would spin from power-up until the
+   firmware turned the pull-up off — and would stay on indefinitely if the board
+   ever sat in download mode or a hung bootloader. The target map uses GPIO39 for
+   the foot sensor's interrupt instead, where a pull-up is harmless.
+
+   The other three pads — GPIO40 (MTDO), GPIO41 (MTDI), GPIO42 (MTMS) — have no
+   pull at reset or after it, are not strapping pins, and do not appear in the
+   power-up glitch table (Table 2-2 lists only GPIO1–20 and the 32 kHz crystal
+   pins). They are safe as motor outputs: the external 100 kΩ pulldown is the only
+   thing on the line until the firmware drives it.
+
+2. **GPIO3 (D2) is a strapping pin.** `03_GPIO_PIN_MAP.md` §2 says not to use it.
+   The target build puts Motor 3 there because the SPI bus needs D6–D10. The
+   datasheet (Table 3-1) gives GPIO3 a default configuration of "Floating" and
+   uses it only to select the JTAG source, and only when EFUSE_STRAP_JTAG_SEL is
+   burnt, which it is not by default. Its 100 kΩ gate pulldown gives it a defined
+   level through boot, and its power-up glitch is a **low** one, which leaves a
+   motor off. It is workable, but it is still a deviation from the contract and
+   needs a recorded decision before the board is made. The alternative is in §14.
+3. **GPIO43/44 carry the ROM boot log.** GPIO43 is UART0 TX and idles high before
    firmware runs (PROB-004). In the target build these two pins drive chip
    select, which idles high anyway — so the risk the contract's motor map carried
    disappears. Do not put motors back on them.
-3. **Never pulse RST while WAKE is low.** PS0 is sampled at reset; low selects a
+4. **Never pulse RST while WAKE is low.** PS0 is sampled at reset; low selects a
    UART mode and the sensors go silent on SPI.
-4. **3.3 V only at every sensor pin.** The BNO086 is not 5 V tolerant.
-5. **Keep the two haptic rails separate**, and keep motor current off the sensor
+5. **3.3 V only at every sensor pin.** The BNO086 is not 5 V tolerant.
+6. **Keep the two haptic rails separate**, and keep motor current off the sensor
    region.
-6. **Check the flyback diode orientation on all six channels** before applying
+7. **Check the flyback diode orientation on all six channels** before applying
    power: stripe to the positive rail.
-7. **The shank IMU and the motor band clamp the same bone.** Vibration will reach
+8. **The shank IMU and the motor band clamp the same bone.** Vibration will reach
    the sensor; measure it once the drivers are fitted (DEC-015).
 
 ## 12. Conductor count per harness run
@@ -292,6 +311,54 @@ board.
 4. Check all six diode stripes face the positive rail.
 5. Confirm the two HT7833 outputs are not connected to each other.
 6. Power up with no motors fitted, run the bench check, then fit the motors.
+
+## 14. The pin conflict, and the way out of it
+
+Every one of the 15 usable GPIOs is taken, so Motor 3 and the shared WAKE line
+are competing for the two awkward pins: GPIO3, which the contract reserves as a
+strapping pin, and the back pads.
+
+**As drawn in §3:** Motor 3 on GPIO3, WAKE on the GPIO42 pad. Workable — GPIO3's
+power-up glitch is low, and the gate pulldown defines its boot level.
+
+**The swap, which is better:** put **WAKE on GPIO3 (D2)** and **Motor 3 on the
+GPIO42 pad**. Then:
+
+- No motor sits on a strapping pin, and no motor sits on GPIO39's pull-up.
+- WAKE is a slow, once-per-wake signal, so a strapping pin costs it nothing.
+- Better still, WAKE is the one net whose boot level is already guaranteed from
+  outside: both BNO086 boards hold PS0/WAKE high through their own pull-ups, so
+  the sensors latch SPI mode at power-up whatever the ESP32 does.
+- GPIO3's 60 µs low glitch at power-up could in principle coincide with the
+  sensors' own power-on reset. The firmware's start-up sequence already covers
+  that: drive WAKE high, then pulse RST, which re-latches SPI mode.
+
+Resulting map, if the swap is taken: motors on D0, D1, D3, D4, D5 and the GPIO42
+pad; WAKE on D2; the foot interrupt on GPIO39, where its pull-up is welcome; the
+shank interrupt on GPIO40; reset on GPIO41.
+
+### Evidence behind this section
+
+| Fact | Source |
+|---|---|
+| MTCK/GPIO39 keeps a weak pull-up unless EFUSE_DIS_PAD_JTAG is burnt | ESP32-S3 datasheet v2.2, Table 2-1 footnote 7 |
+| Those eFuses default to 0, i.e. not burnt | ESP32-S3 datasheet v2.2, §3 |
+| GPIO40/41/42 have no pull at or after reset | ESP32-S3 datasheet v2.2, Table 2-1 |
+| Internal pull-up and pull-down are both 45 kΩ typical | ESP32-S3 datasheet v2.2, Table 5-4 |
+| Strapping pins are GPIO0, GPIO3, GPIO45, GPIO46; GPIO3 defaults to floating | ESP32-S3 datasheet v2.2, Table 3-1 |
+| Power-up glitches affect GPIO1–20 only, and are low-level except GPIO18/19/20 | ESP32-S3 datasheet v2.2, Table 2-2 |
+| Default drive strength 20 mA; 40 mA source / 28 mA sink capability | ESP32-S3 datasheet v2.2, Table 2-1 footnote 5, Table 5-4 |
+| GPIO39–42 carry no usage restriction | ESP-IDF GPIO documentation, ESP32-S3 |
+| The plain XIAO ESP32-S3 exposes MTCK, MTDO, MTDI and MTMS on the back pads | Seeed Studio XIAO ESP32-S3 wiki |
+
+On the **Sense** variant of this board those same pads are wired to the camera,
+so this only holds for the plain XIAO ESP32-S3.
+
+`firmware/bench/padstate` reads the pull-up, pull-down, input-enable, drive
+strength and function bits the bootloader leaves on each pad, plus the JTAG
+eFuses, so this can be confirmed on the actual chip rather than taken from the
+datasheet. It builds and is ready to run; it has not been run yet, because the
+board was disconnected at the time.
 
 ---
 
