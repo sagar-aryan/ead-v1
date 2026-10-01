@@ -381,6 +381,38 @@ each half of the band needs its own positive wire.
 | GPIO40, 41, 42 | Nothing — no pull, not strapping, no power-up glitch **[DS]** | Shank INT, RST, Motor 3 | Clean pins |
 | GPIO1, 2, 4, 5, 6 | 60 µs **low** glitch at power-up **[DS]** | Motors 1, 2, 4, 5, 6 | Low is "off"; none has an internal pull |
 
+### Conflict check
+
+Every rule a pin can break, checked against the final map.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Every GPIO used exactly once | **Pass** — 1, 2, 3, 4, 5, 6, 7, 8, 9, 39, 40, 41, 42, 43, 44 | — |
+| No motor pin has an internal pull-up | **Pass** — GPIO1, 2: input-enable only; 4, 5, 6: nothing; 42: input-enable only after reset | [DS] Table 2-1 |
+| No motor pin glitches high at power-up | **Pass** — GPIO1–6 glitch low only; GPIO42 has no glitch | [DS] Table 2-2 |
+| GPIO39's pull-up lands on an input | **Pass** — foot INT | [DS] Table 2-1 note 7 |
+| Back pads not connected to the JTAG controller | **Pass** — with the eFuses at factory default, JTAG goes to the USB Serial/JTAG controller, so the foot sensor's INT on MTCK cannot clock a JTAG state machine and MTDO is never driven against the shank INT | [DS] Table 3-5 |
+| GPIO3's strap role inert | **Pass** — "Ignored" with the eFuses at factory default | [DS] Table 3-5 |
+| Boot-mode straps GPIO0, 45, 46 untouched | **Pass** | [DS] Table 3-1 |
+| USB pins GPIO19/20 untouched | **Pass** | [DS] |
+| Flash and octal-PSRAM pins GPIO26–37 untouched | **Pass** | ESP-IDF GPIO docs |
+| Chip selects high through boot | **Pass** — GPIO43/44 have internal pull-ups | [DS] Table 2-1 |
+| Boot log on GPIO43 reaching the foot CS | **No effect** — no clock on SCK; the shank CS stays high, so MISO is never contested | [DS] |
+| One sensor on MISO at a time | **Firmware rule** — never assert both CS together | §10 |
+| Sensors come up in SPI mode | **Pass** — both boards hold PS0/WAKE and PS1 high | [DS] CEVA §1.2.4, [USER] |
+| RST held high through boot | **Pass** — 10 kΩ on each board | [USER] |
+| PWM channels | **Pass** — 6 used of 8 | [DS] |
+| 3V3 budget | **Pass** — about 22 mA of 700 mA | [DS] CEVA, Seeed |
+| UART0 never started | **Firmware rule** — starting it would reclaim GPIO43/44 from the chip selects | — |
+| Board variant | **Plain XIAO ESP32-S3 only** — on the Sense the back pads drive the camera | [DS] Seeed |
+
+**One thing only the chip itself can confirm.** Three of these checks depend
+on the JTAG eFuses being at their factory value of 0. They almost certainly are
+— nobody burns them by accident — but eFuses are one-time and invisible from
+outside. `firmware/bench/padstate` reads all three, plus the pull and function
+bits on every pad in this table, in about ten seconds. It has not been run: the
+board was disconnected both times it was ready.
+
 ## 15. What is wired today
 
 **Current device — built.** Two MPU6500s on I²C, which the BNO086 build replaces.
