@@ -8,7 +8,7 @@ pub mod cobs;
 pub mod config;
 mod reader;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use reader::Reader;
 

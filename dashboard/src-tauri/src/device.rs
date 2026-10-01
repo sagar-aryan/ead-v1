@@ -497,6 +497,13 @@ impl Tracker {
             self.note_missing_range(highest + 1, hello.last_seq);
         }
         let mut state = self.state.lock().expect("device state");
+        // The device keeps its calibration in RAM only, so a new boot has none,
+        // whatever this host heard before (PROB-018). Compared with the last
+        // HELLO rather than `self.boot_id`, which starts empty on every
+        // reconnect: a replug of the same boot keeps its calibration.
+        if state.hello.as_ref().map(|h| h.boot_id) != Some(hello.boot_id) {
+            state.calibration = None;
+        }
         state.schema_mismatch = hello.schema != protocol::SCHEMA_VERSION;
         state.hello = Some(hello);
     }
@@ -604,5 +611,57 @@ impl Tracker {
         }
         ranges.push((first, last));
         ranges
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::tests::vector;
+
+    struct NoSink;
+    impl Sink for NoSink {
+        fn raw_frames(&self, _: &[RawFrame]) {}
+        fn status(&self, _: &Status) {}
+        fn gait(&self, _: &[protocol::GaitCycle], _: &[protocol::GaitEvent]) {}
+    }
+
+    fn hello(boot_id: u32) -> Vec<u8> {
+        let msg = vector("hello_info.hex");
+        let (_, payload) = protocol::parse(&msg).unwrap();
+        let mut payload = payload.to_vec();
+        payload[4..8].copy_from_slice(&boot_id.to_le_bytes());
+        protocol::encode(MsgType::Hello, 1, 0, &payload)
+    }
+
+    /// A connection as `session()` makes one: a new tracker on every reconnect.
+    fn connect(device: &Device) -> Tracker {
+        device.state.lock().unwrap().link_state = Some(LinkState::Connected);
+        Tracker::new(device.sink.clone(), device.state.clone())
+    }
+
+    fn calibrated(boot_id: u32) -> Device {
+        let device = Device::new(Arc::new(NoSink));
+        let mut tracker = connect(&device);
+        tracker.handle(&hello(boot_id));
+        tracker.handle(&vector("calibration_record.hex"));
+        assert!(device.snapshot().calibration.is_some_and(|c| c.usable()));
+        device
+    }
+
+    // PROB-018: evaluations on 2026-09-18 ran on a reflashed device with the
+    // previous boot's calibration still accepted by the session gate.
+    #[test]
+    fn a_device_reboot_discards_the_calibration() {
+        let device = calibrated(0xA1B2_C3D4);
+        connect(&device).handle(&hello(0x0102_0304));
+        assert_eq!(device.snapshot().calibration, None);
+    }
+
+    #[test]
+    fn a_reconnect_to_the_same_boot_keeps_the_calibration() {
+        let device = calibrated(0xA1B2_C3D4);
+        connect(&device).handle(&hello(0xA1B2_C3D4));
+        assert!(device.snapshot().calibration.is_some_and(|c| c.usable()));
     }
 }

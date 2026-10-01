@@ -873,3 +873,111 @@ ran end to end (TEST-039).
 - Re-enumerate the port after every reset; the device node number changes.
 - Confirmed again, independently of PROB-006: an Arduino `Serial.println` sketch on
   this board produces no bytes at all. The direct USB Serial/JTAG writer works.
+
+## PROB-018 — After a device reboot the dashboard kept the old calibration, so sessions ran with none
+
+**Status:** Resolved in code; not reproduced on hardware (see Verification)
+
+### Symptoms
+
+On 2026-09-18 two evaluations for patient 67 recorded frames but no events and no
+cycles. Not noticed at the time; found on 2026-10-02 while writing the handoff, by
+querying the dashboard database (read-only).
+
+| Session | Kind | Firmware | boot_id | Frames | Frames with `orientation_valid` | Cycles | Stored calibration |
+|---|---|---|---|---:|---:|---:|---|
+| `20260918-121312-32bb` | reference_check | `22d4aa5` | 2910462277 | 2440 | 2440 | 25 | record R |
+| `20260918-122259-6762` | evaluation | `22d4aa5` | 2910462277 | 0 | — | 0 | R |
+| `20260918-122444-de5c` | evaluation | `6b36044` | 121483439 | 2640 | **0** | 0 | **R** |
+| `20260918-122519-06f1` | evaluation | `6b36044` | 121483439 | 210 | **0** | 0 | **R** |
+| `20260918-122947-05a4` | reference_check | `6b36044` | 121483439 | 690 | 690 | 0 | a new record |
+
+"R" is the same calibration JSON, byte for byte (foot gyro bias 3.0320017…).
+
+### Environment
+
+Dashboard at the 2026-09-18 commits; firmware `22d4aa5`, then `6b36044`; USB link.
+
+### Expected Behavior
+
+Calibration lives in device RAM only and is lost on any reset or reflash. A session
+started on a new boot without recalibrating must be refused by the session gate
+("the device has not been calibrated since it started").
+
+### Actual Behavior
+
+The two evaluations on boot 121483439 started, and each stored record R, which the
+device had produced on the previous boot (2910462277). The device, with no
+calibration, never produced orientation (0 frames flagged `orientation_valid`),
+so it detected no gait and scored no cycles.
+
+### Investigation
+
+1. **Observed (database):** the firmware string changed from `22d4aa5` to
+   `6b36044` and the boot_id changed between `122259-6762` and `122444-de5c`. A
+   firmware change means the device was reflashed. The user does not recall the
+   sequence (asked 2026-10-02).
+2. **Confirmed (code):** `device.rs` `Tracker::on_hello` cleared the config on a
+   changed boot_id but never `State::calibration`, which is set only from a
+   SESSION_STOP calibration record. `Device::snapshot()` exposes it whenever
+   connected, and `app.rs` `session_blockers` passes when it is usable.
+3. **Confirmed (code):** `Tracker` is created anew on every link session
+   (`session()`), so its own `boot_id` is `None` after every reconnect, not only
+   after a reboot.
+4. **Confirmed (test):** `a_device_reboot_discards_the_calibration` failed on the
+   unmodified code: after HELLO with a new boot_id the snapshot still held the
+   record.
+5. The firmware's other paths were checked and agree with the host: cancelling a
+   still window restores the previous state; a rejected recalibration replaces the
+   record, and the host stores and blocks on it (`calibration_service.cpp`).
+
+### Attempts
+
+#### Attempt 1 — clear the calibration in the existing boot_id branch (rejected)
+
+This was the fix first proposed in the handoff. Because the tracker's `boot_id`
+starts empty on every reconnect (item 3), that branch also runs after a USB replug
+or a Wi-Fi drop of the same boot. Tried with both tests in place:
+`a_device_reboot_discards_the_calibration` passed and
+`a_reconnect_to_the_same_boot_keeps_the_calibration` **failed**. It would have
+blocked sessions after any cable wiggle until the patient recalibrated. Reverted.
+
+#### Attempt 2 — compare with the last HELLO the host kept (applied)
+
+`State::hello` survives reconnects. `on_hello` now clears `State::calibration`
+when the new HELLO's boot_id differs from the previous HELLO's. Both tests pass.
+
+### Root Cause
+
+**Confirmed in code:** the host kept a calibration record across device boots. That
+this caused the 2026-09-18 zero-cycle evaluations is a hypothesis: it fits
+everything in the database (the reflash, the carried-over record, no orientation on
+the new boot, valid orientation as soon as the device was recalibrated), but it was
+not reproduced on hardware.
+
+`20260918-122259-6762` is a different case: same boot as its calibration, 0 frames
+recorded at all. Root cause: Unknown. It is not explained by this bug.
+
+### Resolution
+
+`dashboard/src-tauri/src/device.rs` `Tracker::on_hello`: clear `State::calibration`
+when the boot_id differs from the last HELLO's.
+
+### Verification
+
+- `cargo test`: `device::tests::a_device_reboot_discards_the_calibration` and
+  `a_reconnect_to_the_same_boot_keeps_the_calibration` (TEST-042).
+- Hardware reproduction **not run**: on 2026-10-02 the only board was rewired to
+  DEC-016 (two BNO086 on SPI), and the product firmware must not be flashed onto it.
+  Run TEST-042's hardware steps once the product firmware supports DEC-016.
+
+### Lessons
+
+- Any host copy of device RAM state must be tied to the boot it came from.
+- A tracker that is rebuilt per connection cannot tell a reboot from a reconnect;
+  compare with state that outlives the connection.
+- Limitation: between the link connecting and the device's HELLO arriving (a few
+  milliseconds), the snapshot still shows the previous record. The device's HELLO
+  is the first thing that tells the host the boot changed.
+- Related, not addressed: `State::session_kind` (the session this host started)
+  also survives a device reboot, although the device's session ended with it.

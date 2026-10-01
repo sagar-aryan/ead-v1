@@ -1351,3 +1351,45 @@ PASS.
   gate on GPIO39 would be pulled on, so DEC-016's rule stands. Which startup step
   clears the bit was not identified.
 - All pads report drive strength 2 and IO MUX function 0.
+
+## TEST-042 — A device reboot discards the host's calibration record (PROB-018)
+
+### Objective
+
+The session gate must refuse to start when the device has rebooted since its last
+calibration, and must not refuse after a reconnect to the same boot.
+
+### Environment
+
+Dashboard Rust backend, `cargo test`, Linux, 2026-10-02. No device: the only board
+is wired to DEC-016 and cannot run the product firmware.
+
+### Procedure
+
+1. `device::tests::a_device_reboot_discards_the_calibration`: connect, HELLO with
+   boot_id 0xA1B2C3D4, then the golden calibration record, then a new connection
+   (new tracker, as `session()` makes one) and HELLO with boot_id 0x01020304.
+2. `device::tests::a_reconnect_to_the_same_boot_keeps_the_calibration`: the same,
+   but the second HELLO carries 0xA1B2C3D4 again.
+3. Hardware (not run): flash the product firmware, calibrate, reset the board,
+   attempt a session (must be blocked: "the device has not been calibrated since it
+   started"), recalibrate (must unblock), unplug and replug USB without a reset
+   (must stay unblocked).
+
+### Expected
+
+1. `snapshot().calibration` is `None`, which `session_blockers` turns into a blocker.
+2. The usable record is still there.
+
+### Actual
+
+- Before the fix: test 1 failed (the record survived); test 2 passed.
+- With the rejected fix (clearing in the tracker's boot_id branch): test 1 passed,
+  test 2 failed.
+- With the applied fix: both pass. Full suite: firmware native 63/63, `pio run`
+  SUCCESS, `cargo test` 59 passed / 3 ignored, `cargo clippy --all-targets -- -D
+  warnings` clean, `npm test` 28/28, `eadprobe vectors` 17 ok / 0 failures.
+
+### Result
+
+PARTIAL — the unit tests PASS; the hardware steps were not run.

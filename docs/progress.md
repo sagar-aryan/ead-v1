@@ -1188,3 +1188,61 @@ HT78XX datasheet and Holtek's LDO application note.
 Every signal connection is final. Five items remain, all about specific parts:
 the HT7833 package and seller, the ERM motor part, the MCP73833 board, whether
 the cell has a protection circuit, and whether there is a power switch.
+
+## 2026-10-02 — PROB-018: the dashboard kept a calibration across device reboots
+
+### Objective
+
+Fix the session-gate defect found by reading code while writing the handoff
+(`handoff/`, untracked): after a device reboot or reflash the dashboard still
+treated the previous boot's calibration as in force.
+
+### Investigation
+
+- Database (read-only): two 2026-09-18 evaluations on a new boot stored the previous
+  boot's calibration record and have no frame with valid orientation (table in
+  PROB-018).
+- Code: `Tracker::on_hello` never cleared `State::calibration`; `Tracker` is rebuilt
+  on every reconnect, so its `boot_id` cannot tell a reboot from a replug.
+
+### Approach
+
+Regression tests first, through the same `Tracker` the link uses, fed the golden
+HELLO and calibration vectors. Then the smallest change in the one place every
+HELLO passes through.
+
+### Changes
+
+Modified:
+- `dashboard/src-tauri/src/device.rs`: `on_hello` clears the calibration when the
+  boot_id differs from the last HELLO's; test module with two tests.
+- `dashboard/src-tauri/src/protocol/mod.rs`, `protocol/tests.rs`: the golden-vector
+  loader `vector()` made `pub(crate)` so the device tests reuse it.
+- `docs/problems.md` (PROB-018), `docs/testing.md` (TEST-042).
+
+### Problems
+
+The first proposed fix (clear in the tracker's boot_id branch) also wiped the
+calibration on every reconnect of the same boot. Caught by the second test before
+commit; recorded as PROB-018 Attempt 1.
+
+### Verification
+
+Full suite: firmware native 63/63; `pio run` SUCCESS (RAM 20.9 %, flash 21.8 %);
+`cargo test` 59 passed, 3 ignored; clippy clean; `npm test` 28/28;
+`eadprobe vectors` 17/17, 0 failures.
+
+Not run on hardware. The user reported on 2026-10-02 that the only board is now
+wired to DEC-016 per `~/Downloads/EAD_V1_XIAO_connections.pdf`, with everything
+soldered (both BNO086, motor channels, motors, rails, battery). The product
+firmware still uses the doc-03 pins and would drive motor gates and both chip
+selects on that wiring, so it must not be flashed until the pin map moves.
+
+### Current Status
+
+Completed in code. Hardware steps of TEST-042 pending the DEC-016 product firmware.
+
+### Next Steps
+
+P1 of the handoff: bring the stale files in `docs/` back to the actual state,
+including the board now being the DEC-016 build.
