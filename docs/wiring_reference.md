@@ -45,13 +45,14 @@ Counts: 1 controller, 2 IMUs, 6 motors, 6 MOSFETs, 6 flyback diodes,
 ## 3. XIAO ESP32-S3 — every pin, target build
 
 All 15 usable GPIOs are consumed: 6 motors, 9 for the two IMUs. There is no
-spare GPIO in this build.
+spare GPIO in this build. The assignment is fixed by DEC-016; §14 explains why
+each awkward pin carries what it carries, and §15 is the conflict check.
 
 | XIAO pin | GPIO | Direction | Connects to | Status |
 |---|---:|---|---|---|
 | D0 | 1 | Output | Motor 1 gate drive, via 100 Ω | PROPOSED |
 | D1 | 2 | Output | Motor 2 gate drive, via 100 Ω | PROPOSED |
-| D2 | 3 | Output | Motor 3 gate drive, via 100 Ω — see §11 caution | PROPOSED |
+| D2 | 3 | Output | Wake / PS0 — shared by both sensors | PROPOSED |
 | D3 | 4 | Output | Motor 4 gate drive, via 100 Ω | PROPOSED |
 | D4 | 5 | Output | Motor 5 gate drive, via 100 Ω | PROPOSED |
 | D5 | 6 | Output | Motor 6 gate drive, via 100 Ω | PROPOSED |
@@ -63,7 +64,7 @@ spare GPIO in this build.
 | Back pad MTCK | 39 | Input | Data-ready interrupt, **foot** BNO086 | PROPOSED |
 | Back pad MTDO | 40 | Input | Data-ready interrupt, **shank** BNO086 | PROPOSED |
 | Back pad MTDI (D12) | 41 | Output | Reset, RST — shared by both sensors (active low) | PROPOSED |
-| Back pad MTMS (D11) | 42 | Output | Wake / PS0 — shared by both sensors (active low pulse) | PROPOSED |
+| Back pad MTMS (D11) | 42 | Output | Motor 3 gate drive, via 100 Ω | PROPOSED |
 | 3V3 | — | Power out | Logic supply to both BNO086 boards | PROPOSED |
 | GND | — | Power | Common ground: sensors, gate pulldowns, haptic ground | PROPOSED |
 | 5V | — | Power | Unused in V1 |  |
@@ -91,7 +92,7 @@ conductors per sensor.
 | CS | D6 / GPIO43 | D7 / GPIO44 | One per sensor; idles high |
 | INT | GPIO39 pad | GPIO40 pad | One per sensor; sensor pulls it low when it has data |
 | RST | GPIO41 pad | GPIO41 pad | Shared; both sensors reset together |
-| PS0 / WAKE | GPIO42 pad | GPIO42 pad | Shared; one net on this board, see below |
+| PS0 / WAKE | D2 / GPIO3 | D2 / GPIO3 | Shared; one net on this board, see below |
 | PS1 | leave open | leave open | Pulled high on the board |
 | BOOT | leave open | leave open | Firmware update only |
 | Qwiic connectors ×2 | leave open | leave open | I²C only; unusable in SPI mode |
@@ -124,7 +125,7 @@ MSB first, **3 MHz maximum**. Measured working at 3 MHz, 99.9 Hz per sensor.
 | INT_FOOT | GPIO39 | INT | — |
 | INT_SHANK | GPIO40 | — | INT |
 | RST | GPIO41 | RST | RST |
-| WAKE | GPIO42 | PS0/WAKE | PS0/WAKE |
+| WAKE | D2 / GPIO3 | PS0/WAKE | PS0/WAKE |
 | 3V3 | 3V3 | 3V3 | 3V3 |
 | GND | GND | GND | GND |
 
@@ -168,7 +169,7 @@ Schottky flyback diode, one 100 Ω gate resistor, one 100 kΩ gate pulldown.
 |---|---|---|---|
 | M1 | Anterior, 0° | D0 / GPIO1 | HT7833 A |
 | M2 | Anterolateral, 60° | D1 / GPIO2 | HT7833 A |
-| M3 | Posterolateral, 120° | D2 / GPIO3 | HT7833 A |
+| M3 | Posterolateral, 120° | GPIO42 pad (MTMS) | HT7833 A |
 | M4 | Posterior, 180° | D3 / GPIO4 | HT7833 B |
 | M5 | Posteromedial, 240° | D4 / GPIO5 | HT7833 B |
 | M6 | Anteromedial, 300° | D5 / GPIO6 | HT7833 B |
@@ -269,14 +270,16 @@ the back pads. This is a test layout, not the product one:
    pins). They are safe as motor outputs: the external 100 kΩ pulldown is the only
    thing on the line until the firmware drives it.
 
-2. **GPIO3 (D2) is a strapping pin.** `03_GPIO_PIN_MAP.md` §2 says not to use it.
-   The target build puts Motor 3 there because the SPI bus needs D6–D10. The
-   datasheet (Table 3-1) gives GPIO3 a default configuration of "Floating" and
-   uses it only to select the JTAG source, and only when EFUSE_STRAP_JTAG_SEL is
-   burnt, which it is not by default. Its 100 kΩ gate pulldown gives it a defined
-   level through boot, and its power-up glitch is a **low** one, which leaves a
-   motor off. It is workable, but it is still a deviation from the contract and
-   needs a recorded decision before the board is made. The alternative is in §14.
+2. **GPIO3 (D2) carries WAKE, not a motor.** GPIO3 is a strapping pin, which
+   `03_GPIO_PIN_MAP.md` §2 reserves, and it drives low for about 60 µs at
+   power-up (datasheet Table 2-2). Both of those are tolerable for WAKE and not
+   for a motor: GPIO3 only selects the JTAG source, and only if
+   EFUSE_STRAP_JTAG_SEL is burnt, which it is not by default; and both sensor
+   boards hold PS0/WAKE high through their own pull-ups, so the line's level
+   during boot is set from outside the microcontroller. The power-up glitch is
+   over long before the sensors release their own power-on reset, and the
+   firmware re-latches SPI mode anyway by driving WAKE high and pulsing RST.
+
 3. **GPIO43/44 carry the ROM boot log.** GPIO43 is UART0 TX and idles high before
    firmware runs (PROB-004). In the target build these two pins drive chip
    select, which idles high anyway — so the risk the contract's motor map carried
@@ -310,32 +313,21 @@ board.
 3. Confirm all six gates read near 0 V through their pulldowns.
 4. Check all six diode stripes face the positive rail.
 5. Confirm the two HT7833 outputs are not connected to each other.
-6. Power up with no motors fitted, run the bench check, then fit the motors.
+6. Confirm the shared RST line is pulled up, or fit a 10 kΩ resistor to 3V3.
+7. Power up with no motors fitted, run the bench check, then fit the motors.
 
-## 14. The pin conflict, and the way out of it
+## 14. Why the pins are arranged this way
 
-Every one of the 15 usable GPIOs is taken, so Motor 3 and the shared WAKE line
-are competing for the two awkward pins: GPIO3, which the contract reserves as a
-strapping pin, and the back pads.
+All 15 usable GPIOs are taken and there is no spare, so each awkward pin had to
+go to whichever signal minds it least (DEC-016).
 
-**As drawn in §3:** Motor 3 on GPIO3, WAKE on the GPIO42 pad. Workable — GPIO3's
-power-up glitch is low, and the gate pulldown defines its boot level.
-
-**The swap, which is better:** put **WAKE on GPIO3 (D2)** and **Motor 3 on the
-GPIO42 pad**. Then:
-
-- No motor sits on a strapping pin, and no motor sits on GPIO39's pull-up.
-- WAKE is a slow, once-per-wake signal, so a strapping pin costs it nothing.
-- Better still, WAKE is the one net whose boot level is already guaranteed from
-  outside: both BNO086 boards hold PS0/WAKE high through their own pull-ups, so
-  the sensors latch SPI mode at power-up whatever the ESP32 does.
-- GPIO3's 60 µs low glitch at power-up could in principle coincide with the
-  sensors' own power-on reset. The firmware's start-up sequence already covers
-  that: drive WAKE high, then pulse RST, which re-latches SPI mode.
-
-Resulting map, if the swap is taken: motors on D0, D1, D3, D4, D5 and the GPIO42
-pad; WAKE on D2; the foot interrupt on GPIO39, where its pull-up is welcome; the
-shank interrupt on GPIO40; reset on GPIO41.
+| Awkward pin | What is wrong with it | What it ended up carrying | Why that is safe |
+|---|---|---|---|
+| GPIO39 (MTCK pad) | Weak pull-up enabled after reset unless an eFuse is burnt | Foot sensor interrupt, an input | A pull-up on an input that idles high is welcome. A motor here would run at every boot |
+| GPIO3 (D2) | Strapping pin; drives low for 60 µs at power-up | WAKE, shared | Only matters if an eFuse is burnt, which it is not; the sensor boards' own pull-ups set this line's boot level |
+| GPIO43, GPIO44 (D6, D7) | UART0 — GPIO43 carries the ROM boot log at every start | Chip select, one per sensor | Both have internal pull-ups, so they idle high, which is deselected. The boot-log wiggle on GPIO43 reaches the foot sensor's CS, but with no clock on SCK no transaction can occur |
+| GPIO40, 41, 42 pads | Nothing — no pulls at or after reset, not strapping, no power-up glitch | Shank interrupt, RST, Motor 3 | Clean pins; the motor's external 100 kΩ pulldown is the only thing on its gate until firmware drives it |
+| GPIO1, 2, 4, 5, 6 | 60 µs low-level glitch at power-up | Motors 1, 2, 4, 5, 6 | Low means the motor is off, so the glitch costs nothing. The datasheet shows no internal pull on any of them |
 
 ### Evidence behind this section
 
@@ -359,6 +351,30 @@ strength and function bits the bootloader leaves on each pad, plus the JTAG
 eFuses, so this can be confirmed on the actual chip rather than taken from the
 datasheet. It builds and is ready to run; it has not been run yet, because the
 board was disconnected at the time.
+
+## 15. Conflict check
+
+Run against the final map, pin by pin and rule by rule.
+
+| Check | Result |
+|---|---|
+| Every GPIO used exactly once | **Pass.** 15 distinct pins: 1, 2, 3, 4, 5, 6, 7, 8, 9, 39, 40, 41, 42, 43, 44 |
+| No motor on a pin with an internal pull-up | **Pass.** Motors sit on GPIO1, 2, 4, 5, 6 and the GPIO42 pad. The datasheet shows no pull on any of them, at reset or after |
+| No motor on GPIO39 | **Pass.** GPIO39 carries the foot interrupt, an input |
+| Strapping pins | **Pass.** GPIO0, 45 and 46 are not brought out and are unused. GPIO3 is used, for WAKE — see §14 |
+| USB pins untouched | **Pass.** GPIO19 and 20 are left to USB |
+| Flash and PSRAM pins untouched | **Pass.** GPIO26–37 are unused; this module has octal PSRAM, so 33–37 would have been unusable |
+| Enough PWM channels | **Pass.** Six motors against the LEDC peripheral's eight channels |
+| Chip selects idle high during boot | **Pass.** GPIO43 and 44 have internal pull-ups |
+| Boot log on GPIO43 reaching the foot sensor's CS | **No effect.** A chip select with no clock on SCK transfers nothing |
+| SPI lines glitching at power-up | **No effect.** GPIO7, 8, 9 glitch low for 60 µs, but both chip selects are held high by their pull-ups, so no transaction can start |
+| Sensors latch SPI mode at power-up | **Pass**, from outside the microcontroller: both boards pull PS0/PS1/WAKE high themselves, and the firmware re-latches it with a WAKE-high, RST-low sequence |
+| JTAG debugging over the pads | **Lost, by choice.** Debugging is over USB Serial/JTAG on GPIO19/20, which this build does not touch |
+| Board variant | **Check before building.** The four back pads are MTCK/MTDO/MTDI/MTMS on the plain XIAO ESP32-S3. On the **Sense** variant the same pads belong to the camera |
+| RST line during boot | **Open item.** GPIO41 has no internal pull, so the shared RST line floats for the few hundred milliseconds before firmware drives it. Whether the breakout pulls RST up has not been measured. Fit a 10 kΩ pull-up to 3V3 on the board unless measurement shows the breakout already has one |
+
+Nothing in the list blocks the board. The one open item is cheap insurance, not
+a redesign.
 
 ---
 

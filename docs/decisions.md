@@ -566,3 +566,85 @@ contamination has to be measured rather than designed away.
      An ERM couples amplitude to frequency and may not spin up reliably at that
      duty under band preload. Measure the lowest duty reliably felt at this band
      position and raise the floor to it.
+
+## DEC-016 — Final GPIO map for the BNO086 build
+
+**Date:** 2026-10-01
+
+**Status:** Accepted. Supersedes the pin map in contract doc
+`03_GPIO_PIN_MAP.md` §1, which assumes two MPU6050s on I²C.
+
+### Context
+Moving from two MPU6050s on I²C to two BNO086s on SPI changes what the
+microcontroller needs. The sensors want 9 pins (3 shared SPI, 2 chip selects,
+2 interrupts, shared reset, shared wake) and the motors want 6. The XIAO
+ESP32-S3 has exactly 15 usable GPIOs, so the map is forced: there is no spare
+pin, and the only freedom left is which signal gets which awkward pin.
+
+Three pins are awkward:
+
+- **GPIO39** (MTCK back pad) comes out of reset with its internal weak pull-up
+  enabled, because EFUSE_DIS_PAD_JTAG is 0 on an unburnt chip (datasheet v2.2
+  Table 2-1 footnote 7, §3). At 45 kΩ against the 100 kΩ gate pulldown the
+  contract specifies, a motor gate there would sit at 2.3 V — well above the
+  IRLML6344's threshold. A motor on GPIO39 would run from power-up until the
+  firmware disabled the pull-up, and would run indefinitely if the board sat in
+  download mode or a hung bootloader.
+- **GPIO3** is a strapping pin that doc 03 §2 reserves, and it drives low for
+  about 60 µs at power-up.
+- **GPIO43/44** are UART0; GPIO43 carries the ROM boot log at every start
+  (PROB-004). Both have internal pull-ups.
+
+### Options Considered
+1. Keep the contract's motor pins and find nine others for the sensors — not
+   possible; the contract's motor map already uses D6, D7 and D10.
+2. Motors on D0–D5, sensors on D6–D10 and the four back pads. Puts Motor 3 on
+   GPIO3 and WAKE on the GPIO42 pad.
+3. The same, but swapping those two: WAKE on GPIO3, Motor 3 on the GPIO42 pad.
+
+### Decision
+Option 3.
+
+| Signal | XIAO pin | GPIO |
+|---|---|---:|
+| Motor 1 | D0 | 1 |
+| Motor 2 | D1 | 2 |
+| WAKE / PS0, both sensors | D2 | 3 |
+| Motor 4 | D3 | 4 |
+| Motor 5 | D4 | 5 |
+| Motor 6 | D5 | 6 |
+| Chip select, foot | D6 | 43 |
+| Chip select, shank | D7 | 44 |
+| SPI SCK, shared | D8 | 7 |
+| SPI MISO, shared | D9 | 8 |
+| SPI MOSI, shared | D10 | 9 |
+| Interrupt, foot | back pad MTCK | 39 |
+| Interrupt, shank | back pad MTDO | 40 |
+| RST, both sensors | back pad MTDI | 41 |
+| Motor 3 | back pad MTMS | 42 |
+
+### Reason
+Each awkward pin goes to the signal that minds it least. GPIO39's pull-up is
+welcome on an interrupt line that idles high and unacceptable on a motor gate.
+GPIO3's strapping role is inert unless an eFuse is burnt, and WAKE is the one
+net whose boot level is already fixed from outside the microcontroller, because
+both sensor boards pull PS0/WAKE high themselves. GPIO43/44's pull-ups make them
+natural chip selects, which idle high; that also removes the PROB-004 risk of
+the ROM boot log pulsing a motor, which the contract's map carried.
+
+### Trade-offs
+Gained: no motor can be driven by anything but firmware, at any point in the
+boot sequence. Lost: JTAG debugging over the back pads, which costs nothing
+because debugging runs over USB Serial/JTAG on GPIO19/20. Motor 3's wire has to
+reach a back pad rather than an edge pin.
+
+### Consequences
+- Contract doc 03's pin map no longer describes the build. The contract file is
+  not modified; this entry and `docs/wiring_reference.md` are the record.
+- Every GPIO is used. Any new signal — a battery sense, a button, a status LED —
+  needs something else removed first.
+- The conflict check is `docs/wiring_reference.md` §15. One open item: GPIO41
+  has no internal pull, so the shared RST line floats until firmware drives it.
+  Fit a 10 kΩ pull-up to 3V3 unless the breakout is measured to have one.
+- `firmware/bench/padstate` can confirm the pad states on the actual chip. It
+  has not been run yet; the board was disconnected.
