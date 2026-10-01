@@ -6,17 +6,20 @@ folded these into `ead_agent_docs_v2/SOURCE_REQUIREMENTS.md`; this file maps eac
 one to the specification that defines it, the code that implements it, and the
 test that proves it.
 
-**Status summary (2026-09-18):** all four are implemented. Two are verified on
-hardware against measured ground truth; the other two have only been exercised
-against synthetic data, because nobody has yet walked the thirty cycles a real
-reference profile needs. Until that walk happens, requirements 2 and 3 are code
-that has never seen a patient.
+**Status summary (2026-10-02):** all four are implemented. Requirements 1 and 4 are
+verified on hardware against measured ground truth. Requirements 2 and 3 ran on a
+person on 2026-09-18 (patient 67: references of 42, 33 and 50 cycles, reference
+checks, three evaluations), but every one of those references was built while
+PROB-016 split strides in two, so none can be trusted, and the evaluations recorded
+no cycles (two of them because of PROB-018). There is still no trustworthy
+real-patient result for 2 and 3. The device is now being rebuilt around the BNO086
+(DEC-016), which the product firmware does not support yet.
 
 | # | Requirement | Specified in | Implemented | Verified |
 |---|---|---|---|---|
 | 1 | ZUPT drift correction so speed and distance stay trustworthy for a whole session | doc 05 §6–§8 | Yes | TEST-030: 6.39 m measured on a 6.00 m course, ZUPT quality 0.22–0.29 per cycle |
 | 2 | One deviation number per step, driving vibration strength, with a hard safety limit | doc 06 §1–§5 | Yes, except the vibration itself (DEC-006, no drivers fitted) | TEST-031, hand-computed cases only |
-| 3 | Compare each patient to their own baseline from a short calibration walk, saved between sessions | doc 12 §2–§3, §6 | Device builds it, dashboard versions and locks it | TEST-031 and four store tests; never yet captured from a person |
+| 3 | Compare each patient to their own baseline from a short calibration walk, saved between sessions | doc 12 §2–§3, §6 | Device builds it, dashboard versions and locks it | TEST-031 and four store tests; captured from patient 67 on 2026-09-18, but with the PROB-016 fault |
 | 4 | Export full raw accelerometer, gyroscope and orientation at native rate, timestamped per sample | doc 09 §6, doc 10 | Yes: capture with real orientation, and the whole doc 10 package | TEST-018, TEST-022, TEST-029, TEST-035, TEST-036, TEST-037 |
 
 ## 1. Drift correction (ZUPT)
@@ -154,5 +157,6 @@ measurement:
 - the device's own configuration, verified against the hash the device reports,
   recorded with every session.
 
-It does **not** yet check anything in the clinical document: no drift correction,
-no per-step error, no patient baseline, no export. Those are M4, M5 and M6.
+M4–M6 added the clinical items on top of these: per-cycle distance with ZUPT
+quality, the per-cycle error score, class and confidence, the reference workflow,
+and the export package (sections 1–4 above).

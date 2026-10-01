@@ -13,9 +13,12 @@ failed, and what was verified. Update it alongside every significant change.
   specified, what is built, what is proven.
 - `architecture.md` — Target system design, data flow, interfaces, dependencies.
 - `implementation.md` — What exists in code today, per feature.
-- `hardware.md` — As-built hardware: silicon, register config, pins, mount maps.
-- `decisions.md` — DEC-001 to DEC-012.
-- `problems.md` — PROB-001 to PROB-007, including failed approaches.
+- `hardware.md` — As-built hardware: the current DEC-016 build, the previous
+  MPU6500 build, register config, pins, mount maps.
+- `wiring_reference.md` — Every connection of the DEC-016 build, with its evidence.
+- `decisions.md` — DEC-001 to DEC-016.
+- `problems.md` — PROB-001 to PROB-019 (there is no PROB-008), including failed
+  approaches.
 - `testing.md` — Executed tests with measured results; doc-13 acceptance suites.
 - `progress.md` — Chronological engineering log.
 
@@ -36,14 +39,15 @@ Project-level agent skills live in `.claude/skills/` (installed with the
 
 ## V1 identity (summary)
 
-- Right leg only, barefoot. Two IMUs (foot `0x68`, shank `0x69`; MPU6500
-  silicon), 100 Hz, 400 kHz I²C.
-- Six ERM motors on a lower-shank band are specified; drivers are not fitted and
-  there is no haptic code (DEC-006).
+- Right leg only, barefoot. Two IMUs at 100 Hz. The product firmware drives two
+  MPU6500s on I²C (foot `0x68`, shank `0x69`). The physical device has been rewired
+  to two BNO086s on SPI (DEC-016), which the product firmware does not support yet.
+- Six ERM motors on a calf band (DEC-015), fitted on the DEC-016 build (user,
+  2026-10-02). There is no haptic code (DEC-006).
 - The wire protocol between device and dashboard is implemented three times over
   (firmware, dashboard, `tools/eadprobe.py`), all checked against the same golden
   vectors in `protocol/vectors/`.
 - Wi-Fi AP + WebSocket primary link, plus the same binary protocol over USB
-  (DEC-005). No BLE, FSR, BNO086 or battery monitoring.
+  (DEC-005). No BLE, FSR or battery monitoring.
 - Desktop: Tauri 2 + React + TypeScript + Rust, for observation, configuration,
   storage, analysis and export.

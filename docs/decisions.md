@@ -643,7 +643,8 @@ reach a back pad rather than an edge pin.
   not modified; this entry and `docs/wiring_reference.md` are the record.
 - Every GPIO is used. Any new signal — a battery sense, a button, a status LED —
   needs something else removed first.
-- The conflict check is `docs/wiring_reference.md` §15. One open item: GPIO41
+- The conflict check is `docs/wiring_reference.md` §14 (written as §15 when
+  recorded; corrected 2026-10-02). One open item: GPIO41
   has no internal pull, so the shared RST line floats until firmware drives it.
   Fit a 10 kΩ pull-up to 3V3 unless the breakout is measured to have one.
   (Closed 2026-10-01: the builder confirmed a 10 kΩ pull-up on RST on each

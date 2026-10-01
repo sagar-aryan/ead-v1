@@ -10,11 +10,15 @@ Milestone plan: `docs/handoff.md`.
 | M0 | Baseline fixes and cleanup | Complete except on-body gravity check (TEST-014) |
 | M1 | Data-ready acquisition, protocol, Wi-Fi + USB links, backfill ring | Complete |
 | M2 | Dashboard foundation: backend, shell, LIVE, RAW, recording, SESSIONS | Complete |
-| M3 | Calibration, Mahony orientation, mounting check, datasets | Not started |
-| M4 | Gait events + ZUPT, EVENTS/CYCLES/TRENDS | Not started |
-| M5 | Reference, error engine, session workflow | Not started |
-| M6 | CSV, `.mat`, PDF exports | Not started |
+| M3 | Calibration, Mahony orientation, mounting check, datasets | Complete; verified on the leg (TEST-027–029) |
+| M4 | Gait events + ZUPT, EVENTS/CYCLES/TRENDS | Complete; 6.39 m on a 6.00 m course (TEST-030). Trends live inside CYCLES, not as doc 11's seven panels |
+| M5 | Reference, error engine, session workflow | Complete in code (TEST-031, TEST-032). Used with patient 67 on 2026-09-18; those references carry the PROB-016 fault |
+| M6 | CSV, `.mat`, PDF exports | Complete; checked against synthetic sessions only (TEST-035–037) |
 | M7 | On-device flash storage and recovery | Not planned in detail (needs a DEC) |
+
+All of the above runs on the MPU6500/I²C build only. The physical device was rewired
+to DEC-016 (two BNO086 on SPI) by 2026-10-02; the product firmware does not support
+it yet, and must not be flashed onto it (`docs/hardware.md`).
 
 ## Firmware: acquisition and links (M1)
 

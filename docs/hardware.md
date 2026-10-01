@@ -5,6 +5,33 @@ Contract values come from `ead_agent_docs_v2/02_HARDWARE_WIRING.md`,
 what the physical unit actually is, how it deviates, and what has been verified.
 Every row states its evidence; "unverified" means nobody has measured it yet.
 
+## Current build: DEC-016 (2026-10-02)
+
+| Item | State | Evidence |
+|---|---|---|
+| Wiring | DEC-016 exactly: two BNO086 on SPI, six motor channels, two HT7833 rails, battery. Every connection in `docs/wiring_reference.md` §3–§11 | User, 2026-10-02, against `EAD_V1_XIAO_connections.pdf` (whose pins match DEC-016) |
+| Parts fitted | Everything, including the six motors | User, 2026-10-02 |
+| Powered | Yes, since assembly | User, 2026-10-02 |
+| `wiring_reference.md` §13 pre-power checks | Not recorded | — |
+| HT7833 part and the pinout it was soldered by | Not recorded (§7 said not to solder by the Airupton table until the part is known) | — |
+| Which XIAO | Not recorded. The XIAO measured in TEST-041 (MAC `44:b1:76:af:fb:7c`) was left running `firmware/bench/padstate` | — |
+| Firmware on it | `firmware/bench/padstate`, if it is the TEST-041 XIAO. Whether it has booted on the new wiring is not known to the user | — |
+| Measured on the assembled build | Nothing yet (TEST-043 not run) | — |
+
+**Do not flash the product firmware onto this build.** It still uses the doc-03 pins:
+it would run I²C bus recovery and `Wire` on GPIO5/6 (motor gates 5 and 6) and drive
+GPIO9 (MOSI), 43 and 44 (both chip selects) LOW as motors. Use
+`firmware/bench/bno086` (DEC-016 pins, one sensor per build) until the product
+firmware moves to DEC-016.
+
+`padstate` is not harmless on this build either: at each boot its readback switches
+each pin's internal pull-up on for 0.3 ms, which on a motor pin puts about 2.3 V on
+the gate (the DEC-016 GPIO39 reasoning) and switches that MOSFET on for 0.3 ms. That
+is far too short to spin an ERM. It follows from the code; it has not been measured.
+
+The sections below describe the previous build (MPU6500 on I²C, 2026-09-17 to
+2026-10-01), on which every recording and dashboard session so far was made.
+
 ## Controller
 
 | Item | Value | Evidence |
@@ -16,7 +43,7 @@ Every row states its evidence; "unverified" means nobody has measured it yet.
 | Wi-Fi antenna | Seeed recommends fitting the supplied U.FL antenna for usable Wi-Fi range | Seeed wiki (accessed 2026-09-17); fitted on this unit: unverified |
 | Power | Battery-powered and wearable (user, 2026-09-17). Firmware has no battery or charger logic (spec) | User statement |
 
-## IMUs
+## IMUs (previous build)
 
 Both breakouts were sold as MPU6050 but carry **MPU6500** silicon.
 
@@ -44,7 +71,9 @@ foot |a| = 1.024 g, shank |a| = 1.014 g, accel σ ≤ 0.002 g, gyro offsets up t
 3.1 °/s (foot X) and 2.0 °/s (shank Y). The offsets are ordinary MEMS gyro bias;
 startup calibration (milestone M3) removes them.
 
-## Pin map (doc 03, unchanged)
+## Pin map of the previous build (doc 03)
+
+The current build's pin map is DEC-016, in `docs/wiring_reference.md` §3.
 
 | Function | XIAO pin | ESP32-S3 GPIO | Status |
 |---|---|---:|---|
@@ -99,15 +128,21 @@ ERM driver channels (IRLML6344 + flyback diode) are **not fitted** (user,
 2026-09-17). Firmware contains no PWM or haptic code (DEC-006); the six motor GPIOs
 are driven LOW as the first action in `setup()`.
 
+On the DEC-016 build the channels and motors are fitted (user, 2026-10-02); nothing
+about them has been measured. DEC-006's condition for haptic code (drivers fitted)
+is now met; lifting it is the user's decision.
+
 ## Known hardware risks
 
 - **PROB-004 (unverified):** GPIO43 is UART0 TX, and the ESP32-S3 ROM prints its
   boot log on it before firmware runs. Once drivers are fitted, the M5 gate may see
   that serial waveform at every reset. Measure with a logic probe before fitting
-  drivers.
+  drivers. Moot on DEC-016, where GPIO43 is the foot CS and SCK carries no clock
+  during boot.
 - **Fixed sensor ranges (doc 00):** ±4 g and ±500 °/s may clip foot impacts and fast
   swing. The M3 recordings measure how often samples saturate before any change is
-  proposed.
+  proposed. They did clip at heel strike (PROB-011). The BNO086 runs at ±8 g and
+  ±2000 °/s (TEST-040).
 
 ## BNO086 bench test (one sensor, SPI)
 

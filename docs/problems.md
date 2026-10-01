@@ -981,3 +981,56 @@ when the boot_id differs from the last HELLO's.
   is the first thing that tells the host the boot changed.
 - Related, not addressed: `State::session_kind` (the session this host started)
   also survives a device reboot, although the device's session ended with it.
+
+## PROB-019 — A device reboot during a recording is not handled by the dashboard
+
+**Status:** Open (found by reading code; not reproduced; fix needs a decision)
+
+### Symptoms
+
+None observed. Found on 2026-10-02 while fixing PROB-018, by following what else the
+host keeps across a device reboot.
+
+### Expected Behavior
+
+A recording session holds frames from one device boot, or says clearly where a boot
+changed. Nothing is silently dropped.
+
+### Actual Behavior (from the code)
+
+If the device reboots (reset, brown-out, reflash) while the dashboard is recording:
+
+1. **Confirmed (code):** the store session stays open. Nothing in `store/` or
+   `app.rs` looks at the boot_id after the session starts.
+2. **Confirmed (code):** the device restarts `frame_index` at 0 each boot, and
+   `raw_frames` is keyed by `(session_id, frame_index)` and written with
+   `INSERT OR IGNORE` (`store/mod.rs`, so a backfilled frame is not stored twice).
+   New-boot frames whose index was already stored are therefore dropped without an
+   error; later ones are stored in the same session, mixed with the old boot's.
+   Events are keyed and written the same way. Cycles are keyed by `start_frame` but
+   written with `INSERT OR REPLACE`, so a new-boot cycle that collides **overwrites**
+   the old boot's cycle.
+3. **Confirmed (code):** `State::session_kind` and `session_valid_cycles` survive
+   the reboot, so the References view keeps showing a capture in progress and its
+   cycle count, although the device's session ended with the reboot. Stopping it
+   then reaches a device with no session.
+4. Hypothesis: a scored session continues recording raw frames with no cycles,
+   much like PROB-018's evaluations.
+
+### Root Cause
+
+The host treats a session as continuous across device boots; the device does not.
+
+### Resolution
+
+Not fixed. The contract does not say what the host should do (doc 09's reboot rules
+are about on-device storage, M7), so the choice is the user's. Options:
+
+1. End the host session at the reboot and tell the operator (no data mixed or
+   dropped; the session is shorter).
+2. Keep one session but store the boot with each frame (schema change; every view
+   and export must then handle two time bases).
+
+### Verification
+
+None yet.

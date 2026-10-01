@@ -1,9 +1,8 @@
 /**
  * LIVE: what the two sensors are reading right now.
  *
- * Gait metrics (cadence, stance/swing, error score) are not shown because the
- * device does not compute them yet — milestones M4 and M5. Showing an empty
- * placeholder for them would suggest the measurement exists.
+ * Gait metrics (cadence, stance/swing, error score) are computed on the device
+ * and stored per cycle (CYCLES view), but this view does not show them yet.
  */
 import { Strip } from "../components/Strip";
 import type { DeviceApi } from "../useDevice";

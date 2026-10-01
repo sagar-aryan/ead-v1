@@ -13,8 +13,13 @@ foot-only ZUPT correction, and scores each gait cycle against a patient-specific
 reference. A Tauri 2 desktop dashboard observes, configures, records, analyses
 and exports; it never closes a control loop.
 
-Haptic feedback is part of the V1 contract, but the ERM driver channels are not
-fitted and no haptic code exists (DEC-006).
+Haptic feedback is part of the V1 contract, but no haptic code exists (DEC-006).
+
+**Hardware transition (2026-10-02).** The target hardware is DEC-016: two BNO086 on
+SPI plus six motor channels, with the haptic band on the calf (DEC-015). The physical
+device is wired that way (user, 2026-10-02). The components below still describe the
+MPU6500/I²C build, which is what the product firmware implements; moving it to the
+BNO086 needs a decision first (DEC-017, not yet written).
 
 ## Components
 
@@ -26,7 +31,8 @@ fitted and no haptic code exists (DEC-006).
 ### Shank IMU
 - Anterior right lower shank, 10–15 cm below the knee; I²C `0x69`; INT → GPIO8.
 - MPU6500 silicon.
-- Mount map: `X = −chipZ, Y = +chipX, Z = −chipY` (chip +Z toward the bone).
+- Mount map: `X = −chipZ, Y = +chipY, Z = +chipX` (chip +Z toward the bone, chip +X
+  up the leg), measured on the leg (TEST-027, PROB-002).
   Boards do not share one physical orientation; the anatomical frame is
   defined per sensor (DEC-009).
 
@@ -34,9 +40,10 @@ Both sensors: ±4 g, ±500 °/s, 42 Hz DLPF (gyro via CONFIG, accel via
 ACCEL_CONFIG2), 100 Hz output, shared I²C bus on GPIO5/6 at 400 kHz with the
 breakouts' own pull-ups.
 
-### Haptic band (not fitted)
-Contract: six ERMs around the lower shank, low-side IRLML6344 switches on
-GPIO 1, 2, 4, 9, 43, 44, 200 Hz PWM limited to 20–80 % duty, 5 s maximum on-time,
+### Haptic band (no haptic code)
+Contract: six ERMs around the lower shank (moved to the calf by DEC-015), low-side
+IRLML6344 switches on GPIO 1, 2, 4, 9, 43, 44 (doc 03; GPIO 1, 2, 42, 4, 5, 6 under
+DEC-016), 200 Hz PWM limited to 20–80 % duty, 5 s maximum on-time,
 50 % rolling duty over 10 s. Current build: motor GPIOs are driven LOW at boot
 and never touched again (DEC-006; boot-pin risk PROB-004).
 
@@ -56,7 +63,8 @@ and never touched again (DEC-006; boot-pin risk PROB-004).
   runs in REFERENCE_CAPTURE; RUNNING is an evaluation session only (DEC-008).
 - **Priority:** acquisition > safety/fault checks > gait/orientation > storage >
   links. Links never block acquisition.
-- No battery, charger, switch, BLE, FSR or BNO086 code (contract).
+- No battery, charger, switch, BLE, FSR or BNO086 code in the product firmware
+  (contract; the BNO086 is in scope since DEC-016 but not yet implemented).
 
 ### Dashboard (Tauri 2 + React + TypeScript + Rust)
 - **Rust backend:**

@@ -1,6 +1,6 @@
 #pragma once
 // EAD-V1 wire protocol: doc 08 frame header, doc 09 §6 raw frame, and the
-// payload layouts defined in docs/protocol.md (schema 1).
+// payload layouts defined in docs/protocol.md (schema: kSchemaVersion).
 
 #include <cstddef>
 #include <cstdint>

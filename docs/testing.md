@@ -33,6 +33,18 @@ A result is only recorded as PASS when it was run and checked.
 | TEST-029 | 2026-09-18 | Orientation estimate on hardware | PASS |
 | TEST-030 | 2026-09-18 | Gait detection and distance on a measured 6 m course | PASS (6.39 m measured against 6.00 m) |
 | TEST-031 | 2026-09-18 | Reference profile and error engine against hand-computed cases | PASS |
+| TEST-032 | 2026-09-18 | Segment rollover and the error rule | PASS |
+| TEST-033 | 2026-09-18 | Zero-velocity window pairing in the events view | PASS |
+| TEST-034 | 2026-09-18 | eadprobe decodes every golden vector | PASS after fixing the defect it found |
+| TEST-035 | 2026-09-18 | Export package against the database | PASS (synthetic session) |
+| TEST-036 | 2026-09-18 | `session.mat` read back by scipy | PASS after fixing the defect it found |
+| TEST-037 | 2026-09-18 | `report.pdf` against doc 10 §8 | PASS |
+| TEST-038 | 2026-09-18 | Setup scripts: install and launch from nothing | Linux PASS; macOS and Windows NOT RUN |
+| TEST-039 | 2026-09-23 | One BNO086 over SPI on the bench wiring | PASS |
+| TEST-040 | 2026-09-23 | BNO086 identity and the 086-only features | PASS (idle power not measured) |
+| TEST-041 | 2026-10-01 | Pad states and JTAG eFuses on the chip | PASS |
+| TEST-042 | 2026-10-02 | A device reboot discards the host's calibration record | PARTIAL (unit tests PASS; hardware NOT RUN) |
+| TEST-043 | pending | Each BNO086 on the DEC-016 wiring | NOT RUN |
 
 ## TEST-008 — M0 firmware build
 
@@ -948,7 +960,8 @@ what was compared against the human-readable comment at the top of each file.
 
 ### Expected
 Eighteen vectors, no failures, and the decoded values matching each file's
-stated contents.
+stated contents. (Correction 2026-10-02: seventeen. `protocol/vectors/` held 17
+`.hex` files at this test's commit, as it does now; "eighteen" was a miscount.)
 
 ### Actual
 First run: **4 failures**, and one of them was a real defect.
@@ -964,7 +977,7 @@ First run: **4 failures**, and one of them was a real defect.
 - `long_message.hex`, `usb_frame_long.hex` — a 300-byte body that exists to
   exercise framing, not a STATUS payload. Framing is checked, the body is not.
 
-After those changes: 18 vectors, 0 failures. Spot-checked against the file
+After those changes: 18 vectors, 0 failures (17; see the correction above). Spot-checked against the file
 comments — `step_batch.hex` decodes to error score 0.42, confidence 0.86,
 primary class `insufficient_dorsiflexion` with a dorsiflexion deviation of 0.91;
 `reference_profile.hex` decodes to 34 cycles, version 2, dorsiflexion

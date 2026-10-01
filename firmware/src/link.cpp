@@ -73,7 +73,7 @@ void Link::onMessage(const uint8_t* msg, size_t len, int64_t nowUs) {
       uint8_t body[128];
       queueReply(MsgType::Hello, body, ead::encodeHelloPayload(info, body, sizeof body), nowUs);
       if (schema != ead::kSchemaVersion) {
-        queueError(h.sequence, h.type, ErrorCode::SchemaMismatch, "device payload schema is 1",
+        queueError(h.sequence, h.type, ErrorCode::SchemaMismatch, "device payload schema differs from the host's",
                    nowUs);
       }
       return;
@@ -173,7 +173,7 @@ void Link::onMessage(const uint8_t* msg, size_t len, int64_t nowUs) {
     }
     default:
       queueError(h.sequence, h.type, ErrorCode::NotSupported,
-                 "message type not supported by firmware schema 1", nowUs);
+                 "message type not supported by this firmware", nowUs);
       return;
   }
 }

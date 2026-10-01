@@ -807,7 +807,7 @@ import, added `decode_reference` and `decode_session_start`, and made `vectors`
 a command that has to pass.
 
 ### Verification
-TEST-034: 18 vectors, 0 failures, values spot-checked against each file's stated
+TEST-034: 18 vectors (17: a miscount, corrected in TEST-034 on 2026-10-02), 0 failures, values spot-checked against each file's stated
 contents.
 
 ### Current Status
@@ -1300,3 +1300,64 @@ Built, not run. TEST-043 holds the procedure.
 ### Next Steps
 
 Run TEST-043 when the board is on USB.
+
+## 2026-10-02 — Docs brought back to the actual state; PROB-019 found
+
+### Objective
+
+Bring every stale file in `docs/` (and the READMEs and comments that described
+the code wrongly) back to the actual state, as the documentation protocol
+requires.
+
+### Investigation
+
+Each staleness listed in the untracked handoff notes was checked against the
+code, the git history or the database before editing:
+- `docs/handoff.md` described the 2026-09-18 state ("nobody has walked thirty
+  cycles"; the two-sensor pin map "not yet a DEC").
+- `docs/architecture.md` and `firmware/README.md` gave the old shank map
+  (`Y = +chipX, Z = −chipY`); `config_v1.h` has `Y = +chipY, Z = +chipX` (TEST-027).
+- `docs/implementation.md` had M3–M6 "Not started".
+- `docs/protocol.md` §1 and §5.2 said schema 1 (code: 4); the catalogue said
+  SESSION_START was CALIBRATION only (all four kinds are handled).
+- DEC-016 cited the conflict check as §15 of the wiring reference; it is §14.
+- TEST-034 and its progress note said 18 golden vectors. At TEST-034's own commit
+  (`01a69fe`) `protocol/vectors/` held 17 `.hex` files, as it does now: a
+  miscount, corrected visibly in place.
+- `firmware/src/link.cpp` error texts said "schema 1"; `protocol.h` likewise.
+
+### Changes
+
+Modified: `docs/handoff.md` (rewritten), `README.md`, `architecture.md`,
+`implementation.md`, `protocol.md`, `decisions.md`, `clinical_requirements.md`,
+`hardware.md` (new "Current build: DEC-016" section; the MPU6500 sections labelled
+as the previous build), `testing.md` (summary table to TEST-043), `problems.md`
+(PROB-019); `firmware/README.md`, `firmware/test/README.md`, `dashboard/README.md`;
+`dashboard/src/views/Live.tsx` header comment; `firmware/src/link.cpp` (the two
+error texts no longer name a schema number, which HELLO already carries) and the
+`protocol.h` header comment.
+
+### Problems
+
+- This log has no entries for the 2026-09-18 afternoon (the patient-67 sessions
+  that produced PROB-013 to PROB-016), for DEC-015 and the worn-assembly image
+  (2026-09-23), or for TEST-041 (2026-10-01). They were recorded at the time only
+  in `problems.md`, `decisions.md`, `testing.md` and `hardware.md`, and are not
+  reconstructed here after the fact.
+- While fixing PROB-018, reading what else the host keeps across a device reboot
+  found PROB-019: a reboot during a recording drops or mixes frames and overwrites
+  colliding cycles. Recorded as open; the fix is the user's decision.
+
+### Verification
+
+Full suite after the edits (see the commit). The `link.cpp` texts reach the device
+only with the next product-firmware flash, which must wait for DEC-016 support.
+
+### Current Status
+
+Completed.
+
+### Next Steps
+
+TEST-043 when the board is on USB; the user's decisions on PROB-019, DEC-017 and
+DEC-006.

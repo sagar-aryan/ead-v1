@@ -19,7 +19,7 @@ byte count followed by that many UTF-8 bytes (no terminator).
 | Field | Where | Value | Changes when |
 |---|---|---|---|
 | `protocol_version` | Every header | 1 | The header layout changes (doc 08) |
-| `schema` | HELLO payload | 1 | Any payload layout or enumeration changes |
+| `schema` | HELLO payload | 4 | Any payload layout or enumeration changes |
 | `config_format` | CONFIG_GET payload | 1 | The configuration section layout changes |
 
 A host must compare `schema` in the device HELLO and refuse to interpret payloads of an
@@ -79,8 +79,8 @@ was built; host messages send 0. Host time is never substituted for device time 
 | 0x01 | HELLO | both | Host identifies; device replies with identity and starts streaming |
 | 0x02 | CONFIG_GET | both | Host request (empty); device reply with configuration |
 | 0x03 | CONFIG_SET | host → device | ERROR NotSupported |
-| 0x04 | SESSION_START | host → device | Starts a calibration window (kind CALIBRATION only) |
-| 0x05 | SESSION_STOP | both | Host: cancel. Device: the calibration record when the window completes |
+| 0x04 | SESSION_START | host → device | Starts a session of any kind: CALIBRATION, REFERENCE_CAPTURE, REFERENCE_CHECK, EVALUATION (§5.9) |
+| 0x05 | SESSION_STOP | both | Host: stop or cancel. Device: the calibration record when a window completes, or the reference profile when a capture stops (§5.10) |
 | 0x06 | PAUSE | host → device | ERROR NotSupported |
 | 0x07 | RESUME | host → device | ERROR NotSupported |
 | 0x08 | RAW_SAMPLE_BATCH | device → host | Durable; up to 10 frames |
@@ -112,7 +112,7 @@ fields in STEP_BATCH.
 
 | Offset | Type | Field |
 |---:|---|---|
-| 0 | u16 | `schema` = 1 |
+| 0 | u16 | `schema` = 4 |
 | 2 | u8 | `device_state` (§6.1) |
 | 3 | u8 | `reset_reason` (ESP-IDF `esp_reset_reason_t`) |
 | 4 | u32 | `boot_id`, random per boot. A change means sequence numbers restarted |
@@ -282,7 +282,7 @@ Each BACKFILL_DATA message is at most 2800 bytes. That is the largest message lw
 accepts without blocking (§7). If messages are evicted while a request is being served,
 the next chunk starts at the oldest stored sequence.
 
-### 5.9 SESSION_START (host → device, 4 bytes)
+### 5.9 SESSION_START (host → device, 4 or 68 bytes)
 
 | Offset | Type | Field |
 |---:|---|---|
@@ -308,6 +308,9 @@ Starting a session while one is running is ERROR InvalidState.
 
 Host → device: empty payload. Cancels a running window; the partial record is discarded
 and `calibration_state` returns to its previous value.
+
+When a REFERENCE_CAPTURE is stopped, the device replies with the 64-byte profile (§5.13),
+or ERROR Rejected below 30 valid cycles.
 
 Device → host (128 bytes), emitted once when a calibration window completes:
 

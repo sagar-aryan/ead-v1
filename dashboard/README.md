@@ -6,9 +6,10 @@ decision: DEC-011 in `../docs/decisions.md`.
 
 ## Current state
 
-M0: the Rust shell builds with icons, capabilities and a strict CSP. The React
-UI in `src/` is still the placeholder skeleton and is replaced in milestone M2
-(device link, SQLite store, live and RAW views).
+Every doc 11 view except HAPTICS (no haptic code, DEC-006): LIVE, CYCLES, EVENTS,
+RAW, REFERENCES, SESSIONS, EXPORT, DEVICE. The Rust backend holds the device link
+(USB or Wi-Fi, with backfill), the SQLite store, the session gate, host-side
+segments and the export package (CSV, `metadata.json`, `.mat`, PDF).
 
 ## Prerequisites
 
@@ -24,6 +25,8 @@ npm run build                      # tsc + vite
 (cd src-tauri && cargo build)      # Rust backend
 npx tauri dev                      # run the app against the Vite dev server
 npx tauri build --bundles deb      # Linux package
+npm test                           # frontend logic tests
+(cd src-tauri && cargo test)       # backend tests; -- --ignored needs the device
 ```
 
 ## Icons
