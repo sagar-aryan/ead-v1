@@ -367,8 +367,9 @@ each half of the band needs its own positive wire.
 4. Confirm each HT7833's VIN, VOUT and GND against the seller's pinout.
 5. Power on with **no motors fitted**: rails A and B read 3.3 V; each BNO086
    reads ~3.3 V on PS0, PS1 and WAKE; all six gates read ~0 V.
-6. Flash `firmware/bench/padstate` and confirm the pad states of §14 on the
-   actual chip.
+6. Done on 2026-10-01 (TEST-041): `firmware/bench/padstate` confirmed the pad
+   states of §14 and the JTAG eFuses on this chip. Repeat it on any other XIAO
+   that is used.
 7. Run the bench sensor check on both sensors, then fit the motors one at a time.
 
 ## 14. Why each awkward pin carries what it carries
@@ -391,8 +392,8 @@ Every rule a pin can break, checked against the final map.
 | No motor pin has an internal pull-up | **Pass** — GPIO1, 2: input-enable only; 4, 5, 6: nothing; 42: input-enable only after reset | [DS] Table 2-1 |
 | No motor pin glitches high at power-up | **Pass** — GPIO1–6 glitch low only; GPIO42 has no glitch | [DS] Table 2-2 |
 | GPIO39's pull-up lands on an input | **Pass** — foot INT | [DS] Table 2-1 note 7 |
-| Back pads not connected to the JTAG controller | **Pass** — with the eFuses at factory default, JTAG goes to the USB Serial/JTAG controller, so the foot sensor's INT on MTCK cannot clock a JTAG state machine and MTDO is never driven against the shank INT | [DS] Table 3-5 |
-| GPIO3's strap role inert | **Pass** — "Ignored" with the eFuses at factory default | [DS] Table 3-5 |
+| Back pads not connected to the JTAG controller | **Pass, measured** — eFuses read 0 on the chip (TEST-041); with them at factory default, JTAG goes to the USB Serial/JTAG controller, so the foot sensor's INT on MTCK cannot clock a JTAG state machine and MTDO is never driven against the shank INT | [DS] Table 3-5 |
+| GPIO3's strap role inert | **Pass, measured** — "Ignored" with the eFuses at factory default, which TEST-041 confirmed | [DS] Table 3-5, [MEAS] |
 | Boot-mode straps GPIO0, 45, 46 untouched | **Pass** | [DS] Table 3-1 |
 | USB pins GPIO19/20 untouched | **Pass** | [DS] |
 | Flash and octal-PSRAM pins GPIO26–37 untouched | **Pass** | ESP-IDF GPIO docs |
@@ -406,12 +407,12 @@ Every rule a pin can break, checked against the final map.
 | UART0 never started | **Firmware rule** — starting it would reclaim GPIO43/44 from the chip selects | — |
 | Board variant | **Plain XIAO ESP32-S3 only** — on the Sense the back pads drive the camera | [DS] Seeed |
 
-**One thing only the chip itself can confirm.** Three of these checks depend
-on the JTAG eFuses being at their factory value of 0. They almost certainly are
-— nobody burns them by accident — but eFuses are one-time and invisible from
-outside. `firmware/bench/padstate` reads all three, plus the pull and function
-bits on every pad in this table, in about ten seconds. It has not been run: the
-board was disconnected both times it was ready.
+**Measured on the chip (TEST-041, 2026-10-01):** all three JTAG eFuses read 0,
+the factory value, so the three rows that depend on them are confirmed. Every
+motor pin has neither pull-up nor pull-down; both chip-select pins have their
+pull-ups and sit high. GPIO39's pull-up is already off when user code runs, but
+the pad still reads high with nothing attached: the pull-up was on from reset,
+the window in which a motor there would have switched on.
 
 ## 15. What is wired today
 

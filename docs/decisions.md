@@ -646,5 +646,8 @@ reach a back pad rather than an edge pin.
 - The conflict check is `docs/wiring_reference.md` §15. One open item: GPIO41
   has no internal pull, so the shared RST line floats until firmware drives it.
   Fit a 10 kΩ pull-up to 3V3 unless the breakout is measured to have one.
-- `firmware/bench/padstate` can confirm the pad states on the actual chip. It
-  has not been run yet; the board was disconnected.
+  (Closed 2026-10-01: the builder confirmed a 10 kΩ pull-up on RST on each
+  breakout.)
+- Confirmed on the chip on 2026-10-01 (TEST-041): the JTAG eFuses are at
+  factory default, so the back pads are not connected to JTAG and GPIO3's strap
+  is ignored; every motor pin has no internal pull; the chip selects sit high.

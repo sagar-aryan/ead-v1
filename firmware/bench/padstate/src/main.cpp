@@ -67,6 +67,22 @@ void setup() {
          (unsigned long)((reg[i] >> FUN_DRV_S) & FUN_DRV),
          (unsigned long)((reg[i] >> MCU_SEL_S) & MCU_SEL), level[i]);
   }
+  // What is attached to each pad right now: read it with the chip's own pull-up,
+  // then its pull-down. 1/0 = nothing attached (floating); 1/1 = something
+  // outside holds it high; 0/0 = something holds it low. Done after the
+  // snapshot above, so it cannot disturb what that recorded.
+  line("# readback with internal pull-up / pull-down: 1/0 floating, 1/1 held high, 0/0 held low\n");
+  for (size_t i = 0; i < kCount; i++) {
+    if (pins[i] == 43 || pins[i] == 44) continue;  // leave UART0 alone
+    pinMode(pins[i], INPUT_PULLUP);
+    delayMicroseconds(300);
+    const int up = digitalRead(pins[i]);
+    pinMode(pins[i], INPUT_PULLDOWN);
+    delayMicroseconds(300);
+    const int down = digitalRead(pins[i]);
+    pinMode(pins[i], INPUT);
+    line("gpio %-3d %d/%d\n", pins[i], up, down);
+  }
   line("# done\n");
 }
 

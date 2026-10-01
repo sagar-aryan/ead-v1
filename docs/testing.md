@@ -1276,3 +1276,78 @@ PASS.
 - Useful beyond identity: Interactive Calibration exists to remove gyro zero-rate
   offset more often than opportunistic calibration does, which is exactly the
   heading-drift problem in PROB-015. Worth considering for the product.
+
+## TEST-041 — Pad states and JTAG eFuses on the actual chip
+
+### Objective
+
+DEC-016's pin map rests on the ESP32-S3 datasheet's pad states and on three
+JTAG eFuses being at their factory value. Read them from the chip instead of
+the datasheet.
+
+### Environment
+
+XIAO ESP32-S3 (ESP32-S3 QFN56, revision v0.2, MAC 44:b1:76:af:fb:7c), bare —
+nothing wired to any of the pins tested. `firmware/bench/padstate`, USB.
+2026-10-01.
+
+### Procedure
+
+1. Flash `firmware/bench/padstate`. Before user code touches anything, it
+   snapshots the IO MUX register of each pad (pull-up, pull-down, input enable,
+   drive strength, function) and reads the pad level, then reads the eFuses
+   HARD_DIS_JTAG (the datasheet's EFUSE_DIS_PAD_JTAG), DIS_USB_JTAG and
+   STRAP_JTAG_SEL.
+2. Then read each pad with the internal pull-up and then the pull-down, to see
+   what is attached.
+
+### Expected
+
+eFuses all 0. Pad settings as the datasheet's "After Reset" column (Table 2-1):
+GPIO1, 2, 3, 9 input-enable only; GPIO4–8 nothing; GPIO39 input-enable plus a
+weak pull-up; GPIO40–42 input-enable only; GPIO43/44 pull-up and input-enable.
+
+### Actual
+
+```
+EFUSE HARD_DIS_JTAG=0  DIS_USB_JTAG=0  STRAP_JTAG_SEL=0
+
+gpio  WPU WPD IE level   readback
+1      0   0   1   0      1/0
+2      0   0   1   0      1/0
+3      0   0   1   0      1/0
+4      0   0   0   0      1/0
+5      0   0   0   0      1/0
+6      0   0   0   0      1/0
+7      0   0   0   0      1/0
+8      0   0   0   0      1/0
+9      0   0   1   0      1/0
+39     0   0   1   1      1/0
+40     0   0   1   0      1/0
+41     0   0   1   0      1/0
+42     0   0   1   0      1/0
+43     1   0   1   1      (not disturbed: UART0)
+44     1   0   1   1      (not disturbed: UART0)
+```
+
+### Result
+
+PASS.
+
+### Notes
+
+- **Confirmed:** the three JTAG eFuses are at factory default. By datasheet
+  Table 3-5, JTAG is routed to the USB Serial/JTAG controller, the four back
+  pads are not connected to it, and GPIO3's strap value is ignored. The three
+  conflict-check rows that depended on this are now measured, not assumed.
+- **Confirmed:** every motor pin (GPIO1, 2, 4, 5, 6, 42) has neither pull-up nor
+  pull-down; the chip-select pins (43, 44) have their pull-ups and sit high.
+- **Observed, GPIO39:** the pull-up bit is already off when user code runs, yet
+  the pin reads high. The readback shows nothing is attached to it (1/0). It is
+  the only floating pad that reads high; its unpulled neighbours 40–42 read low.
+  **Interpretation:** the weak pull-up the datasheet describes was on from reset
+  and was switched off by startup code before `setup()`, and the floating pad
+  kept the charge. That is the window — power-up to firmware — in which a motor
+  gate on GPIO39 would be pulled on, so DEC-016's rule stands. Which startup step
+  clears the bit was not identified.
+- All pads report drive strength 2 and IO MUX function 0.
