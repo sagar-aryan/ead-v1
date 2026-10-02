@@ -58,7 +58,7 @@ and USB links → Rust backend with SQLite → React views and exports.
 | `docs/hardware.md` | Current DEC-016 build, previous MPU6500 build, mount maps, what is verified |
 | `docs/wiring_reference.md` | Every DEC-016 connection with its evidence; firmware rules the wiring depends on |
 | `docs/decisions.md` | DEC-001–DEC-018 |
-| `docs/problems.md` | PROB-001–PROB-021 (no PROB-008) |
+| `docs/problems.md` | PROB-001–PROB-022 (no PROB-008) |
 | `docs/testing.md` | TEST-001–TEST-050, with measured results |
 | `docs/protocol.md` | Wire protocol (schema 5): payloads, framing, backfill, SERVICE_TEST, enumerations |
 | `docs/clinical_requirements.md` | The researcher's four requirements vs what is built |
@@ -88,7 +88,8 @@ and USB links → Rust backend with SQLite → React views and exports.
 - Haptic band placement on the calf (DEC-015, 2026-09-23).
 - Final pin map DEC-016, wiring reference, pad states measured on the chip
   (TEST-041), 2026-10-01.
-- 2026-10-02: PROB-018 fixed; `ead` command; both BNO086 proven with the bench
+- 2026-10-02: PROB-018 fixed and PROB-019 fixed (a device reboot ends the host
+  session), both verified on hardware (TEST-042); `ead` command; both BNO086 proven with the bench
   driver (TEST-043); the BNO086 product firmware, SERVICE_TEST and `ead --check`
   (DEC-017, DEC-018, TEST-045–050).
 
@@ -107,10 +108,6 @@ Nothing in flight.
 5. **M7**, on-device storage: needs a DEC (the default partition leaves 1.5 MB).
 
 ## Known Problems
-- **PROB-019 (open):** a device reboot during a recording leaves the host
-  session open; new-boot frames with an already-stored index are dropped, later
-  ones mix with the old boot's, colliding cycles are overwritten. Needs a
-  decision (see the entry).
 - **No trustworthy reference profile:** v1–v3 carry the PROB-016 fault.
 - **Gait thresholds** were fitted to one 6 m walk by one person (TEST-030) and
   to MPU6500 data; doc 05 §3 wants adaptive thresholds.
@@ -124,6 +121,8 @@ Nothing in flight.
 - `EAD_GAIT_LOWPASS_HZ` and `EAD_EVENT_PATH_LOWPASS_HZ` are reported in
   CONFIG_GET but no such filter is applied.
 - **PROB-020 (open):** GPIO42 (motor 3) reads held low; motor 3 stays undriven.
+- **PROB-022 (open):** still on the desk, both gyroscopes show simultaneous episodes of
+  a few °/s; a 2 s calibration was once rejected as "moved". Calibrate again.
 - On the BNO086 build: shank repeats 1.9 % of frames and the frame period sd is
   200 µs (TEST-046); after a sensor reset one ~150 ms pause follows the first report.
 - Unknown on the DEC-016 build: whether the §13 pre-power checks were done, and
@@ -207,23 +206,22 @@ service-test pulses only.
 The whole suite, before every commit:
 - `pio test -d firmware -e native` (76), `pio run -d firmware`,
   `pio run -d firmware/bench/bno086 -e foot -e shank`
-- `cd dashboard/src-tauri && cargo test` (62, 3 ignored) and
+- `cd dashboard/src-tauri && cargo test` (64, 4 ignored) and
   `cargo clippy --all-targets -- -D warnings`
 - `cd dashboard && npm test` (28) and `npm run build`
 - `python3 tools/eadprobe.py vectors` (22, 0 failures)
 
-On hardware over USB: `eadprobe check` (all PASS), `eadprobe stats --seconds 60`
-(100.14 Hz, 0 missing), `cargo test -- --ignored records_a_session_from_a_real_device`.
+On hardware over USB, device still: `eadprobe check` (all PASS), `eadprobe stats
+--seconds 60` (100.14 Hz, 0 missing), `cargo test -- --ignored --test-threads=1` (both
+hardware tests; the second resets the board).
 
 ## Next Steps
 1. Motor pulses felt by the user (TEST-049) and the GPIO42 measurement (PROB-020).
-2. PROB-019: end the host session at a device reboot (the user's default, not yet
-   built); then TEST-042's hardware steps (calibrate, reset, the gate must block).
-3. On the leg: mount maps, foot vs shank, new walks, threshold re-validation.
-4. Dashboard gaps against doc 11: live gait metrics on LIVE, the seven TRENDS
+2. On the leg: mount maps, foot vs shank, new walks, threshold re-validation.
+3. Dashboard gaps against doc 11: live gait metrics on LIVE, the seven TRENDS
    panels, CYCLES → RAW click-through, RAW cycle/error filters, the "roll the
    sole inward" mounting step, PAUSE/RESUME, CONFIG_SET.
-5. M7 storage DEC, then the code.
+4. M7 storage DEC, then the code.
 
 ## Warnings
 - **Only firmware on the DEC-016 pins goes on this board** (product firmware from

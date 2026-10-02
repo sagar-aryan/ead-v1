@@ -82,7 +82,8 @@ pub struct StoredSegment {
     pub segment_index: i64,
     pub started_at: String,
     pub closed_at: Option<String>,
-    /// `cycle_limit`, `error_limit` or `session_stopped`; null while open.
+    /// `cycle_limit`, `error_limit`, `session_stopped` or `device_restarted`; null
+    /// while open.
     pub closed_by: Option<String>,
     pub valid_cycles: i64,
     pub errors: i64,
@@ -295,6 +296,8 @@ pub struct Store {
     writer: Mutex<Option<mpsc::Sender<WriteCommand>>>,
     /// Session currently recording, if any.
     recording: Mutex<Option<String>>,
+    /// The session a device restart ended, until the next one starts (PROB-019).
+    ended_by_restart: Mutex<Option<String>>,
 }
 
 impl Store {
@@ -319,6 +322,7 @@ impl Store {
             last_status: Mutex::new(None),
             writer: Mutex::new(Some(tx)),
             recording: Mutex::new(None),
+            ended_by_restart: Mutex::new(None),
         }))
     }
 
@@ -511,12 +515,37 @@ impl Store {
             )?;
         }
         *self.last_status.lock().expect("last status") = None;
+        *self.ended_by_restart.lock().expect("restart notice") = None;
         *recording = Some(session_id.clone());
         drop(recording);
         self.session(&session_id)
     }
 
     pub fn stop_session(&self) -> Result<Option<Session>> {
+        match self.close_recording("session_stopped")? {
+            Some(session_id) => self.session(&session_id).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// Ends the open recording because the device restarted (PROB-019). The new
+    /// boot restarts frame indices, so its frames would collide with the ones
+    /// already stored; the session ends where the old boot's data does. Returns
+    /// the session ended, if one was recording.
+    pub fn end_session_at_restart(&self) -> Result<Option<String>> {
+        let ended = self.close_recording("device_restarted")?;
+        if ended.is_some() {
+            *self.ended_by_restart.lock().expect("restart notice") = ended.clone();
+        }
+        Ok(ended)
+    }
+
+    /// The session a device restart ended, until another session starts.
+    pub fn ended_by_restart(&self) -> Option<String> {
+        self.ended_by_restart.lock().expect("restart notice").clone()
+    }
+
+    fn close_recording(&self, closed_by: &str) -> Result<Option<String>> {
         let session_id = match self.recording.lock().expect("recording").take() {
             Some(id) => id,
             None => return Ok(None),
@@ -528,11 +557,11 @@ impl Store {
             (&session_id, now_utc()),
         )?;
         connection.execute(
-            "UPDATE segments SET closed_at = ?2, closed_by = 'session_stopped'
+            "UPDATE segments SET closed_at = ?2, closed_by = ?3
              WHERE session_id = ?1 AND closed_at IS NULL",
-            (&session_id, now_utc()),
+            (&session_id, now_utc(), closed_by),
         )?;
-        self.session(&session_id).map(Some)
+        Ok(Some(session_id))
     }
 
     pub fn recording_session(&self) -> Option<String> {

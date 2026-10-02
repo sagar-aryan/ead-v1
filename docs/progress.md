@@ -1544,3 +1544,41 @@ implementation choices, TEST-045–050, `implementation.md`, `architecture.md`,
 
 ### Current Status
 Completed. Open: motor pulses felt by a person, PROB-019, PROB-020, the leg work.
+
+## 2026-10-02 — PROB-019 fixed: a device reboot ends the host session
+
+### Objective
+The user's default for PROB-019 (no objection): end the recording at a device reboot and
+say so. Also run TEST-042's hardware steps, which waited for DEC-016 firmware.
+
+### Changes
+`device.rs` (a changed boot_id after an earlier one clears the session kind and calls
+`Sink::device_restarted`), `app.rs` (the sink ends the store's recording; command
+`ended_by_restart`), `store/mod.rs` (`end_session_at_restart`, segments closed as
+`device_restarted`, the notice cleared by the next session), `StateBar.tsx`, `App.tsx`,
+two Rust tests, and the ignored hardware test
+`a_device_reset_ends_the_session_and_its_calibration`.
+
+### Verification
+Rust 64 passed; the hardware test PASS on the device (replug keeps everything; a board
+reset ends the session and the calibration). TEST-042 PASS; PROB-018 and PROB-019
+resolved.
+
+## 2026-10-02 — A flaky calibration in the hardware test: PROB-022
+
+### Problems
+Running both hardware tests serially, the reset test's calibration was rejected as
+"moved" (foot gyro sd 3.82 °/s) with the device untouched. Alone it passed.
+
+### Diagnosis
+The test printed nothing useful at first; it now reports the reject reasons. The
+"settling after power-up" hypothesis was tested and not supported (eight calibrations
+from 2.8 s after a reset all accepted). A 40 s still recording showed episodes of up to
+3.5 °/s (foot) and 1.2 °/s (shank) at the same moments in both sensors. Cause unknown:
+PROB-022.
+
+### Solution
+The test retries a rejected calibration up to three times, as an operator would.
+
+### Verification
+Both hardware tests passed in two consecutive serial runs.

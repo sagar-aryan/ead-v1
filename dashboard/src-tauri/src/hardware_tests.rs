@@ -22,6 +22,22 @@ impl Sink for StoreSink {
     fn gait(&self, cycles: &[crate::protocol::GaitCycle], events: &[crate::protocol::GaitEvent]) {
         self.0.record_gait(cycles, events);
     }
+    fn device_restarted(&self) -> Option<String> {
+        self.0.end_session_at_restart().expect("end session").map(|id| format!("ended {id}"))
+    }
+}
+
+/// Starts a USB link task; send `true` on the returned sender to stop it.
+fn connect_usb(
+    runtime: &tokio::runtime::Runtime,
+    device: &Arc<Device>,
+) -> (tokio::sync::watch::Sender<bool>, tokio::task::JoinHandle<()>) {
+    let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+    let link = runtime.spawn(device::run(device.clone(), LinkTarget::Usb { port: None }, stop_rx));
+    wait_for(Duration::from_secs(15), "device connection", || {
+        device.snapshot().link_state == LinkState::Connected && device.is_live()
+    });
+    (stop_tx, link)
 }
 
 struct TempDir(std::path::PathBuf);
@@ -215,4 +231,81 @@ fn records_a_session_from_a_real_device() {
     let stored = store.session_config(&stopped.session_id).unwrap().expect("stored configuration");
     let reparsed = stored.parse().expect("parse stored configuration");
     assert_eq!(reparsed.imu.shank_mount, config.imu.shank_mount);
+}
+
+/// TEST-042's hardware steps and PROB-019: a replug keeps the calibration and the
+/// recording; a reset of the board ends both, and the calibration gate blocks.
+#[test]
+#[ignore = "requires the EAD device attached over USB and still; resets it"]
+fn a_device_reset_ends_the_session_and_its_calibration() {
+    let dir = TempDir::new();
+    let store = Store::open(dir.0.join("ead.sqlite3")).expect("open store");
+    let device = Arc::new(Device::new(Arc::new(StoreSink(store.clone()))));
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+
+    let (stop, link) = connect_usb(&runtime, &device);
+    let first_boot = device.snapshot().boot_id.expect("boot id");
+    // Still on the desk, a 2 s window is now and then rejected as "moved"
+    // (PROB-022); an operator would simply calibrate again, and so does this.
+    let mut record = None;
+    for _ in 0..3 {
+        device.start_calibration(2000).expect("start calibration");
+        std::thread::sleep(Duration::from_millis(2500));
+        wait_for(Duration::from_secs(5), "calibration record", || {
+            device.snapshot().status.is_some_and(|s| s.calibration_state != 1)
+        });
+        record = device.snapshot().calibration;
+        if record.is_some_and(|r| r.usable()) {
+            break;
+        }
+    }
+    let record = record.expect("record");
+    assert!(
+        record.usable(),
+        "calibration rejected three times ({:?}): the device must be still",
+        crate::protocol::calibration_rejections(record.reject)
+    );
+    store.create_patient("HW-RESET", "Hardware test").expect("create patient");
+    let session = store
+        .start_session("HW-RESET", SessionKind::Recording, &DeviceIdentity::default(), None, None)
+        .expect("start session");
+    wait_for(Duration::from_secs(5), "frames stored", || {
+        store.flush();
+        store.frame_count(&session.session_id).unwrap() > 0
+    });
+
+    // A replug of the same boot: nothing ends.
+    stop.send(true).unwrap();
+    runtime.block_on(link).unwrap();
+    let (stop, link) = connect_usb(&runtime, &device);
+    assert_eq!(device.snapshot().boot_id, Some(first_boot));
+    assert!(device.snapshot().calibration.is_some(), "a replug lost the calibration");
+    assert_eq!(store.recording_session(), Some(session.session_id.clone()));
+
+    // A reset, as `pio run -t upload` does it, with the link closed so the port is free.
+    stop.send(true).unwrap();
+    runtime.block_on(link).unwrap();
+    let esptool = std::env::var("HOME").unwrap() + "/.platformio/packages/tool-esptoolpy/esptool.py";
+    let reset = std::process::Command::new("python3")
+        .args([esptool.as_str(), "--chip", "esp32s3", "--after", "hard_reset", "read_mac"])
+        .output()
+        .expect("run esptool");
+    assert!(reset.status.success(), "esptool: {}", String::from_utf8_lossy(&reset.stderr));
+    let (stop, link) = connect_usb(&runtime, &device);
+    wait_for(Duration::from_secs(10), "the new boot's HELLO", || {
+        device.snapshot().boot_id.is_some_and(|id| id != first_boot)
+    });
+
+    // The session ended where the old boot's data ends, and said so.
+    assert_eq!(store.recording_session(), None);
+    assert_eq!(store.ended_by_restart(), Some(session.session_id.clone()));
+    assert!(store.session(&session.session_id).unwrap().stopped_at.is_some());
+    let snapshot = device.snapshot();
+    assert_eq!(snapshot.session_kind, None);
+    assert_eq!(snapshot.last_error, Some(format!("ended {}", session.session_id)));
+    // The new boot has no calibration, so the session gate blocks (PROB-018).
+    assert_eq!(snapshot.calibration, None);
+
+    stop.send(true).unwrap();
+    runtime.block_on(link).unwrap();
 }

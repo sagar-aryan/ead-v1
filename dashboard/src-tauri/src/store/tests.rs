@@ -929,3 +929,30 @@ fn service_tests_are_logged_and_a_pulse_gets_its_answer() {
     assert_eq!(tests[1].felt, None);
     assert_eq!(tests[1].report.as_deref(), Some("{\"foot\":{}}"));
 }
+
+// PROB-019: the new boot restarts frame indices, so the session ends where the
+// old boot's data does, and says why.
+#[test]
+fn a_device_restart_ends_the_recording() {
+    let (store, _dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let limits = SegmentLimits { max_cycles: 20, max_errors: 5 };
+    let session = store
+        .start_session("P-001", SessionKind::Evaluation, &DeviceIdentity::default(), None, Some(limits))
+        .unwrap();
+    store.record_frames(&[frame(0), frame(1)]);
+
+    assert_eq!(store.end_session_at_restart().unwrap(), Some(session.session_id.clone()));
+    assert_eq!(store.recording_session(), None);
+    assert!(store.session(&session.session_id).unwrap().stopped_at.is_some());
+    assert_eq!(store.frame_count(&session.session_id).unwrap(), 2);
+    let segments = store.segments(&session.session_id).unwrap();
+    assert_eq!(segments[0].closed_by.as_deref(), Some("device_restarted"));
+    assert_eq!(store.ended_by_restart(), Some(session.session_id.clone()));
+
+    // Nothing recording: nothing to end, and the notice stays until a new start.
+    assert_eq!(store.end_session_at_restart().unwrap(), None);
+    assert_eq!(store.ended_by_restart(), Some(session.session_id));
+    store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
+    assert_eq!(store.ended_by_restart(), None);
+}

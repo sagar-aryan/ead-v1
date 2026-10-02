@@ -43,7 +43,7 @@ A result is only recorded as PASS when it was run and checked.
 | TEST-039 | 2026-09-23 | One BNO086 over SPI on the bench wiring | PASS |
 | TEST-040 | 2026-09-23 | BNO086 identity and the 086-only features | PASS (idle power not measured) |
 | TEST-041 | 2026-10-01 | Pad states and JTAG eFuses on the chip | PASS |
-| TEST-042 | 2026-10-02 | A device reboot discards the host's calibration record | PARTIAL (unit tests PASS; hardware NOT RUN) |
+| TEST-042 | 2026-10-02 | A device reboot discards the host's calibration record; ends the session (PROB-019) | PASS (unit tests and hardware) |
 | TEST-043 | 2026-10-02 | Each BNO086 on the DEC-016 wiring | PASS (both sensors) |
 | TEST-044 | 2026-10-02 | Pad readback on the assembled build | PARTIAL (GPIO42 anomaly, PROB-020) |
 | TEST-045 | 2026-10-02 | Host tests for the BNO086 build (SH-2 codec, motor guard, schema 5) | PASS |
@@ -1412,7 +1412,18 @@ is wired to DEC-016 and cannot run the product firmware.
 
 ### Result
 
-PARTIAL — the unit tests PASS; the hardware steps were not run.
+PARTIAL on 2026-10-02 morning (unit tests only); PASS once the hardware steps ran (below).
+
+### Hardware steps (later on 2026-10-02)
+
+`cargo test -- --ignored a_device_reset_ends_the_session_and_its_calibration`, product
+firmware schema 5 on the DEC-016 build, USB, device still on the desk:
+2 s calibration (usable) → recording started, frames stored → link closed and reopened
+(same boot_id): calibration kept, still recording → link closed, board reset with
+`esptool.py --chip esp32s3 --after hard_reset read_mac` → reconnected, new boot_id:
+calibration `None` (the gate's "not calibrated since it started"), recording ended,
+`ended_by_restart` = that session, `stopped_at` set, the notice in `last_error`
+(PROB-019). PASS in 5.0 s.
 
 ## TEST-043 — Each BNO086 on the DEC-016 wiring (bench firmware, one at a time)
 

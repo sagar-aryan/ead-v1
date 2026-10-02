@@ -75,6 +75,7 @@ fn main() {
             app::motor_pulse,
             app::record_motor_felt,
             app::service_tests,
+            app::ended_by_restart,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

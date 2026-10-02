@@ -34,6 +34,7 @@ export default function App() {
   const device = useDevice();
   const [view, setView] = useState<View>("Device");
   const [recording, setRecording] = useState<string | null>(null);
+  const [endedByRestart, setEndedByRestart] = useState<string | null>(null);
   const [checkMode, setCheckMode] = useState(false);
 
   // `ead --check` opens on the checks and stays there once connected.
@@ -49,7 +50,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const poll = () => api.recordingSession().then(setRecording).catch(() => undefined);
+    const poll = () => {
+      api.recordingSession().then(setRecording).catch(() => undefined);
+      api.endedByRestart().then(setEndedByRestart).catch(() => undefined);
+    };
     poll();
     const timer = setInterval(poll, 1000);
     return () => clearInterval(timer);
@@ -69,6 +73,7 @@ export default function App() {
         config={device.config}
         vocabulary={device.vocabulary}
         recording={recording}
+        endedByRestart={endedByRestart}
       />
       <div className="body">
         <nav>

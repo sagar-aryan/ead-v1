@@ -16,11 +16,14 @@ export function StateBar({
   config,
   vocabulary,
   recording,
+  endedByRestart,
 }: {
   snapshot: Snapshot | null;
   config: DeviceConfig | null;
   vocabulary: Vocabulary | null;
   recording: string | null;
+  /** A session a device restart ended (PROB-019), until another starts. */
+  endedByRestart: string | null;
 }) {
   const state = snapshot?.link_state === "connected" ? snapshot.device_state : "disconnected";
   const label = state.replace(/_/g, " ");
@@ -81,6 +84,13 @@ export function StateBar({
           {recording ? (
             <span className="num" style={{ color: "var(--critical)" }}>
               ● {recording}
+            </span>
+          ) : endedByRestart ? (
+            <span
+              className="fault-list"
+              title="The device restarted, so the session was ended where the old boot's data ends (PROB-019)."
+            >
+              {endedByRestart} ended: device restarted
             </span>
           ) : (
             <span className="absent">idle</span>

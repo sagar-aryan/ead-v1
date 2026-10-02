@@ -390,6 +390,8 @@ export const api = {
   startRecording: (patientId: string) => invoke<Session>("start_recording", { patientId }),
   stopRecording: () => invoke<Session | null>("stop_recording"),
   recordingSession: () => invoke<string | null>("recording_session"),
+  /** The session a device restart ended, until another starts (PROB-019). */
+  endedByRestart: () => invoke<string | null>("ended_by_restart"),
   sessions: () => invoke<Session[]>("sessions"),
   session: (sessionId: string) => invoke<Session>("session", { sessionId }),
   cycles: (sessionId: string) => invoke<Cycle[]>("cycles", { sessionId }),

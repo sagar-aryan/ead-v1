@@ -31,6 +31,16 @@ impl Sink for Telemetry {
     fn gait(&self, cycles: &[crate::protocol::GaitCycle], events: &[crate::protocol::GaitEvent]) {
         self.store.record_gait(cycles, events);
     }
+
+    fn device_restarted(&self) -> Option<String> {
+        match self.store.end_session_at_restart() {
+            Ok(Some(session)) => {
+                Some(format!("the device restarted: session {session} was ended at the restart"))
+            }
+            Ok(None) => None,
+            Err(err) => Some(format!("the device restarted, and ending the session failed: {err}")),
+        }
+    }
 }
 
 pub struct App {
@@ -614,4 +624,10 @@ pub fn service_tests(
     app: tauri::State<'_, Arc<App>>,
 ) -> CommandResult<Vec<crate::store::StoredServiceTest>> {
     app.store.service_tests(50).map_err(failed)
+}
+
+/// The session a device restart ended, until another starts (PROB-019).
+#[tauri::command]
+pub fn ended_by_restart(app: tauri::State<'_, Arc<App>>) -> Option<String> {
+    app.store.ended_by_restart()
 }

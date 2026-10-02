@@ -876,7 +876,7 @@ ran end to end (TEST-039).
 
 ## PROB-018 — After a device reboot the dashboard kept the old calibration, so sessions ran with none
 
-**Status:** Resolved in code; not reproduced on hardware (see Verification)
+**Status:** Resolved; verified on hardware 2026-10-02 (TEST-042)
 
 ### Symptoms
 
@@ -967,9 +967,10 @@ when the boot_id differs from the last HELLO's.
 
 - `cargo test`: `device::tests::a_device_reboot_discards_the_calibration` and
   `a_reconnect_to_the_same_boot_keeps_the_calibration` (TEST-042).
-- Hardware reproduction **not run**: on 2026-10-02 the only board was rewired to
-  DEC-016 (two BNO086 on SPI), and the product firmware must not be flashed onto it.
-  Run TEST-042's hardware steps once the product firmware supports DEC-016.
+- Hardware, later the same day once the product firmware supported DEC-016: the ignored
+  test `a_device_reset_ends_the_session_and_its_calibration` calibrates, replugs (the
+  calibration stays), resets the board with esptool (the calibration is gone, so the
+  gate blocks). PASS (TEST-042).
 
 ### Lessons
 
@@ -984,7 +985,7 @@ when the boot_id differs from the last HELLO's.
 
 ## PROB-019 — A device reboot during a recording is not handled by the dashboard
 
-**Status:** Open (found by reading code; not reproduced; fix needs a decision)
+**Status:** Resolved 2026-10-02 (option 1, the user's default); verified on hardware
 
 ### Symptoms
 
@@ -1023,17 +1024,24 @@ The host treats a session as continuous across device boots; the device does not
 
 ### Resolution
 
-Not fixed. The contract does not say what the host should do (doc 09's reboot rules
-are about on-device storage, M7), so the choice is the user's. Options:
+The contract does not say what the host should do (doc 09's reboot rules are about
+on-device storage, M7). Options put to the user: (1) end the host session at the reboot
+and say so; (2) keep one session and store the boot with each frame (a schema change
+every view and export would have to handle). The user did not object to option 1.
 
-1. End the host session at the reboot and tell the operator (no data mixed or
-   dropped; the session is shorter).
-2. Keep one session but store the boot with each frame (schema change; every view
-   and export must then handle two time bases).
+Built: on a HELLO whose boot_id differs from the last one this host saw, `device.rs`
+clears the host's session kind and calls `Sink::device_restarted`; the app's sink ends
+the store's recording with segments closed as `device_restarted`
+(`Store::end_session_at_restart`). The state bar shows "<session> ended: device
+restarted" until another session starts. A replug of the same boot, or the first HELLO
+of a run, ends nothing.
 
 ### Verification
 
-None yet.
+- Rust: `only_a_device_reboot_ends_the_session` (device), `a_device_reset_ends_the_recording`
+  (store).
+- Hardware (TEST-042): a recording survived a replug, then a board reset ended it, with
+  the notice.
 
 ## PROB-020 — GPIO42 (motor 3) is held low, unlike the other five motor pins
 
@@ -1125,3 +1133,31 @@ Never turn the master switch ON while USB is plugged into the XIAO.
    the 5V pin), as Seeed instructs. Costs about 0.3 V of the battery range.
 
 Root cause: a deviation from the designed power wiring.
+
+## PROB-022 — Still on the desk, the gyroscopes show episodes of a few °/s
+
+**Status:** Open — observed, cause unknown
+
+### Symptoms
+A 2 s calibration of the BNO086 build, device untouched on the desk, was rejected as
+"the sensor moved": foot gyro sd 3.82 °/s against the 2 °/s limit (hardware test run,
+2026-10-02). The same test passed on its own and in a later run.
+
+### Investigation
+- Eight 2 s calibrations from 2.8 s after a board reset: all accepted, foot sd 0.0–0.97,
+  shank 0.0–0.23 °/s.
+- 40 s still recording after a reset, largest |gyro| per 2 s: foot 3.5 °/s at 12–17 s
+  and 2.4–3.1 °/s at 26–34 s, near 0 between; shank 0.6–1.2 °/s in the same intervals
+  and 0 between. A 20 s recording at another time: foot ≤ 1.2, shank ≤ 0.9 °/s.
+- The episodes are simultaneous in both sensors.
+
+### Hypotheses (none tested)
+1. Real motion of the desk (the two sensors lie on it together).
+2. The BNO086's own dynamic gyroscope calibration adjusting.
+
+### Workaround
+Calibrate again when a window is rejected as "moved" (the hardware test retries up to
+three times).
+
+Root cause: Unknown. A test that tells them apart: the device on a heavy, isolated
+surface, or one sensor held in a vice and the other loose.

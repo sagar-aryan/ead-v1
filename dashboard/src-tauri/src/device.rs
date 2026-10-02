@@ -27,6 +27,11 @@ pub trait Sink: Send + Sync + 'static {
     fn status(&self, status: &Status);
     /// Gait cycles and events, whichever the device sent (schema 3).
     fn gait(&self, cycles: &[protocol::GaitCycle], events: &[protocol::GaitEvent]);
+    /// The device restarted (a new boot_id after an earlier one). Returns what
+    /// the operator must be told, if anything (PROB-019).
+    fn device_restarted(&self) -> Option<String> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -548,12 +553,25 @@ impl Tracker {
         // whatever this host heard before (PROB-018). Compared with the last
         // HELLO rather than `self.boot_id`, which starts empty on every
         // reconnect: a replug of the same boot keeps its calibration.
-        if state.hello.as_ref().map(|h| h.boot_id) != Some(hello.boot_id) {
+        let previous = state.hello.as_ref().map(|h| h.boot_id);
+        let restarted = previous.is_some() && previous != Some(hello.boot_id);
+        if previous != Some(hello.boot_id) {
             state.calibration = None;
             state.sensor_check = None;  // a check describes the boot it ran in
         }
+        if restarted {
+            // Whatever session this host started ended with the old boot.
+            state.session_kind = None;
+            state.session_valid_cycles = 0;
+        }
         state.schema_mismatch = hello.schema != protocol::SCHEMA_VERSION;
         state.hello = Some(hello);
+        drop(state);
+        if restarted {
+            if let Some(notice) = self.sink.device_restarted() {
+                self.note_error(notice);
+            }
+        }
     }
 
     fn on_config(&mut self, payload: &[u8]) {
@@ -706,6 +724,41 @@ mod tests {
         let device = calibrated(0xA1B2_C3D4);
         connect(&device).handle(&hello(0x0102_0304));
         assert_eq!(device.snapshot().calibration, None);
+    }
+
+    /// Counts restarts, as the store would end a session for each.
+    struct RestartSink(std::sync::atomic::AtomicUsize);
+    impl Sink for RestartSink {
+        fn raw_frames(&self, _: &[RawFrame]) {}
+        fn status(&self, _: &Status) {}
+        fn gait(&self, _: &[protocol::GaitCycle], _: &[protocol::GaitEvent]) {}
+        fn device_restarted(&self) -> Option<String> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Some("session ended at the restart".into())
+        }
+    }
+
+    // PROB-019: a reboot ends the host's session; a replug of the same boot,
+    // or the first HELLO this host ever sees, does not.
+    #[test]
+    fn only_a_device_reboot_ends_the_session() {
+        let sink = Arc::new(RestartSink(std::sync::atomic::AtomicUsize::new(0)));
+        let device = Device::new(sink.clone());
+        let restarts = || sink.0.load(std::sync::atomic::Ordering::SeqCst);
+
+        connect(&device).handle(&hello(0xA1B2_C3D4));
+        assert_eq!(restarts(), 0);
+        device.note_session(Some(protocol::SESSION_KIND_REFERENCE_CAPTURE));
+
+        connect(&device).handle(&hello(0xA1B2_C3D4));
+        assert_eq!(restarts(), 0);
+        assert!(device.snapshot().session_kind.is_some());
+
+        connect(&device).handle(&hello(0x0102_0304));
+        assert_eq!(restarts(), 1);
+        let snapshot = device.snapshot();
+        assert_eq!(snapshot.session_kind, None);
+        assert_eq!(snapshot.last_error.as_deref(), Some("session ended at the restart"));
     }
 
     #[test]
