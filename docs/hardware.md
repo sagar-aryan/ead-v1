@@ -127,6 +127,20 @@ negative test with a reflected map. The shank map above was measured on the leg
 step. The foot map was confirmed on the leg: gravity dominant on +Z, the board
 tilted about 33° on the instep, which calibration removes.
 
+### BNO086 boards (DEC-016 build)
+
+The table above is the MPU6500 build. The BNO086 maps were measured on the leg
+(TEST-051, 2026-10-02) and agree with the user's description of the silkscreen
+axes as worn:
+
+| Sensor | Described by the user | Measured map (anat = M · chip) |
+|---|---|---|
+| Foot | chip x medial, chip y back toward the shank, chip z up | `X = −chipY`, `Y = +chipX`, `Z = +chipZ` |
+| Shank | chip z out of the shin, chip x medial, chip y up the leg | `X = +chipZ`, `Y = +chipX`, `Z = +chipY` |
+
+The foot board sits about 42° off level on the instep (standing gravity
+(0.29, 0.62, 0.76) g in the chip frame); calibration removes the tilt.
+
 ## Haptics
 
 ERM driver channels (IRLML6344 + flyback diode) are **not fitted** (user,

@@ -103,11 +103,11 @@ fn records_a_session_from_a_real_device() {
     assert_eq!(snapshot.faults, Vec::<&str>::new(), "device reports faults");
 
     // The configuration must be the as-built one (docs/hardware.md): the BNO086
-    // build, maps not yet measured for its boards.
+    // build with its measured maps (TEST-051).
     let config = device.config().expect("configuration");
     assert!(matches!(config.imu.bus, crate::protocol::config::SensorBus::Bno086 { .. }));
-    assert_eq!(config.imu.foot_mount, [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
-    assert_eq!(config.imu.shank_mount, [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
+    assert_eq!(config.imu.foot_mount, [[0, -1, 0], [1, 0, 0], [0, 0, 1]]);
+    assert_eq!(config.imu.shank_mount, [[0, 0, 1], [1, 0, 0], [0, 1, 0]]);
     assert_eq!(config.imu.sample_hz, 100);
     assert!(!config.haptics.fitted);
 

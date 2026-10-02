@@ -82,12 +82,14 @@ constexpr bool eadMountIsSignedPermutation(const EadMountMap& a) {
   return true;
 }
 
-// Not yet measured for the BNO086 boards. Maps are measured on the leg with the
-// mounting check, never derived from statements or images (PROB-002); until then
-// identity, and calibration rejects a board whose +Z is not up (UPSIDE_DOWN).
-// The MPU6500 build's measured maps are in docs/hardware.md (TEST-027).
-constexpr EadMountMap kEadFootMount = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
-constexpr EadMountMap kEadShankMount = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
+// Measured on the leg for the BNO086 boards (TEST-051, 2026-10-02): standing
+// still gives the up axis, a held toe raise and a held seated knee extension the
+// forward axis, Y = Z x X. Maps are measured, never derived from statements or
+// images (PROB-002). The MPU6500 build's maps are in docs/hardware.md (TEST-027).
+// Foot: X = -chipY, Y = +chipX, Z = +chipZ.
+constexpr EadMountMap kEadFootMount = {{{0, -1, 0}, {1, 0, 0}, {0, 0, 1}}};
+// Shank: X = +chipZ, Y = +chipX, Z = +chipY.
+constexpr EadMountMap kEadShankMount = {{{0, 0, 1}, {1, 0, 0}, {0, 1, 0}}};
 
 static_assert(eadMountIsSignedPermutation(kEadFootMount) &&
                   eadMountDet(kEadFootMount) == 1,

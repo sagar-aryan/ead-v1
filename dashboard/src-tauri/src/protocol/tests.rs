@@ -197,8 +197,8 @@ fn config_section_decodes_every_documented_field() {
 
     // No error-driven feedback (DEC-006); maps not yet measured for these boards.
     assert!(!config.haptics.fitted);
-    assert_eq!(config.imu.foot_mount, [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
-    assert_eq!(config.imu.shank_mount, [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
+    assert_eq!(config.imu.foot_mount, [[0, -1, 0], [1, 0, 0], [0, 0, 1]]);
+    assert_eq!(config.imu.shank_mount, [[0, 0, 1], [1, 0, 0], [0, 1, 0]]);
 
     // Trailing bytes mean a layout this build does not know.
     let mut longer = section.clone();

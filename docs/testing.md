@@ -1706,3 +1706,46 @@ PASS
 
 ### Result
 PASS
+
+## TEST-051 — BNO086 mount maps measured on the leg
+
+### Objective
+Measure the chip → anatomical map of both BNO086 boards as worn (they were identity,
+unmeasured, since the DEC-016 build).
+
+### Environment
+Product firmware 0.1.0+943fff3 (identity maps), USB. Session
+`20261002-151307-5352` (ID `DEV-1`; the developer wearing the device, not a patient),
+10,480 frames, 104.8 s. Foot board on the dorsum, shank board on the anterior shin,
+motor band fitted.
+
+### Procedure
+1. The user, wearing the device, recorded: stand still 10 s, toe raises with a 2 s
+   hold, seated knee extensions with a 2 s hold, stand still 10 s. More than three
+   repetitions in places.
+2. Raw frames (chip frame, since the maps were identity) read from the dashboard
+   database: 1 s mean acceleration and peak rate per axis.
+
+### Actual
+- Standing (0–16 s, 95–104 s): foot (0.29, 0.62, 0.76) g, |a| 1.02 g, largest on chip
+  +Z, board tilted about 42° on the instep. Shank (−0.12, 0.97, −0.21) g: up is chip +Y.
+- Toe raise holds (e.g. 20–22 s): foot chip y 0.62 → 0.36 g, z 0.76 → 0.91 g. Chip −Y
+  tilts up with the toes, so forward is chip −Y. Raise onsets peak on chip X negative
+  (−19 to −28 °/s), lowerings positive (+21 to +46 °/s).
+- Seated knee extension holds (53–54 s, 60–61 s): shank chip Z 0.92 g, the anterior face
+  turned up, so forward is chip +Z. Extension onset peaks on chip X at −140 °/s.
+- Y = Z × X gives chip +X (medial) for both boards. Both maps are proper rotations
+  and match the user's description of the silkscreen axes (docs/hardware.md).
+- Foot: `X = −chipY, Y = +chipX, Z = +chipZ`. Shank: `X = +chipZ, Y = +chipX, Z = +chipY`.
+  With these, toe raise and knee extension both turn about anatomical −Y, as the
+  mounting check expects.
+- Outside the protocol: 64–90 s the shank rested partly extended; at 77 s a turn of the
+  shank about its long axis (chip Y +160 °/s).
+- A static calibration the user ran on this firmware was rejected "gravity was not
+  upward": with identity maps the shank's up axis is chip Z, which reads −0.21 g, below
+  `kCalibMinUpZ` (0.5). Expected. With the new foot map, up Z is 0.74 (42°), inside the
+  60° limit.
+
+### Result
+PASS for the derivation. Pending: the dashboard mounting check and a static
+calibration on the flashed firmware.

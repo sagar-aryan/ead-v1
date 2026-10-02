@@ -60,9 +60,9 @@ GYRO_LSB_PER_DPS = 512 * math.pi / 180
 # SCK, MISO, MOSI, foot CS, shank CS, foot INT, shank INT, RST, WAKE; motors M1-M6.
 SENSOR_PINS = (7, 8, 9, 43, 44, 39, 40, 41, 3)
 MOTOR_PINS = (1, 2, 42, 4, 5, 6)
-# Not yet measured for the BNO086 boards (config_v1.h).
-FOOT_MOUNT = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
-SHANK_MOUNT = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+# Measured on the leg for the BNO086 boards (config_v1.h, TEST-051).
+FOOT_MOUNT = [[0, -1, 0], [1, 0, 0], [0, 0, 1]]
+SHANK_MOUNT = [[0, 0, 1], [1, 0, 0], [0, 1, 0]]
 HAPTICS_FITTED = 0  # DEC-006: no error-driven feedback
 
 
@@ -310,7 +310,7 @@ def main():
     section = config_section(cfg)
     write("config_section.hex",
           "CONFIG_GET section format 2: BNO086 sensors and DEC-016 pins as in generate.py,\n"
-          "identity mount maps, haptics_fitted = 0, everything else from CONFIG_V1.json.", section)
+          "the measured BNO086 mount maps, haptics_fitted = 0, everything else from CONFIG_V1.json.", section)
     write("config_section_format1.hex",
           "CONFIG_GET section format 1: the MPU6500 build (I2C addresses, DLPF, 8192 LSB/g,\n"
           "65.5 LSB/(deg/s), the shank map measured in TEST-027, doc-03 pins). Kept because\n"
