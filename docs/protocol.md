@@ -481,7 +481,7 @@ u8 reserved 0, u16 `duration_ms`. The device accepts a pulse within the contract
 (duty 51–204, 100–5000 ms, one motor at a time, at most 5 s on per motor in any 10 s
 window counted as time on) and replies with the same six bytes; it ends the pulse itself.
 A refusal is ERROR BadPayload (out of range), InvalidState (another pulse running) or
-Rejected (rolling limit, or a motor switched off in this build: motor 3 until PROB-020),
+Rejected (rolling limit, or a motor switched off in this build's enable mask),
 with the reason in `detail`.
 
 ## 6. Enumerations

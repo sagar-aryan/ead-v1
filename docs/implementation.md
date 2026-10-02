@@ -500,7 +500,8 @@ sensor wire and each motor from the dashboard (`ead --check`, DEC-018).
   counted in `imu_reinits`.
 - WAKE is shared: a sensor whose INT was already asserted is not credited with WAKE.
 - A refused pulse says why in words (ERROR detail), shown in the Motors panel.
-- Motor 3 (GPIO42) is never driven, not even LOW, until PROB-020 is measured.
+- A motor whose wiring is in doubt is switched off in `EAD_MOTOR_ENABLED_MASK`: never
+  driven, not even LOW. Motor 3 was, until PROB-020 was measured; all six are on now.
 
 ### Limitations
 - Mount maps are identity until measured on the leg; gait thresholds were fitted to

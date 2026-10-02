@@ -34,9 +34,9 @@
 #define EAD_MOTOR_M5_GPIO          5
 #define EAD_MOTOR_M6_GPIO          6
 #define EAD_MOTOR_COUNT            6
-// Bit n-1 = motor n may be driven. Motor 3 stays undriven until PROB-020 (GPIO42
-// reads held low on the assembled build) is measured.
-#define EAD_MOTOR_ENABLED_MASK     0x3Bu
+// Bit n-1 = motor n may be driven. A channel whose wiring is in doubt is switched
+// off here: motor 3 was, until GPIO42 measured about 100 kOhm to GND (PROB-020).
+#define EAD_MOTOR_ENABLED_MASK     0x3Fu
 
 // ---- Sensors: BNO086 (DEC-017; replaces CONFIG_V1.json "mpu6050") ----
 #define EAD_SPI_HZ                 1000000u  // wiring rule 5: 1 MHz until soak-tested

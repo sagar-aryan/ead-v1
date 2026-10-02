@@ -36,9 +36,9 @@ came from it.
 Contract: six ERMs around the lower shank (moved to the calf by DEC-015), low-side
 IRLML6344 switches on GPIO 1, 2, 4, 9, 43, 44 (doc 03; GPIO 1, 2, 42, 4, 5, 6 under
 DEC-016), 200 Hz PWM limited to 20–80 % duty, 5 s maximum on-time,
-50 % rolling duty over 10 s. Current build: motor GPIOs are driven LOW at boot, except
-GPIO42 (motor 3), left undriven until PROB-020 is measured; the only drive is a
-service-test pulse (DEC-018), timed on the device within those limits.
+50 % rolling duty over 10 s. Current build: all six motor GPIOs are driven LOW at boot;
+the only drive is a service-test pulse (DEC-018), timed on the device within those
+limits.
 
 ### ESP32-S3 real-time controller
 - **Acquisition** (core 1, highest priority): each sensor's INT (IRAM-safe handler)

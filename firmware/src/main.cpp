@@ -20,9 +20,8 @@ static const uint8_t kMotorGpios[EAD_MOTOR_COUNT] = {
 void setup() {
   // Motor outputs first: doc 03 §4 and wiring rule 1 require them LOW before
   // anything else. A channel switched off in EAD_MOTOR_ENABLED_MASK stays as
-  // reset leaves it, held off by its gate pulldown: GPIO42 (motor 3) reads held
-  // low on the assembled build and driving it is safe only if it really reaches
-  // a gate (PROB-020).
+  // reset leaves it, held off by its gate pulldown: driving a pin is safe only if
+  // it really reaches a gate (PROB-020).
   for (int m = 0; m < EAD_MOTOR_COUNT; m++) {
     if ((EAD_MOTOR_ENABLED_MASK & (1u << m)) == 0) continue;
     pinMode(kMotorGpios[m], OUTPUT);

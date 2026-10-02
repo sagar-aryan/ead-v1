@@ -26,7 +26,7 @@ placeholder or fake data, no features the spec does not need.
   0 dropped, 0 bus errors (TEST-046).
 - **`ead --check`** opens the dashboard on the Check view: the per-wire table,
   live rates to tell foot from shank, per-motor pulses with a "felt" answer
-  (TEST-049). Motor 3 (GPIO42) is refused until PROB-020 is measured.
+  (TEST-049). All six motors are enabled (PROB-020 resolved).
 - **Not yet measured with the BNO086 sensors:** mount maps (identity for now),
   gait thresholds, foot vs shank cable identity, any motor pulse felt by a person.
 - **On the MPU6500 build, everything M0–M6 worked and was verified:** 100 Hz
@@ -97,8 +97,7 @@ and USB links → Rust backend with SQLite → React views and exports.
 Nothing in flight.
 
 ## Milestone Plan
-1. **The user:** pulse motors 1, 2, 4, 5, 6 in `ead --check` and answer "felt"; measure
-   GPIO42 (PROB-020) to enable motor 3.
+1. **The user:** pulse all six motors in `ead --check` and answer "felt".
 2. **On the leg:** the mounting check to measure both BNO086 mount maps (as TEST-027),
    confirm foot vs shank, calibrate, then new ground-truth walks into `recordings/` and
    re-validate the gait thresholds by replay.
@@ -120,7 +119,6 @@ Nothing in flight.
   (`device.cpp` `currentState`), unlike DEC-008's description.
 - `EAD_GAIT_LOWPASS_HZ` and `EAD_EVENT_PATH_LOWPASS_HZ` are reported in
   CONFIG_GET but no such filter is applied.
-- **PROB-020 (open):** GPIO42 (motor 3) reads held low; motor 3 stays undriven.
 - **PROB-022 (open):** still on the desk, both gyroscopes show simultaneous episodes of
   a few °/s; a 2 s calibration was once rejected as "moved". Calibrate again.
 - On the BNO086 build: shank repeats 1.9 % of frames and the frame period sd is
@@ -216,7 +214,7 @@ On hardware over USB, device still: `eadprobe check` (all PASS), `eadprobe stats
 hardware tests; the second resets the board).
 
 ## Next Steps
-1. Motor pulses felt by the user (TEST-049) and the GPIO42 measurement (PROB-020).
+1. Motor pulses felt by the user (TEST-049).
 2. On the leg: mount maps, foot vs shank, new walks, threshold re-validation.
 3. Dashboard gaps against doc 11: live gait metrics on LIVE, the seven TRENDS
    panels, CYCLES → RAW click-through, RAW cycle/error filters, the "roll the
@@ -226,7 +224,7 @@ hardware tests; the second resets the board).
 ## Warnings
 - **Only firmware on the DEC-016 pins goes on this board** (product firmware from
   `5b8dd28`, `firmware/bench/*`). Any firmware for it drives the enabled motor gates
-  LOW first, leaves GPIO42 alone until PROB-020 is resolved, never asserts both chip
+  LOW first (a doubtful channel stays out of the enable mask), never asserts both chip
   selects, never starts UART0, and never puts a motor on GPIO39
   (`docs/wiring_reference.md` firmware rules).
 - The master switch output feeds the XIAO's 5V pin (PROB-021, closed by the user's own

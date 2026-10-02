@@ -746,5 +746,5 @@ involvement.
 
 ### Consequences
 
-Motor 3 is not driven until PROB-020 is resolved. The PWM frequency stays the
+Motor 3 was not driven until PROB-020 was resolved (2026-10-02). The PWM frequency stays the
 contract's 200 Hz unless the user decides otherwise.

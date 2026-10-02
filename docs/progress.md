@@ -1582,3 +1582,19 @@ The test retries a rejected calibration up to three times, as an operator would.
 
 ### Verification
 Both hardware tests passed in two consecutive serial runs.
+
+## 2026-10-02 — Motor 3 enabled (PROB-020 resolved)
+
+### Investigation
+The user measured the MTMS (GPIO42) pad to GND on the unpowered board: about 100 kΩ,
+steady, which is the gate network every motor pin sees. Every faulty-wiring hypothesis
+in PROB-020 predicts a different reading. The earlier "held low" readback is within
+specification for a pin pulled to about 2.3 V.
+
+### Changes
+`config_v1.h` (`EAD_MOTOR_ENABLED_MASK` 0x3F), `main.cpp` comment, the bench firmware's
+GPIO42 exception removed, `link.cpp` refusal text without the motor-3 case.
+
+### Verification
+Full suite; flashed: motor service test available, sensor check 14/14 PASS, 15 s at
+100.143 Hz, 0 missing, no faults. Motor 3 turning is for the user to feel.

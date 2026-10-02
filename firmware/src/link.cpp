@@ -21,13 +21,12 @@ constexpr int64_t kHostTimeoutUs = 3000000;
 constexpr int64_t kStatusPeriodUs = 200000;  // 5 Hz
 
 // Why a pulse was refused, for the ERROR detail a person reads.
-const char* refusalText(ead::MotorGuard::Refusal refusal, uint8_t motor) {
+const char* refusalText(ead::MotorGuard::Refusal refusal) {
   using Refusal = ead::MotorGuard::Refusal;
   switch (refusal) {
     case Refusal::BadMotor: return "motor must be 1..6";
     case Refusal::Disabled:
-      return motor == 3 ? "motor 3 stays off until its wiring is measured (PROB-020)"
-                        : "motor output is not available";
+      return "this motor's output is switched off in this firmware";
     case Refusal::BadDuty: return "duty must be 51..204 of 255 (20-80 %)";
     case Refusal::BadDuration: return "duration must be 100..5000 ms";
     case Refusal::Busy: return "another motor is pulsing: one at a time";
@@ -221,7 +220,7 @@ void Link::onMessage(const uint8_t* msg, size_t len, int64_t nowUs) {
       const ErrorCode code = badRequest ? ErrorCode::BadPayload
                              : refusal == ead::MotorGuard::Refusal::Busy ? ErrorCode::InvalidState
                                                                          : ErrorCode::Rejected;
-      queueError(h.sequence, h.type, code, refusalText(refusal, pulse.motor), nowUs);
+      queueError(h.sequence, h.type, code, refusalText(refusal), nowUs);
       return;
     }
     case MsgType::BackfillRequest: {

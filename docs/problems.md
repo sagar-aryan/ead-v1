@@ -1045,7 +1045,7 @@ of a run, ends nothing.
 
 ## PROB-020 — GPIO42 (motor 3) is held low, unlike the other five motor pins
 
-**Status:** Open — needs a measurement by the user
+**Status:** Resolved 2026-10-02 — wiring measured correct; motor 3 enabled
 
 ### Symptoms
 
@@ -1077,7 +1077,37 @@ under 2, 3 and 4. So nothing is flashed until it is measured.
 Board unpowered: resistance from the MTMS back pad to GND, compared with D0 to GND
 (expected about 100 kΩ for both), and where the MTMS wire lands on the driver PCB.
 
-Root cause: Unknown.
+### Measurement (user, 2026-10-02)
+
+MTMS to GND, board unpowered: about 100 kΩ, steady. D0 and the continuity checks were
+not reported.
+
+### Root cause
+
+No wiring fault. The reading rules out hypotheses 1, 2 and 4 (each reads far below
+100 kΩ) and 3 (a drain or rail would read low and climb as its 220 µF charged). It is
+the gate network every motor pin sees: 100 Ω + 100 kΩ to GND.
+
+The original reading is explained by the method, not established by a test: the
+internal pull-up (about 45 kΩ) against the 100 kΩ pulldown leaves about 2.3 V on the
+pin, inside the band the ESP32-S3 does not guarantee to read as high or low (0.25–0.75
+of 3.3 V), so one pin reading 0 where five read 1 is within specification.
+
+GPIO42 is not wired to any other motor pin: TEST-044 read it differently from all five,
+and pins on one node read alike. With 100 kΩ to GND it must be a PWM node, and the other
+five are taken, so it is PWM3.
+
+### Resolution
+
+`EAD_MOTOR_ENABLED_MASK` = 0x3F: GPIO42 is driven LOW at boot with the others and motor 3
+accepts service pulses. The bench firmware no longer skips it. After the flash: motor
+service test available, sensor check 14/14 PASS, 15 s at 100.143 Hz, no faults. Whether
+motor 3 turns is for the user to feel (TEST-049).
+
+### Lessons
+
+A pull-up/pull-down readback cannot tell a 100 kΩ pulldown from nothing, nor reliably
+read the 2.3 V it makes; a resistance measurement on the unpowered board can.
 
 ## PROB-021 — USB 5 V and the switched battery meet at the XIAO's 5V pin
 
