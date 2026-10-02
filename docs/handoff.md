@@ -215,7 +215,8 @@ On hardware over USB, device still: `eadprobe check` (all PASS), `eadprobe stats
 hardware tests; the second resets the board).
 
 ## Next Steps
-1. On the leg: mount maps, foot vs shank, new walks, threshold re-validation.
+1. On the leg: mount maps measured and checked (TEST-051, PASS). Next: 10 m walks over
+   Wi-Fi (user runs), then distance, cycles and threshold re-validation by replay.
 2. Dashboard gaps against doc 11: live gait metrics on LIVE, the seven TRENDS
    panels, CYCLES → RAW click-through, RAW cycle/error filters, the "roll the
    sole inward" mounting step, PAUSE/RESUME, CONFIG_SET.

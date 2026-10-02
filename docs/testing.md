@@ -1746,6 +1746,15 @@ motor band fitted.
   `kCalibMinUpZ` (0.5). Expected. With the new foot map, up Z is 0.74 (42°), inside the
   60° limit.
 
+- Flashed 0.1.0+9c91b7d over USB; `eadprobe config` reported both new maps.
+- Dashboard mounting check on the leg (user, 2026-10-02): stand still PASS (foot
+  −0.61 +0.29 +0.77 g, shank −0.22 −0.15 +0.96 g); toe raise PASS (peak −3 −31 −2 °/s,
+  −31 °/s about Y); knee extension PASS (peak −1 −109 −32 °/s, −109 °/s about Y). The
+  user was told to raise quickly and hold until the window closed: the slow raises of
+  the recording peak at 19–28 °/s with the lowering faster, which would fail the
+  check's 30 °/s minimum or its sign test.
+- Static calibration accepted: foot tilt 42.1°, |a| 1.024 g, gyro σ 0.16 °/s; shank
+  tilt 14.4°, |a| 0.996 g, gyro σ 0.51 °/s; 500 frames; gyro bias within ±0.12 °/s.
+
 ### Result
-PASS for the derivation. Pending: the dashboard mounting check and a static
-calibration on the flashed firmware.
+PASS
