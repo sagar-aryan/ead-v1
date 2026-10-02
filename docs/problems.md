@@ -1191,3 +1191,89 @@ three times).
 
 Root cause: Unknown. A test that tells them apart: the device on a heavy, isolated
 surface, or one sensor held in a vice and the other loose.
+
+## PROB-023 — A step into a stop with no impact left the gait engine in swing, without zero-velocity updates
+
+**Status:** Resolved (in replay; the device runs the fix once flashed)
+
+### Symptoms
+In the first 10 m walks on the BNO086 build (TEST-052), cycles of 16–29 m: the
+cycle spanning a stop (stand, turn, stand) and the first cycle after it. Recorded
+totals of 13–33 m per recording for 20 m walked.
+
+### Environment
+Firmware 0.1.0+9c91b7d, measured mount maps (TEST-051), Wi-Fi, battery. Replayed
+on the host with `tools/replay` from the dashboard database
+(`tools/session2eadlog.py`), which reproduces the device's cycles to 0.01 m.
+
+### Investigation
+`eadreplay --trace` on `20261002-153957-590d`: toe-off at 22.46 s, then the last
+step into the stop landed with no impact above the contact threshold. The engine
+stayed in `Swing` until the next contact at 39.70 s, through 15 s of standing
+with |a| 1.021 g and a foot rate below 2 °/s. The zero-velocity update is only
+allowed outside `Swing` (`stanceContext`), so the velocity integrated unchecked:
+ZUPT quality 0.02 for that 18 s cycle, 29.23 m. At the next foot-flat,
+`removeSegmentDrift` removed the drift over the whole 17.6 s moving segment from
+a displacement reset at the contact 0.3 s before: 16.47 m for a 1.59 s cycle.
+
+### Root cause
+Confirmed: `Swing` had no exit except a detected contact. A soft footfall
+(the last step into a stop, a first step from standing) left the engine in swing
+for as long as the foot stood still. The device's own first cycles (20.4 m in
+`20261002-154232-3056`) came from the same state carried over from before the
+recording.
+
+### Resolution
+`gait.cpp`: in `Swing`, a foot still for as long as a zero-velocity window
+needs (`kZuptHoldMs + kZuptEntryHysteresisMs`, 80 ms) goes to `Stance`. No
+contact is claimed; the open cycle runs on to the next contact, so the cycle
+over a stop stays long and invalid.
+
+### Verification
+- Unit test `test_a_step_into_a_stop_without_an_impact_still_gets_zero_velocity`:
+  fails on the old engine, passes on the new.
+- Replay of the five walks (TEST-052): the stop cycle in `153957-590d` goes from
+  29.23 m (ZUPT quality 0.02) to 1.07 m (0.79); the next from 16.47 m to 0.84 m.
+  `walk6m-2026-09-18` is unchanged: 7 contacts, 6 valid cycles, 6.39 m.
+- Two contacts are no longer reported: the first landing after a turn in
+  `154336-5c28` (47.79 s) and in `154509-130f` (35.75 s). Both were real
+  landings, seen only because the engine was still in swing from before the
+  stop. The first landing after standing still was already missed on every
+  other leg; it is PROB-024.
+
+### Lessons
+Every state needs an exit that does not depend on the event the state waits for.
+
+## PROB-024 — BNO086 walks: soft landings missed, slow-walk strides read short
+
+**Status:** Open
+
+### Symptoms
+From the five 10 m walks (TEST-052), replayed with the PROB-023 fix:
+1. **Soft landings are not contacts.** The first one to three landings from
+   standing and the closing step into a stop. Slow walk, leg 1: 11 toe-offs
+   (the user counted 11 right-foot landings), 8 contacts. Normal pace: 8 of 9.
+   Fast: 8 of 8 counted.
+2. **Slow strides read about 30 % short.** Median 0.65–0.73 m per cycle against
+   0.91–1.00 m from the course and the count, with ZUPT quality ≥ 0.15 on 12 of
+   15 cycles. Normal pace reads 1.04–1.25 m (expected 1.11–1.25), fast 1.24–1.30 m
+   (expected 1.25–1.43).
+3. **Low ZUPT quality at normal and fast pace.** Below the error engine's 0.15
+   (`kDistanceMinZuptQuality`) on 33 of 47 normal-pace cycles and 13 of 14 fast
+   ones. Those cycles' distances run from 0.7 to 6.3 m.
+4. **A slow stride split in two** once (`154509-130f`, contacts at 40.56 s and
+   41.24 s after a 0.21 s swing).
+
+### Root cause
+Unknown for all four. Hypotheses, none tested:
+- 1: the contact threshold (`impactG`) was tuned on the MPU6500 build.
+- 2: the linear drift ramp over a moving segment is applied at the foot-flat
+  after the contact, to a displacement reset at that contact, so a segment's
+  swing and its correction land in different cycles.
+- 3: the 25 °/s foot-rate limit for a zero-velocity window is too tight for a
+  board on the instep at these paces.
+
+### Next
+Replay sweeps over `--impact`, `--zupt-gyro` and the drift attribution on the
+five walks, against the counts and the course. Thresholds come from the
+contract (CONFIG_V1.json); changing one is a decision for the user.

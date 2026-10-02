@@ -126,6 +126,19 @@ static void test_a_walk_produces_one_cycle_per_stride() {
   TEST_ASSERT_TRUE(run.cycles.size() >= 3);
 }
 
+static void test_a_step_into_a_stop_without_an_impact_still_gets_zero_velocity() {
+  // The last step into a stop can land too softly to be seen as a contact. The
+  // foot standing still must leave swing all the same, or the zero-velocity
+  // update is locked out for the whole stand (PROB-023).
+  Run run;
+  run.still(1.0f);
+  walk(&run, 3);
+  const int contacts = run.count(ead::GaitEventType::InitialContact);
+  run.still(3.0f);
+  TEST_ASSERT_TRUE(run.engine.inZupt());
+  TEST_ASSERT_EQUAL_INT(contacts, run.count(ead::GaitEventType::InitialContact));
+}
+
 static void test_cycle_timing_stance_ratio_and_cadence() {
   Run run;
   run.still(1.0f);
@@ -299,6 +312,7 @@ int main() {
   UNITY_BEGIN();
   RUN_TEST(test_a_still_foot_produces_a_zupt_and_no_cycles);
   RUN_TEST(test_a_walk_produces_one_cycle_per_stride);
+  RUN_TEST(test_a_step_into_a_stop_without_an_impact_still_gets_zero_velocity);
   RUN_TEST(test_cycle_timing_stance_ratio_and_cadence);
   RUN_TEST(test_a_second_impact_soon_after_is_the_same_footfall);
   RUN_TEST(test_a_cycle_longer_than_the_guard_is_marked_invalid);

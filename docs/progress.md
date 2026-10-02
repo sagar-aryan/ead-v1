@@ -1598,3 +1598,31 @@ GPIO42 exception removed, `link.cpp` refusal text without the motor-3 case.
 ### Verification
 Full suite; flashed: motor service test available, sensor check 14/14 PASS, 15 s at
 100.143 Hz, 0 missing, no faults. Motor 3 turning is for the user to feel.
+
+## 2026-10-02 — BNO086 on the leg: mount maps, first walks, PROB-023
+
+### Objective
+Measure the BNO086 mount maps, then the first walks against a measured course.
+
+### Approach
+Mount maps from a standing / toe-raise / knee-extension recording, cross-checked
+with the user's description of the silkscreen axes; flashed and confirmed with
+the dashboard mounting check (TEST-051). Five 10 m out-and-back walks recorded by
+the user over Wi-Fi, replayed on the host from the dashboard database.
+
+### Problems
+Cycles of 16–29 m. Traced to the gait engine staying in swing through a stop when
+the last step had no impact (PROB-023). Fixed with an exit from swing on
+sustained stillness; one unit test. Two contacts the old engine reported after a
+turn are now missed, along with every other first landing from standing (PROB-024).
+
+### Changes
+- `firmware/lib/ead_core/src/ead/gait.cpp`, `firmware/test/test_gait/test_main.cpp`
+- `tools/session2eadlog.py` (new): dashboard session → .eadlog for the replay.
+
+### Current Status
+The fix is verified in replay and by unit test; not yet flashed (the device was on
+battery and Wi-Fi). PROB-024 open.
+
+### Next Steps
+Flash over USB; replay sweeps for PROB-024.

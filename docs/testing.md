@@ -1758,3 +1758,46 @@ motor band fitted.
 
 ### Result
 PASS
+
+## TEST-052 — First 10 m walks on the BNO086 build
+
+### Objective
+Measure contacts, cycles and distance on the leg against a measured course and
+counted steps.
+
+### Environment
+Firmware 0.1.0+9c91b7d (TEST-051 maps), battery, Wi-Fi, dashboard. Worn by the
+developer (ID `DEV-1`). 10.0 m straight course, out and back per recording, 5 s
+still at each end, calibration accepted before the walks.
+
+### Procedure
+1. The user recorded five sessions, each out and back with the right-foot
+   landings counted per leg: `153957-590d`, `154232-3056`, `154336-5c28` normal
+   pace (9 and 9), `154509-130f` slow (11 and 11), `154631-d7ed` fast (8 and 8).
+2. `tools/session2eadlog.py` wrote each session as an .eadlog;
+   `eadreplay --still-seconds 5` replayed it, with `--trace` and `--events` to
+   follow the engine.
+
+### Actual
+- The device's own cycles: 17–20 per recording; totals 13–33 m; cycles of 4–29 m.
+  The replay of the same firmware matches them to 0.01 m from the second cycle.
+- Cause of the largest errors: PROB-023, fixed. After the fix, per leg (contacts,
+  sum of valid cycles, median cycle):
+
+| Walk | Leg 1 | Leg 2 | Stride from the count |
+|---|---|---|---|
+| normal 1 | 8, 7.76 m, 1.16 m | 9, 8.92 m, 1.10 m | 1.11–1.25 m |
+| normal 2 | 9, 9.00 m, 1.04 m | 11 (2 turn steps), 15.35 m, 1.22 m | 1.11–1.25 m |
+| normal 3 | 8, 13.00 m, 1.25 m | 8, 8.07 m, 1.16 m | 1.11–1.25 m |
+| slow | 8, 4.92 m, 0.73 m | 9, 5.78 m, 0.65 m | 0.91–1.00 m |
+| fast | 8, 15.27 m, 1.30 m | 8, 8.90 m, 1.24 m | 1.25–1.43 m |
+
+  A leg's sum covers the strides between its first and last detected contact, not
+  the whole 10 m. "Stride from the count" is 10 m over the counted landings, with
+  or without the first and last as half strides.
+- Remaining errors: PROB-024.
+
+### Result
+PARTIAL. Step timing and normal-pace stride length are close to the count; distance
+per cycle is not yet reliable (PROB-024). The recordings stay in the dashboard
+database only (not in `recordings/`).

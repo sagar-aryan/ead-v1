@@ -316,6 +316,13 @@ void GaitEngine::update(const GaitSample& sample) {
         const float contactSagittal = sagittal;
         startCycle(bestImpactUs_, bestImpactFrame_);
         cycle_.contactSagittalDeg = contactSagittal;
+      } else if (stillMs_ >= kZuptHoldMs + kZuptEntryHysteresisMs) {
+        // A foot still for as long as a zero-velocity window needs is on the
+        // ground even when no contact was seen: a soft last step into a stop has
+        // no impact. Staying in swing locked the zero-velocity update out while
+        // the integrator ran on, and 17 s of standing became 29 m (PROB-023).
+        // No contact is claimed; the open cycle runs on to the next one.
+        state_ = GaitState::Stance;
       }
       break;
     }
