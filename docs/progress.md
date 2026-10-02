@@ -1621,8 +1621,8 @@ turn are now missed, along with every other first landing from standing (PROB-02
 - `tools/session2eadlog.py` (new): dashboard session → .eadlog for the replay.
 
 ### Current Status
-The fix is verified in replay and by unit test; not yet flashed (the device was on
-battery and Wi-Fi). PROB-024 open.
+The fix is verified in replay and by unit test, and flashed (0.1.0+77ae282, streaming
+at 100.14 Hz, no faults). PROB-024 open.
 
 ### Next Steps
 Flash over USB; replay sweeps for PROB-024.

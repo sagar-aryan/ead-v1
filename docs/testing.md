@@ -1799,5 +1799,5 @@ still at each end, calibration accepted before the walks.
 
 ### Result
 PARTIAL. Step timing and normal-pace stride length are close to the count; distance
-per cycle is not yet reliable (PROB-024). The recordings stay in the dashboard
-database only (not in `recordings/`).
+per cycle is not yet reliable (PROB-024). The five recordings are in `recordings/`
+as `walk10m-*-2026-10-02.eadlog`.

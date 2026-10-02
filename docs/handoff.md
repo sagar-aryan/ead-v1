@@ -216,8 +216,8 @@ hardware tests; the second resets the board).
 
 ## Next Steps
 1. On the leg: mount maps measured and checked (TEST-051). First 10 m walks
-   (TEST-052) found PROB-023, fixed in `gait.cpp` but not yet flashed: flash over
-   USB. Then PROB-024 (soft landings missed, slow strides short, low ZUPT quality)
+   (TEST-052) found PROB-023, fixed in `gait.cpp` and flashed (0.1.0+77ae282).
+   Then PROB-024 (soft landings missed, slow strides short, low ZUPT quality)
    by replay: `tools/session2eadlog.py SESSION out.eadlog`, then `eadreplay`.
 2. Dashboard gaps against doc 11: live gait metrics on LIVE, the seven TRENDS
    panels, CYCLES → RAW click-through, RAW cycle/error filters, the "roll the

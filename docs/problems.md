@@ -1194,7 +1194,7 @@ surface, or one sensor held in a vice and the other loose.
 
 ## PROB-023 — A step into a stop with no impact left the gait engine in swing, without zero-velocity updates
 
-**Status:** Resolved (in replay; the device runs the fix once flashed)
+**Status:** Resolved (flashed 0.1.0+77ae282, 2026-10-02)
 
 ### Symptoms
 In the first 10 m walks on the BNO086 build (TEST-052), cycles of 16–29 m: the
