@@ -14,7 +14,12 @@
 //       -o /tmp/eadreplay tools/replay/main.cpp \
 //       firmware/lib/ead_core/src/ead/{calibration,mahony,gait}.cpp
 // Run:
-//   /tmp/eadreplay recording.eadlog [--still-seconds 3] [--trace]
+//   /tmp/eadreplay recording.eadlog [--still-seconds 3] [--trace] [--mpu6500]
+//
+// Counts mean nothing without the scale and mount maps of the build that
+// recorded them. A recording made by eadprobe since schema 5 carries the
+// device's CONFIG_GET reply and is read with it; older ones (the MPU6500 build)
+// carry none and need --mpu6500.
 
 #include <cmath>
 #include <cstdint>
@@ -31,6 +36,39 @@
 
 namespace {
 
+/// What turns a recording's counts into anatomical units.
+struct Conversion {
+  float accelLsbPerG;
+  float gyroLsbPerDps;
+  EadMountMap foot;
+  EadMountMap shank;
+};
+
+// The MPU6500 build (CONFIG_GET format 1, docs/hardware.md): +-4 g, +-500 deg/s,
+// and the shank map measured on the leg in TEST-027.
+constexpr Conversion kMpu6500 = {8192.0f, 65.5f,
+                                 {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}},
+                                 {{{0, 0, -1}, {0, 1, 0}, {1, 0, 0}}}};
+
+/// Reads the scales and maps from a CONFIG_GET reply payload. Formats 1 and 2
+/// put them at the same offsets (docs/protocol.md §5.5): f32 accel_lsb_per_g at
+/// section byte 14, f32 gyro_lsb_per_dps at 18, the two maps at 22.
+bool conversionFromConfig(const uint8_t* payload, size_t len, Conversion* out) {
+  const size_t sectionStart = 2 + 32 + 2;
+  if (len < sectionStart + 40) return false;
+  uint16_t format = 0;
+  std::memcpy(&format, payload, 2);
+  if (format != 1 && format != 2) return false;
+  const uint8_t* section = payload + sectionStart;
+  std::memcpy(&out->accelLsbPerG, section + 14, 4);
+  std::memcpy(&out->gyroLsbPerDps, section + 18, 4);
+  for (int i = 0; i < 9; ++i) {
+    out->foot.m[i / 3][i % 3] = int8_t(section[22 + i]);
+    out->shank.m[i / 3][i % 3] = int8_t(section[31 + i]);
+  }
+  return true;
+}
+
 struct Frame {
   uint64_t timeUs;
   uint32_t index;
@@ -40,8 +78,9 @@ struct Frame {
 };
 
 /// Reads the probe's .eadlog container: "EADLOG1\n" then (u32 length, u64 host
-/// time, message) records. Only RAW_SAMPLE_BATCH messages carry frames.
-std::vector<Frame> readLog(const char* path) {
+/// time, message) records. RAW_SAMPLE_BATCH messages carry the frames; a
+/// CONFIG_GET reply, when present, sets `*conversion` and `*haveConversion`.
+std::vector<Frame> readLog(const char* path, Conversion* conversion, bool* haveConversion) {
   std::vector<Frame> frames;
   FILE* f = std::fopen(path, "rb");
   if (f == nullptr) {
@@ -63,6 +102,11 @@ std::vector<Frame> readLog(const char* path) {
     message.resize(length);
     if (std::fread(message.data(), 1, length, f) != length) break;
     if (length < ead::kHeaderSize + 2) continue;
+    if (message[2] == uint8_t(ead::MsgType::ConfigGet)) {
+      *haveConversion |= conversionFromConfig(message.data() + ead::kHeaderSize,
+                                              length - ead::kHeaderSize, conversion);
+      continue;
+    }
     if (message[2] != uint8_t(ead::MsgType::RawSampleBatch)) continue;
 
     const uint8_t* payload = message.data() + ead::kHeaderSize;
@@ -94,13 +138,15 @@ void mapAxes(const EadMountMap& mount, const int16_t chip[3], float scale, float
   }
 }
 
+Conversion s_conversion{};
+
 void accelOf(const EadMountMap& mount, const int16_t raw[6], float out[3]) {
-  mapAxes(mount, raw, EAD_ACCEL_LSB_PER_G, out);
+  mapAxes(mount, raw, s_conversion.accelLsbPerG, out);
 }
 
 void gyroOf(const EadMountMap& mount, const int16_t raw[6], const float bias[3], float out[3]) {
   float chip[3];
-  for (int i = 0; i < 3; ++i) chip[i] = float(raw[3 + i]) / EAD_GYRO_LSB_PER_DPS - bias[i];
+  for (int i = 0; i < 3; ++i) chip[i] = float(raw[3 + i]) / s_conversion.gyroLsbPerDps - bias[i];
   for (int axis = 0; axis < 3; ++axis) {
     float sum = 0.0f;
     for (int source = 0; source < 3; ++source) {
@@ -124,6 +170,7 @@ int main(int argc, char** argv) {
   float stillSeconds = 3.0f;
   bool trace = false;
   bool events = false;
+  bool mpu6500 = false;
   ead::GaitConfig config;
   for (int i = 2; i < argc; ++i) {
     const std::string flag = argv[i];
@@ -131,6 +178,7 @@ int main(int argc, char** argv) {
     if (flag == "--still-seconds" && hasValue) stillSeconds = std::stof(argv[++i]);
     else if (flag == "--trace") trace = true;
     else if (flag == "--events") events = true;
+    else if (flag == "--mpu6500") mpu6500 = true;
     else if (flag == "--impact" && hasValue) config.impactG = std::stof(argv[++i]);
     else if (flag == "--confirm" && hasValue) config.contactConfirmG = std::stof(argv[++i]);
     else if (flag == "--swing-rate" && hasValue) config.swingGyroDps = std::stof(argv[++i]);
@@ -142,8 +190,25 @@ int main(int argc, char** argv) {
     else if (flag == "--zupt-gyro" && hasValue) config.zuptGyroDps = std::stof(argv[++i]);
   }
 
-  const std::vector<Frame> frames = readLog(argv[1]);
+  bool fromRecording = false;
+  const std::vector<Frame> frames = readLog(argv[1], &s_conversion, &fromRecording);
   if (frames.empty()) return 1;
+  if (!fromRecording) {
+    if (!mpu6500) {
+      std::fprintf(stderr,
+                   "this recording carries no device configuration, so its counts cannot be\n"
+                   "converted; pass --mpu6500 for one made with the MPU6500 build\n");
+      return 1;
+    }
+    s_conversion = kMpu6500;
+  }
+  // These shadow config_v1.h's maps, which describe the firmware being built,
+  // not necessarily the build that made this recording.
+  const EadMountMap kEadFootMount = s_conversion.foot;
+  const EadMountMap kEadShankMount = s_conversion.shank;
+  std::printf("conversion %s: %.4f counts/g, %.4f counts/(deg/s)\n",
+              fromRecording ? "from the recording" : "of the MPU6500 build",
+              double(s_conversion.accelLsbPerG), double(s_conversion.gyroLsbPerDps));
   std::printf("%zu frames over %.1f s\n", frames.size(),
               float(frames.back().timeUs - frames.front().timeUs) / 1e6f);
 

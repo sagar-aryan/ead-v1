@@ -13,44 +13,39 @@ foot-only ZUPT correction, and scores each gait cycle against a patient-specific
 reference. A Tauri 2 desktop dashboard observes, configures, records, analyses
 and exports; it never closes a control loop.
 
-Haptic feedback is part of the V1 contract, but no haptic code exists (DEC-006).
+Haptic feedback is part of the V1 contract, but no error-driven feedback exists
+(DEC-006); the motors run only as service-test pulses (DEC-018).
 
-**Hardware transition (2026-10-02).** The target hardware is DEC-016: two BNO086 on
-SPI plus six motor channels, with the haptic band on the calf (DEC-015). The physical
-device is wired that way (user, 2026-10-02). The components below still describe the
-MPU6500/I²C build, which is what the product firmware implements; moving it to the
-BNO086 needs a decision first (DEC-017, not yet written).
+The hardware is the DEC-016 build: two BNO086 on SPI plus six motor channels on a
+separate ERM driver board, with the haptic band on the calf (DEC-015). The product
+firmware supports it since schema 5 (DEC-017). The MPU6500/I²C build it replaced is
+described at the end of the components, because every recording before 2026-10-02
+came from it.
 
 ## Components
 
-### Foot IMU
-- Dorsum of the right foot, midfoot; I²C `0x68`; INT → GPIO7.
-- MPU6500 silicon on an "MPU6050" breakout (PROB-001).
-- Mount map: identity.
-
-### Shank IMU
-- Anterior right lower shank, 10–15 cm below the knee; I²C `0x69`; INT → GPIO8.
-- MPU6500 silicon.
-- Mount map: `X = −chipZ, Y = +chipY, Z = +chipX` (chip +Z toward the bone, chip +X
-  up the leg), measured on the leg (TEST-027, PROB-002).
-  Boards do not share one physical orientation; the anatomical frame is
-  defined per sensor (DEC-009).
-
-Both sensors: ±4 g, ±500 °/s, 42 Hz DLPF (gyro via CONFIG, accel via
-ACCEL_CONFIG2), 100 Hz output, shared I²C bus on GPIO5/6 at 400 kHz with the
-breakouts' own pull-ups.
+### Foot and shank sensors (BNO086, DEC-016/017)
+- Foot: dorsum of the right foot; CS GPIO43, INT GPIO39. Shank: anterior shin,
+  10–15 cm below the knee; CS GPIO44, INT GPIO40.
+- One SPI bus (SCK 7, MISO 8, MOSI 9, 1 MHz, mode 3); RST (41) and WAKE (3) shared.
+- Calibrated accelerometer (±8 g, 125 Hz) and gyroscope (±2000 °/s, 100 Hz) reports,
+  read on INT by our own SH-2 code (`src/bno086.cpp`, `lib/ead_core/src/ead/sh2.cpp`).
+- Mount maps: identity until measured on the leg (DEC-009: per sensor).
 
 ### Haptic band (no haptic code)
 Contract: six ERMs around the lower shank (moved to the calf by DEC-015), low-side
 IRLML6344 switches on GPIO 1, 2, 4, 9, 43, 44 (doc 03; GPIO 1, 2, 42, 4, 5, 6 under
 DEC-016), 200 Hz PWM limited to 20–80 % duty, 5 s maximum on-time,
-50 % rolling duty over 10 s. Current build: motor GPIOs are driven LOW at boot
-and never touched again (DEC-006; boot-pin risk PROB-004).
+50 % rolling duty over 10 s. Current build: motor GPIOs are driven LOW at boot, except
+GPIO42 (motor 3), left undriven until PROB-020 is measured; the only drive is a
+service-test pulse (DEC-018), timed on the device within those limits.
 
 ### ESP32-S3 real-time controller
-- **Acquisition** (core 1, highest priority): foot data-ready interrupt (IRAM-safe
-  handler) timestamps each frame with the monotonic µs clock and a frame index;
-  both IMUs are read in the same frame.
+- **Acquisition** (core 1, highest priority): each sensor's INT (IRAM-safe handler)
+  timestamps its packet; the task reads it over SPI within the 1 ms rule, gives each
+  sample its own time from the SH-2 timestamps, and emits a frame per foot gyroscope
+  sample with the shank's latest. It also runs the per-wire sensor check at boot and on
+  request (SERVICE_TEST).
 - **Processing** (core 1): calibration, orientation, gait state machine and
   events, ZUPT, cycle features, reference builder/loader, error score, classes
   and confidence. Portable C++ in `lib/ead_core`, also built on the host for
@@ -63,8 +58,15 @@ and never touched again (DEC-006; boot-pin risk PROB-004).
   runs in REFERENCE_CAPTURE; RUNNING is an evaluation session only (DEC-008).
 - **Priority:** acquisition > safety/fault checks > gait/orientation > storage >
   links. Links never block acquisition.
-- No battery, charger, switch, BLE, FSR or BNO086 code in the product firmware
-  (contract; the BNO086 is in scope since DEC-016 but not yet implemented).
+- **Motors** (`src/motors.cpp`): LEDC at 200 Hz, 8 bit; a pulse is accepted by the
+  portable `MotorGuard` and ended by an `esp_timer`, so it stops whatever the link does.
+- No battery, charger, switch, BLE or FSR code (contract).
+
+### Previous build: MPU6500 on I²C (until 2026-10-01)
+Foot `0x68` (INT GPIO7, identity map) and shank `0x69` (INT GPIO8, map
+`X = −chipZ, Y = +chipY, Z = +chipX`, measured in TEST-027) on one I²C bus (GPIO5/6,
+400 kHz), ±4 g, ±500 °/s, 42 Hz DLPF, frames clocked by the foot data-ready interrupt.
+Its sessions store configuration format 1; the replay tool reads them with `--mpu6500`.
 
 ### Dashboard (Tauri 2 + React + TypeScript + Rust)
 - **Rust backend:**

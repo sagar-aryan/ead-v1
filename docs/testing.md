@@ -46,6 +46,12 @@ A result is only recorded as PASS when it was run and checked.
 | TEST-042 | 2026-10-02 | A device reboot discards the host's calibration record | PARTIAL (unit tests PASS; hardware NOT RUN) |
 | TEST-043 | 2026-10-02 | Each BNO086 on the DEC-016 wiring | PASS (both sensors) |
 | TEST-044 | 2026-10-02 | Pad readback on the assembled build | PARTIAL (GPIO42 anomaly, PROB-020) |
+| TEST-045 | 2026-10-02 | Host tests for the BNO086 build (SH-2 codec, motor guard, schema 5) | PASS |
+| TEST-046 | 2026-10-02 | Acquisition on the DEC-016 build, 60 s over USB | PASS after a fix (125 Hz frames) |
+| TEST-047 | 2026-10-02 | Sensor check from the product firmware | PASS, both sensors |
+| TEST-048 | 2026-10-02 | Dashboard backend recording from the BNO086 build | PASS |
+| TEST-049 | 2026-10-02 | `ead --check` in the real app | PARTIAL (motor pulse not felt by a person) |
+| TEST-050 | 2026-10-02 | Replay with the recording's own conversion; schema 7 migration | PASS |
 
 ## TEST-008 — M0 firmware build
 
@@ -1531,3 +1537,151 @@ PARTIAL — observations only.
 - **Motors 1, 2, 4, 5, 6 read 1/0:** consistent with the 100 kΩ pulldowns, but the
   same as nothing attached; this test cannot tell them apart.
 - **GPIO42 held low:** see PROB-020.
+
+## TEST-045 — Host tests for the BNO086 build
+
+### Objective
+The SH-2 codec, the motor limits and the schema 5 payloads, checked on the host before
+any hardware.
+
+### Environment
+`pio test -e native`, `cargo test`, `eadprobe vectors`, Linux, 2026-10-02.
+
+### Procedure
+1. `test_sh2` (7): SHTP headers (valid, empty, undriven MISO 0xFF, bad channel, too long);
+   Product ID request and Set Feature bytes; control replies with the product ID TEST-043
+   read (part 10004563, 3.12.6, build 62) and feature responses; input reports with base
+   timestamp, rebase, delay bits in the status byte, and a stop at an unknown report.
+2. `test_motor_guard` (4): refusals (motor, disabled motor 3, duty 50/205, 99/5001 ms),
+   one at a time, 5 s per motor in 10 s, and 100 alternating 100 ms pulses.
+3. `test_protocol` (+2): SERVICE_TEST requests and replies against four new vectors.
+4. Rust: format 2 and format 1 sections, SERVICE_TEST vectors, the service-test log.
+5. Mutation check: the history shrunk from 128 to 64 entries must fail step 2's last case.
+
+### Expected
+All pass; the mutation fails.
+
+### Actual
+Native 76/76; Rust 62 passed, 3 ignored; vectors 22 decoded, 0 failures. With 64 entries,
+`test_many_short_pulses_still_count` failed ("Expected 6 Was 0"); restored to 128.
+Two hand-typed part-number bytes in the test were wrong at first (0xA6 for 0xA8); caught
+before the first run by computing them.
+
+### Result
+PASS
+
+## TEST-046 — Acquisition on the DEC-016 build, 60 s over USB
+
+### Objective
+TEST-018's measurement on the BNO086 build: lost frames, rate, period, |a| at rest.
+
+### Environment
+Product firmware 0.1.0+2340d44.dirty (schema 5), XIAO 44:B1:76:AF:FB:7C, USB, still on a
+desk, master switch OFF. `eadprobe stats --seconds 60`. 2026-10-02.
+
+### Expected
+About 100 Hz, 0 missing, 0 dropped, 0 bus errors, |a| about 1 g.
+
+### Actual
+- First run: 7510 frames in 60 s, **125.104 Hz**, foot_repeated 1498, shank_repeated 1251.
+  The accelerometer runs at 125 Hz (the part's nearest rate to the requested 10 ms) and
+  the gyroscope at 100.2 Hz (6012 new samples in 60 s); frames were accelerometer-clocked.
+  Fixed by clocking frames on the gyroscope.
+- After the fix: 6010 of 6010 frames, 0 missing, 0 dropped, 0 bus errors, 0 rejected USB
+  frames, **100.142 Hz**, period mean 9985.9 µs, sd 200.6 µs (min 9341, max 10607); foot
+  |a| 1.0126 g (sd 0.0050), shank |a| 1.0023 g (sd 0.0041); foot_repeated 3,
+  shank_repeated 116 (1.9 %).
+- 20 s recording: periods in one peak around 10 000 µs; shank repeats in clusters about
+  every 240 frames.
+- After `check --rerun`: the check's own 539 ms gap (index +54), then one 152 ms pause
+  between consecutive indices right after the first gyroscope report.
+
+### Result
+PASS after the fix.
+
+### Notes
+- The 200 µs period sd (MPU6500 build: 0.5 µs from the data-ready ISR) is consistent with
+  real sample spread inside the BNO086; not established.
+- Shank repeats: phase crossings of two independent clocks; flagged per frame.
+
+## TEST-047 — Sensor check from the product firmware
+
+### Objective
+Our own driver's per-wire check on the assembled build, at boot and on request.
+
+### Environment
+As TEST-046. `eadprobe check`, `eadprobe check --rerun`.
+
+### Expected
+Every step PASS on both sensors (TEST-043 proved the wiring with the SparkFun driver).
+
+### Actual
+Boot and three re-runs: all seven steps PASS on foot and shank; part 10004563, version
+3.12.6, build 62 on both; boot 114 ms; WAKE answered in 454–478 µs. Streaming resumed
+after each re-run.
+
+### Result
+PASS
+
+## TEST-048 — Dashboard backend recording from the BNO086 build
+
+### Objective
+The Rust device link and store against the real device bytes.
+
+### Environment
+`cargo test -- --ignored records_a_session_from_a_real_device`, USB.
+
+### Procedure
+The existing hardware test, updated: BNO086 configuration, identity maps, then the boot
+sensor check decoded from the device (all steps, part number), then the recorded session.
+
+### Actual
+PASS in 5.7 s. (Before the update it asserted the shank map from before TEST-027's
+correction, so it was already stale.)
+
+### Result
+PASS
+
+## TEST-049 — `ead --check` in the real app
+
+### Objective
+The Check view end to end on the device.
+
+### Environment
+Release build (`tauri build --no-bundle`), launched as `ead --check` under X11
+(`GDK_BACKEND=x11 WEBKIT_DISABLE_COMPOSITING_MODE=1`) so it could be driven with
+`xdotool` and captured with `xwd`. USB.
+
+### Actual
+- Opens on Check; after connecting: device ready, sensors ok, Haptics "no feedback",
+  every step PASS for both sensors, motors M1–M6 with GPIO 1, 2, 42, 4, 5, 6.
+- "Run the check again" ran a check and logged it (`service_tests` row 1).
+- M3 pulse: the device refused with "motor 3 stays off until its wiring is measured
+  (PROB-020)"; nothing logged. The message first appeared at the page top, far from the
+  button; moved into the Motors panel and re-verified.
+- Synthetic clicks on scrolled content never reached WebKit in this setup (not seen with
+  unscrolled content); the M3 press was made with Tab and Space instead.
+- Not run: an accepted pulse felt by a person; the "which sensor is which" turn.
+
+### Result
+PARTIAL
+
+## TEST-050 — Replay with the recording's own conversion; schema 7 migration
+
+### Procedure
+1. `eadreplay recordings/walk6m-2026-09-18.eadlog --still-seconds 5` with and without
+   `--mpu6500`.
+2. A new 8 s BNO086 recording (`eadprobe stats --record`) replayed with no flag.
+3. The schema 6 → 7 migration SQL on a copy of the dashboard database, then the real
+   database opened by the new app after a backup.
+
+### Actual
+1. Before the fix the walk replayed to 0 valid cycles (BNO086 scale applied to MPU6500
+   counts). After: with `--mpu6500`, 6 valid cycles, 6.39 m; without, refused.
+2. "conversion from the recording: 2510.5024 counts/g"; calibration accepted.
+3. Copy: 18 sessions, 258,280 frames, 257 cycles kept, all 18 sections read as format 1
+   at 8192 LSB/g. Real database: schema 7, 18 sessions all format 1. Backup
+   `ead.sqlite3.schema6-backup-2026-10-02` (schema 6, 18 sessions, 258,280 frames).
+
+### Result
+PASS

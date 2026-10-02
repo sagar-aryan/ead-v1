@@ -1,4 +1,4 @@
-# Device Protocol (schema 4)
+# Device Protocol (schema 5)
 
 Wire protocol between the EAD-V1 device and host software (dashboard, `tools/eadprobe.py`).
 The frame header and message type numbers are fixed by
@@ -19,8 +19,8 @@ byte count followed by that many UTF-8 bytes (no terminator).
 | Field | Where | Value | Changes when |
 |---|---|---|---|
 | `protocol_version` | Every header | 1 | The header layout changes (doc 08) |
-| `schema` | HELLO payload | 4 | Any payload layout or enumeration changes |
-| `config_format` | CONFIG_GET payload | 1 | The configuration section layout changes |
+| `schema` | HELLO payload | 5 | Any payload layout or enumeration changes |
+| `config_format` | CONFIG_GET payload | 2 | The configuration section layout changes (1 = MPU6500 build, 2 = BNO086 build) |
 
 A host must compare `schema` in the device HELLO and refuse to interpret payloads of an
 unknown schema.
@@ -72,9 +72,9 @@ unknown schema.
 the timestamp of the batch's first frame; for other device messages, the time the message
 was built; host messages send 0. Host time is never substituted for device time (doc 08 §6).
 
-## 4. Message catalogue (schema 4)
+## 4. Message catalogue (schema 5)
 
-| Type | Name | Direction | Schema 4 behaviour |
+| Type | Name | Direction | Schema 5 behaviour |
 |---:|---|---|---|
 | 0x01 | HELLO | both | Host identifies; device replies with identity and starts streaming |
 | 0x02 | CONFIG_GET | both | Host request (empty); device reply with configuration |
@@ -86,19 +86,21 @@ was built; host messages send 0. Host time is never substituted for device time 
 | 0x08 | RAW_SAMPLE_BATCH | device → host | Durable; up to 10 frames |
 | 0x09 | EVENT_BATCH | device → host | Durable; gait events (§5.11) |
 | 0x0A | STEP_BATCH | device → host | Durable; one record per completed gait cycle (§5.12) |
-| 0x0B | HAPTIC_BATCH | device → host | Never emitted (no haptics, DEC-006) |
+| 0x0B | HAPTIC_BATCH | device → host | Never emitted (no haptic feedback, DEC-006) |
 | 0x0C | STATUS | both | Device status at 5 Hz; host keepalive (empty) at 1 Hz |
 | 0x0D | ACK | device → host | Not emitted |
 | 0x0E | ERROR | device → host | Reply to a failed command, or `cmd_seq` 0 if unsolicited |
 | 0x0F | RECOVERY_INFO | device → host | Not emitted (no flash storage) |
 | 0x10 | BACKFILL_REQUEST | host → device | Request stored durable messages |
 | 0x11 | BACKFILL_DATA | device → host | Chunks of stored durable messages |
-| 0x12 | SERVICE_TEST | host → device | ERROR NotSupported (no haptics) |
+| 0x12 | SERVICE_TEST | both | Sensor wiring check and motor pulses (§5.14, DEC-018) |
 
 Schema 2 added the calibration window (SESSION_START / SESSION_STOP, §5.9–5.10) and the
 calibration fields in STATUS. Schema 3 added gait events and cycles (§5.11–5.12). Schema 4
 adds the remaining session kinds, the reference profile they carry (§5.13) and the error
-fields in STEP_BATCH.
+fields in STEP_BATCH. Schema 5 is the BNO086 build (DEC-016, DEC-017): HELLO's sensor bytes
+(§5.2), configuration format 2 (§5.5), new frame semantics (§5.4), SERVICE_TEST (§5.14)
+and capability bit 3. Payload layouts are otherwise unchanged.
 
 ## 5. Payloads
 
@@ -112,13 +114,13 @@ fields in STEP_BATCH.
 
 | Offset | Type | Field |
 |---:|---|---|
-| 0 | u16 | `schema` = 4 |
+| 0 | u16 | `schema` = 5 |
 | 2 | u8 | `device_state` (§6.1) |
 | 3 | u8 | `reset_reason` (ESP-IDF `esp_reset_reason_t`) |
 | 4 | u32 | `boot_id`, random per boot. A change means sequence numbers restarted |
 | 8 | u8[6] | `mac` |
-| 14 | u8 | `who_foot` (0x70 MPU6500, 0x68 MPU6050, 0 no answer) |
-| 15 | u8 | `who_shank` |
+| 14 | u8 | `sensor_foot`: 0x86 when the BNO086 answered its product ID at boot, 0 if not (schema 4: WHO_AM_I) |
+| 15 | u8 | `sensor_shank` |
 | 16 | u8 | `capabilities` (§6.5) |
 | 17 | u8[32] | `config_sha256`: SHA-256 of the CONFIG_GET section (§5.5) |
 | 49 | u32 | `oldest_seq` stored (0 if empty) |
@@ -141,10 +143,10 @@ Device → host (58 bytes), every 200 ms while streaming:
 | 1 | u8 | `link_flags` (§6.3) |
 | 2 | u16 | `faults` (§6.2) |
 | 4 | u32 | `frame_index` of the latest frame |
-| 8 | u32 | `frames_dropped`: data-ready interrupts not turned into frames, plus frame-queue overflows |
+| 8 | u32 | `frames_dropped`: foot gyroscope reports missing from the sequence, frames missed while sensors were reset (a check or a sensor reset), plus frame-queue overflows |
 | 12 | u32 | `shank_repeated`: frames whose shank sample was not new |
-| 16 | u32 | `i2c_errors`: failed sensor reads |
-| 20 | u32 | `imu_reinits`: IMU reconfigurations after a detected power loss |
+| 16 | u32 | `bus_errors`: sensor reads that were not a valid packet (schema 4: `i2c_errors`) |
+| 20 | u32 | `imu_reinits`: sensor resets detected at run time, after which its reports were turned on again |
 | 24 | u32 | `oldest_seq` |
 | 28 | u32 | `last_seq` |
 | 32 | i8 | `ap_rssi_dbm`: strongest connected station, 0 if none |
@@ -175,15 +177,28 @@ Frame (54 bytes, doc 09 §6):
 
 | Offset | Type | Field |
 |---:|---|---|
-| 0 | u64 | `timestamp_us`: foot data-ready interrupt time |
-| 8 | u32 | `frame_index`: foot data-ready count since acquisition start (a gap = lost frames) |
-| 12 | i16 × 6 | Foot `ax, ay, az, gx, gy, gz`, chip-frame ADC counts |
-| 24 | i16 × 6 | Shank `ax, ay, az, gx, gy, gz`, chip-frame ADC counts |
+| 0 | u64 | `timestamp_us`: the foot gyroscope sample's time on the device clock |
+| 8 | u32 | `frame_index`: advances with the foot gyroscope report sequence (a gap = lost reports) |
+| 12 | i16 × 6 | Foot `ax, ay, az, gx, gy, gz`, sensor-frame counts |
+| 24 | i16 × 6 | Shank `ax, ay, az, gx, gy, gz`, sensor-frame counts |
 | 36 | i16 × 4 | Foot quaternion `w, x, y, z`, Q15 |
 | 44 | i16 × 4 | Shank quaternion `w, x, y, z`, Q15 |
 | 52 | u16 | `status_flags` |
 
-Notes on the frame:
+Notes on the frame (schema 5, BNO086):
+- Counts are the BNO086's calibrated reports: accelerometer Q8 m/s², gyroscope Q9 rad/s.
+  CONFIG_GET gives them as counts per g (2510.5) and per °/s (8.9361), so the conversion
+  below is the same for both builds.
+- The foot gyroscope clocks the frames, at the requested 100 Hz. The accelerometer runs at
+  the nearest rate the part has, 125 Hz (measured), so each frame carries the latest
+  accelerometer sample, at most 8 ms older than the gyroscope one.
+- A sample's time is the host time of the INT that delivered it, minus the SH-2 base
+  timestamp, plus the report's own delay (100 µs units).
+- After a sensor reset the first gyroscope report is followed by one pause of about
+  150 ms with the sequence advancing by one (measured 2026-10-02): the timestamps show it,
+  `frame_index` does not.
+
+
 - Doc 09 declares the sensor fields `u16`; they carry the int16 two's-complement pattern
   and are signed everywhere (DEC-007).
 - Physical units use the CONFIG_GET values: `accel_g = counts / accel_lsb_per_g`,
@@ -198,33 +213,47 @@ Notes on the frame:
 
 | Bit | Name | Meaning |
 |---:|---|---|
-| 0 | `foot_read_fail` | Foot I²C read failed; foot values are 0 |
-| 1 | `shank_read_fail` | Shank I²C read failed; shank values are 0 |
-| 2 | `shank_repeated` | Shank data-ready flag was clear: same sample as the previous frame |
+| 0 | `foot_read_fail` | Foot read failed; foot values are 0 (not emitted in schema 5: frames come from foot data) |
+| 1 | `shank_read_fail` | No shank sample yet (schema 4: read failed); shank values are 0 |
+| 2 | `shank_repeated` | No new shank gyroscope sample since the previous frame: same sample repeated |
 | 3 | `foot_accel_saturated` | A foot accel axis at ±full scale |
 | 4 | `foot_gyro_saturated` | A foot gyro axis at ±full scale |
 | 5 | `shank_accel_saturated` | A shank accel axis at ±full scale |
 | 6 | `shank_gyro_saturated` | A shank gyro axis at ±full scale |
-| 7 | `foot_repeated` | Foot data-ready flag was clear (not expected: frames are foot-clocked) |
+| 7 | `foot_repeated` | No new foot accelerometer sample since the previous frame |
 | 8 | `orientation_valid` | The frame's quaternions are the device's estimate, not identity |
 | 9–15 | reserved | 0 |
 
-The two IMUs run on independent clocks (measured 0.14 % apart, TEST-015). The shank
-therefore occasionally repeats a sample, and bit 2 marks it.
+The two sensors run on independent clocks. On the MPU6500 build they were 0.14 % apart
+(TEST-015); on the BNO086 build 1.9 % of frames repeat a shank sample, in clusters about
+every 2.4 s where the two sample phases cross (TEST-046). Bit 2 marks each.
 
 ### 5.5 CONFIG_GET
 Host → device: empty. Device → host:
 
 | Offset | Type | Field |
 |---:|---|---|
-| 0 | u16 | `config_format` = 1 |
+| 0 | u16 | `config_format` = 2 (1 on the MPU6500 build) |
 | 2 | u8[32] | SHA-256 of the section |
 | 34 | u16 | `section_length` |
 | 36 | u8[] | Section |
 
-Section format 1 (188 bytes). Fields in order, no padding. Values come from
-`include/config_v1.h` and must equal `CONFIG_V1.json` (enforced by the
-`config_section.hex` vector).
+Section format 2 (193 bytes), the BNO086 build. Fields in order, no padding. Values come
+from `include/config_v1.h` (vector `config_section.hex`). Only the first three groups
+differ from format 1; from Calibration on, both formats are identical and equal
+`CONFIG_V1.json`.
+
+| Group | Fields |
+|---|---|
+| Sensors | u8 sensor_kind (1 = BNO086), u32 spi_hz, u16 sample_hz, u32 report_interval_us, u8 accel_range_g, u16 gyro_range_dps, f32 accel_lsb_per_g, f32 gyro_lsb_per_dps |
+| Mount maps | i8×9 foot mount, i8×9 shank mount (row-major, anat = M · sensor) |
+| Pins | u8 sck, u8 miso, u8 mosi, u8 foot_cs, u8 shank_cs, u8 foot_int, u8 shank_int, u8 rst, u8 wake, u8×6 motor M1–M6 |
+
+`accel_lsb_per_g` and `gyro_lsb_per_dps` sit at section bytes 14 and 18, and the mount
+maps at 22, in both formats.
+
+Section format 1 (188 bytes), the MPU6500 build. Every session recorded before schema 5
+stores this layout, so hosts keep reading it (vector `config_section_format1.hex`).
 
 | Group | Fields |
 |---|---|
@@ -419,6 +448,42 @@ them as low-confidence rather than correcting them (doc 05 §8). The error field
 in a session with no reference loaded, and a host must not read a zero score as agreement:
 `active_classes` and `confidence` are zero there too.
 
+### 5.14 SERVICE_TEST (doc 07 §7, DEC-018)
+
+Refused with ERROR InvalidState while a session runs or a calibration window collects,
+except the plain sensor-check report.
+
+Host → device, sensor check (2 bytes):
+
+| Offset | Type | Field |
+|---:|---|---|
+| 0 | u8 | `op` = 1 |
+| 1 | u8 | `rerun`: 0 = report the latest check; 1 = reset both sensors and check again (no frames for about 0.5–2 s) |
+
+Device → host, sensor check report (42 bytes): `op` = 1, a reserved byte, then one
+20-byte record for the foot and one for the shank:
+
+| Offset | Type | Field |
+|---:|---|---|
+| 0 | u16 | `flags`: the steps that passed (§6.11) |
+| 2 | u16 | `boot_ms`: RST release to INT; 0xFFFF if INT never came |
+| 4 | u16 | `wake_us`: WAKE to INT; 0xFFFF if it never came or could not be shown |
+| 6 | u8 | `reset_cause` from the product ID |
+| 7 | u8 | `version_major` |
+| 8 | u8 | `version_minor` |
+| 9 | u8 | reserved, 0 |
+| 10 | u16 | `version_patch` |
+| 12 | u32 | `part_number` |
+| 16 | u32 | `build_number` |
+
+Host → device, motor pulse (6 bytes): `op` = 2, u8 `motor` 1–6, u8 `duty` of 255,
+u8 reserved 0, u16 `duration_ms`. The device accepts a pulse within the contract's limits
+(duty 51–204, 100–5000 ms, one motor at a time, at most 5 s on per motor in any 10 s
+window counted as time on) and replies with the same six bytes; it ends the pulse itself.
+A refusal is ERROR BadPayload (out of range), InvalidState (another pulse running) or
+Rejected (rolling limit, or a motor switched off in this build: motor 3 until PROB-020),
+with the reason in `detail`.
+
 ## 6. Enumerations
 
 ### 6.1 Device state (doc 07 §6)
@@ -430,23 +495,24 @@ calibration window is running, FAULT while any fault bit is set, and READY other
 
 | Bit | Name | Set when | Cleared when |
 |---:|---|---|---|
-| 0 | foot_absent | No valid WHO_AM_I at boot or reinit | Successful reinit |
-| 1 | shank_absent | Same, shank | Successful reinit |
-| 2 | foot_config | Register readback mismatch | Successful reinit |
-| 3 | shank_config | Same, shank | Successful reinit |
-| 4 | foot_no_data_ready | < 20 foot data-ready pulses in the 250 ms self-test | Reboot |
-| 5 | shank_no_data_ready | Same, shank | Reboot |
+| 0 | foot_absent | The sensor check found no boot or no valid packet (schema 4: no WHO_AM_I) | A passing check |
+| 1 | shank_absent | Same, shank | A passing check |
+| 2 | foot_config | No product ID, or the reports were not accepted (schema 4: register readback) | A passing check |
+| 3 | shank_config | Same, shank | A passing check |
+| 4 | foot_no_data_ready | No foot sample for 250 ms (schema 4: self-test pulses) | The next sample |
+| 5 | shank_no_data_ready | Same, shank | The next sample |
 | 6 | no_psram | Ring fell back to 64 KB internal RAM | Reboot |
 | 7 | foot_frozen | 50 consecutive identical foot samples | Next changed sample |
 | 8 | shank_frozen | Same, shank | Next changed sample |
-| 9 | acquisition_stalled | No foot data-ready for 30 ms | Next data-ready |
+| 9 | acquisition_stalled | No foot sample for 30 ms | The next foot sample |
 
 ### 6.3 Link flags
 Bit 0 `usb_active`, bit 1 `wifi_active`: a host on that link sent HELLO and has been
 active within 3 s.
 
 ### 6.4 Capabilities
-Bit 0 `haptics_fitted`, bit 1 `flash_storage`, bit 2 `psram_ring`.
+Bit 0 `haptics_fitted` (error-driven feedback runs; 0, DEC-006), bit 1 `flash_storage`,
+bit 2 `psram_ring`, bit 3 `motor_service_test` (SERVICE_TEST motor pulses available).
 
 ### 6.5 Calibration reject bits
 
@@ -506,3 +572,18 @@ bit *n* is class *n*.
 ### 6.7 Gait event types
 
 `1 INITIAL_CONTACT, 2 TOE_OFF, 3 FOOT_FLAT, 4 ZUPT_START, 5 ZUPT_END`
+
+### 6.11 Sensor check steps (§5.14)
+
+| Bit | Step | Proves |
+|---:|---|---|
+| 0 | `int_high_in_reset` | INT idles high while RST is held low: not shorted to ground |
+| 1 | `booted` | INT asserted after RST was released: 3V3, GND, RST and INT |
+| 2 | `read_valid` | A valid packet came back through its CS: SCK, MISO and CS |
+| 3 | `int_released` | Reading through its CS released its INT: CS and INT reach the same board |
+| 4 | `wake` | Its INT answered WAKE (credited only if INT was idle first) |
+| 5 | `product_id` | It answered a product ID request: MOSI |
+| 6 | `reports` | It accepted the accelerometer and gyroscope reports |
+
+Shared lines (SCK, MOSI, MISO, RST, WAKE) feed both boards, so a failing step says which
+sensor's cable but not always which single wire; 3V3 and GND cannot be told apart.

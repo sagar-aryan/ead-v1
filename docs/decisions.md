@@ -699,6 +699,25 @@ calibration are not used for orientation (they remain available for comparison).
 `config_v1.h` moves to the DEC-016 pins. Mount maps and gait thresholds must be
 re-measured on the leg with the new sensors.
 
+### Implementation choices (2026-10-02, recorded with the build)
+
+- **Raw data:** the BNO086's calibrated accelerometer (report 0x01, Q8 m/s²) and
+  gyroscope (0x02, Q9 rad/s), as int16 counts in the unchanged 54-byte frame. CONFIG_GET
+  format 2 gives them as 2510.5 counts per g and 8.9361 counts per °/s, so DEC-007 (raw =
+  sensor-frame counts, scales in metadata) and every downstream unit stay as they were.
+  The calibrated gyroscope reads exactly 0 at rest (TEST-043/046): the part removes its
+  own bias; the static calibration still runs and finds about 0.
+- **Rate:** both reports requested at 10 ms. The gyroscope runs at 100 Hz, the
+  accelerometer at 125 Hz (its nearest rate, TEST-046), so the gyroscope clocks the
+  frames and each carries the latest accelerometer sample.
+- **Transport:** reads as the TEST-043 bench driver did (header, then the whole packet
+  once INT is asserted again, 0x00 on MOSI, mode 3, 1 MHz); writes with the WAKE
+  handshake. A write discards what the sensor sends meanwhile, so each command waits for
+  its own confirmation before the next.
+- **Timestamps:** INT time minus the SH-2 base timestamp plus the report delay.
+- **Old data:** format 1 stays readable (store schema 7 keeps `config_format` per
+  session); the replay tool takes the conversion from the recording, or `--mpu6500`.
+
 ## DEC-018 — Motor service test before haptic feedback (lifts DEC-006 in part)
 
 **Date:** 2026-10-02

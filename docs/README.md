@@ -16,8 +16,8 @@ failed, and what was verified. Update it alongside every significant change.
 - `hardware.md` — As-built hardware: the current DEC-016 build, the previous
   MPU6500 build, register config, pins, mount maps.
 - `wiring_reference.md` — Every connection of the DEC-016 build, with its evidence.
-- `decisions.md` — DEC-001 to DEC-016.
-- `problems.md` — PROB-001 to PROB-019 (there is no PROB-008), including failed
+- `decisions.md` — DEC-001 to DEC-018.
+- `problems.md` — PROB-001 to PROB-021 (there is no PROB-008), including failed
   approaches.
 - `testing.md` — Executed tests with measured results; doc-13 acceptance suites.
 - `progress.md` — Chronological engineering log.
@@ -40,10 +40,10 @@ Project-level agent skills live in `.claude/skills/` (installed with the
 ## V1 identity (summary)
 
 - Right leg only, barefoot. Two IMUs at 100 Hz. The product firmware drives two
-  MPU6500s on I²C (foot `0x68`, shank `0x69`). The physical device has been rewired
-  to two BNO086s on SPI (DEC-016), which the product firmware does not support yet.
+  BNO086s on SPI (DEC-016, DEC-017) since schema 5; sessions recorded before it came
+  from two MPU6500s on I²C (foot `0x68`, shank `0x69`).
 - Six ERM motors on a calf band (DEC-015), fitted on the DEC-016 build (user,
-  2026-10-02). There is no haptic code (DEC-006).
+  2026-10-02). No error-driven feedback (DEC-006); service-test pulses only (DEC-018).
 - The wire protocol between device and dashboard is implemented three times over
   (firmware, dashboard, `tools/eadprobe.py`), all checked against the same golden
   vectors in `protocol/vectors/`.

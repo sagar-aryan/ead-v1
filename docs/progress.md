@@ -1519,3 +1519,28 @@ GUI: Check table all PASS, M3 pulse refused with the PROB-020 text. Database mig
 to schema 7 (backup `ead.sqlite3.schema6-backup-2026-10-02`), 18 sessions intact.
 Not done: an accepted motor pulse felt by a person; protocol.md / DEC-017 detail /
 TEST entries / handoff for this work; mount maps and gait on the leg.
+
+## 2026-10-02 — Replay regression fixed; Check view errors verified; docs for schema 5
+
+### Objective
+Close what the previous entry left open.
+
+### Problems
+- The replay tool converted counts with `config_v1.h`'s constants, which since schema 5
+  are the BNO086 scale and identity maps: the MPU6500 ground-truth walk replayed to 0
+  valid cycles. Found by running it, not by a test.
+
+### Solution
+The replay tool takes the scale and maps from the recording's CONFIG_GET message
+(`eadprobe stats --record` writes one since schema 5), or `--mpu6500` for older
+recordings, and refuses otherwise.
+
+### Verification
+Walk: 6 valid cycles, 6.39 m with `--mpu6500`; refused without. A new BNO086 recording
+replays with its own conversion. The Check view's motor refusal now shows in the Motors
+panel (re-verified in the app). `protocol.md` (schema 5, §5.14, §6.11), DEC-017's
+implementation choices, TEST-045–050, `implementation.md`, `architecture.md`,
+`hardware.md` and `handoff.md` written.
+
+### Current Status
+Completed. Open: motor pulses felt by a person, PROB-019, PROB-020, the leg work.

@@ -16,18 +16,18 @@ Every row states its evidence; "unverified" means nobody has measured it yet.
 | `wiring_reference.md` §13 pre-power checks | Not recorded | — |
 | HT7833 part and the pinout it was soldered by | Not recorded (§7 said not to solder by the Airupton table until the part is known) | — |
 | Which XIAO | The one measured in TEST-041: USB serial number (= MAC) `44:B1:76:AF:FB:7C` | Read from the USB descriptor, 2026-10-02 |
-| Firmware on it | `firmware/bench/padstate`; it has booted on the new wiring (TEST-044) | Its reply to a `?`, 2026-10-02 |
+| Firmware on it | The product firmware, schema 5 (`5b8dd28` and later), on the DEC-016 pins. Before that, `padstate`, which booted on the new wiring (TEST-044) | HELLO, 2026-10-02 |
 | ERM driver | Separate PCB from `~/Documents/ead pcb/`: Holtek HT7833 SOT-89 ×2, IRLML6344 ×6, 1N5819W, 100 Ω / 100 kΩ, 10 nF across each motor, 100 nF per channel. Motors rated 3 V, 90 mA, 120 mA at start. Its bring-up on 2026-09-24 ran the motors at 20 kHz PWM from GPIO1–6 (`erm_channel_test.ino`); a stuck-motor event there has no established root cause | PCB project docs |
 | Measured on the assembled build | Both BNO086s pass every wiring, identity and data check at 1 MHz (TEST-043). Pad readback: **GPIO42 (motor 3) held low, unlike the other five motor pins (PROB-020)** | TEST-043, TEST-044 |
 | XIAO power | The switched LOAD+ feeds the ERM driver's PWR+ **and the XIAO's 5V (VUSB) pin**, not its BAT+ pad. **The XIAO has no diode on that pin**, so with USB plugged in, USB 5 V sits on the switched node: switch OFF, it powers the ERM driver (motor rails live); switch ON, it meets the charger's LOAD+ (PROB-021) | User, 2026-10-02; Seeed XIAO ESP32-S3 wiki |
 | Foot cable | About 30 cm | User, 2026-10-02 |
 | Charger | SmartElex MCP73833 module (Robocraze): USB mini-B, 500 mA default charge, separate battery and load connectors. Its product page names no protection IC; whether the cell has its own protection board is not recorded | User, 2026-10-02; product page |
 
-**Do not flash the product firmware onto this build.** It still uses the doc-03 pins:
-it would run I²C bus recovery and `Wire` on GPIO5/6 (motor gates 5 and 6) and drive
-GPIO9 (MOSI), 43 and 44 (both chip selects) LOW as motors. Use
-`firmware/bench/bno086` (DEC-016 pins, one sensor per build) until the product
-firmware moves to DEC-016.
+**Only firmware on the DEC-016 pins goes on this build:** the product firmware from
+`5b8dd28` on, `firmware/bench/bno086`, or `padstate`. Product firmware from before
+`5b8dd28` uses the doc-03 pins: it would run I²C bus recovery and `Wire` on GPIO5/6
+(motor gates 5 and 6) and drive GPIO9 (MOSI), 43 and 44 (both chip selects) LOW as
+motors.
 
 `padstate` is not harmless on this build either: at each boot its readback switches
 each pin's internal pull-up on for 0.3 ms, which on a motor pin puts about 2.3 V on

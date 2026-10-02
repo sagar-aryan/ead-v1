@@ -16,9 +16,12 @@ Milestone plan: `docs/handoff.md`.
 | M6 | CSV, `.mat`, PDF exports | Complete; checked against synthetic sessions only (TEST-035–037) |
 | M7 | On-device flash storage and recovery | Not planned in detail (needs a DEC) |
 
-All of the above runs on the MPU6500/I²C build only. The physical device was rewired
-to DEC-016 (two BNO086 on SPI) by 2026-10-02; the product firmware does not support
-it yet, and must not be flashed onto it (`docs/hardware.md`).
+| BNO086 build | DEC-016 pins, own SH-2 driver, sensor check, motor service test, `ead --check` | Complete on hardware (TEST-045–050), except an accepted motor pulse felt by a person; mount maps and gait thresholds not yet re-measured on the leg |
+
+M0–M6 were built and verified on the MPU6500/I²C build. Since schema 5 (2026-10-02)
+the product firmware runs on the DEC-016 build instead; the processing chain is
+unchanged, but its mount maps and gait thresholds have not been re-measured with the
+BNO086 sensors.
 
 ## Firmware: acquisition and links (M1)
 
@@ -458,3 +461,54 @@ unbroken token, such as a very long patient identifier, will overrun.
 ### Verification
 TEST-035, TEST-036, TEST-037. Every one of them ran against synthetic cycles;
 none has seen a real session.
+
+## BNO086 acquisition, sensor check and motor service test (schema 5)
+
+### Objective
+Run the product firmware on the DEC-016 build (DEC-017), let a researcher check every
+sensor wire and each motor from the dashboard (`ead --check`, DEC-018).
+
+### Design
+- **Driver** (`src/bno086.cpp`): both sensors on one SPI bus; reads exactly as the
+  TEST-043 bench driver did, writes with the WAKE handshake. The SH-2 byte work is
+  portable (`ead/sh2.cpp`) and tested on the host.
+- **Check** (`bno086::resetAndCheck`): RST held low (INT must idle high), released (each
+  INT must assert: 3V3, GND, RST, INT), drained through each CS (valid packets: SCK,
+  MISO, CS; INT released: CS and INT on the same board), WAKE pulled (each idle INT must
+  answer), product ID request (MOSI), then the two reports, each command confirmed before
+  the next. Results go to faults and to SERVICE_TEST.
+- **Frames** (`src/acquisition.cpp`): INT edges timestamped in IRAM; packets read until
+  both INTs release; each sample timed from the SH-2 base timestamp and its delay; one
+  frame per foot gyroscope sample (100 Hz) with the latest foot accelerometer (125 Hz)
+  and shank samples; the index follows the gyroscope sequence and stays monotonic across
+  a check or a sensor reset (the elapsed time sets the jump).
+- **Motors** (`src/motors.cpp`, `ead/motor_guard.cpp`): LEDC 200 Hz, 8 bit on the enabled
+  pins; `MotorGuard` applies the contract's limits; an `esp_timer` ends each pulse.
+- **Dashboard**: `SERVICE_TEST` codec (`protocol/mod.rs`), requests and replies counted in
+  `device.rs`, commands in `app.rs` (refused while recording, doc 11 §6), log in store
+  schema 7 (`service_tests`), `views/Check.tsx`, `--check` read in `main.rs`.
+
+### Important Files
+- `firmware/src/bno086.{h,cpp}`, `firmware/src/acquisition.{h,cpp}`, `firmware/src/motors.{h,cpp}`
+- `firmware/lib/ead_core/src/ead/sh2.{h,cpp}`, `firmware/lib/ead_core/src/ead/motor_guard.{h,cpp}`
+- `firmware/src/link.cpp` (SERVICE_TEST), `firmware/include/config_v1.h`
+- `dashboard/src-tauri/src/{protocol/mod.rs,protocol/config.rs,device.rs,app.rs,store/}`
+- `dashboard/src/views/Check.tsx`, `tools/eadprobe.py` (`check`, `pulse`), `tools/replay/main.cpp`
+
+### Edge cases
+- A sensor that resets itself sends "reset complete": its reports are re-enabled and
+  counted in `imu_reinits`.
+- WAKE is shared: a sensor whose INT was already asserted is not credited with WAKE.
+- A refused pulse says why in words (ERROR detail), shown in the Motors panel.
+- Motor 3 (GPIO42) is never driven, not even LOW, until PROB-020 is measured.
+
+### Limitations
+- Mount maps are identity until measured on the leg; gait thresholds were fitted to
+  MPU6500 data.
+- The device cannot sense a motor turning: "felt" is the operator's answer.
+- Shank repeats 1.9 % (phase crossings) and frame-period sd 200 µs (TEST-046).
+- SPI stays at 1 MHz until a soak test on the harness.
+
+### Verification
+TEST-045 (host), TEST-046 (acquisition), TEST-047 (check), TEST-048 (backend on device),
+TEST-049 (`ead --check`), TEST-050 (replay, migration).
