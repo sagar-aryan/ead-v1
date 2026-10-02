@@ -1801,3 +1801,40 @@ still at each end, calibration accepted before the walks.
 PARTIAL. Step timing and normal-pace stride length are close to the count; distance
 per cycle is not yet reliable (PROB-024). The five recordings are in `recordings/`
 as `walk10m-*-2026-10-02.eadlog`.
+
+## TEST-053 — PROB-024 attempts replayed on the 10 m walks
+
+### Objective
+Measure each PROB-024 change against the counted landings and the 10 m course.
+
+### Environment
+Host replay (`tools/replay`) of the five `walk10m-*-2026-10-02` fixtures and
+`walk6m-2026-09-18` (`--mpu6500`). `tools/replay/walks.py` prints per-leg results.
+
+### Procedure
+1. Build the replay, then `python3 tools/replay/walks.py /path/to/eadreplay` (add
+   replay flags such as `--confirm 1.0` to sweep a threshold).
+2. Compare with the same run at 77ae282.
+3. Replay the 6 m walk: expect 6 valid cycles, 6.39 m.
+
+### Actual
+At 77ae282: contacts 86 of 92, 8 valid cycles without a zero-velocity update. With
+DEC-019 (soft footfalls, 20 Hz event path):
+
+| Walk | Leg 1 (contacts, metres) | Leg 2 | Valid / no ZUPT | Median cycle |
+|---|---|---|---|---|
+| normal1 | 9/9, 8.54 | 9/9, 8.78 | 16 / 0 | 1.09 m |
+| normal2 | 9/9, 9.00 | 11/9 (turn steps), 15.18 | 18 / 2 | 1.10 m |
+| normal3 | 9/9, 9.57 | 8/9, 8.01 | 15 / 1 | 1.23 m |
+| slow | 10/11, 6.24 | 11/11, 6.16 | 18 / 1 | 0.69 m |
+| fast | 8/8, 15.27 | 8/8, 8.78 | 15 / 1 | 1.24 m |
+
+Contacts 92 of 92 counted. 6 m walk: 6 valid cycles, 6.39 m. Unit tests
+`test_a_soft_landing_ending_a_swing_is_a_contact` and
+`test_accel_jitter_in_foot_flat_does_not_block_zero_velocity` each fail with their
+change removed. Rejected sweeps (confirm level, swing rate) and the measured
+`--zupt-gyro` sweep are in PROB-024.
+
+### Result
+PASS for contact detection on these walks. Distance: PARTIAL (PROB-024: slow
+strides short, five uncorrected cycles). Not yet flashed.

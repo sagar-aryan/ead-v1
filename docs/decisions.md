@@ -748,3 +748,44 @@ involvement.
 
 Motor 3 was not driven until PROB-020 was resolved (2026-10-02). The PWM frequency stays the
 contract's 200 Hz unless the user decides otherwise.
+
+## DEC-019 — Soft footfalls and the event-path stillness test
+
+**Date:** 2026-10-02
+
+**Status:** Accepted
+
+### Context
+On the BNO086 build's first walks (TEST-052, PROB-024) slow and closing footfalls
+land at 0.9–1.0 g above gravity, below the 1.1 g contact confirm level that push-off
+also reaches, and raw |a| jitter of ±0.2 g between samples kept whole stances out of
+zero-velocity updates.
+
+### Options Considered
+1. Lower the confirm level (`kContactConfirmG`): split strides (PROB-024 attempt 1).
+2. Lower the swing-start rate (`kSwingGyroDps`): split strides (attempt 3).
+3. Confirm a soft footfall by what follows it: the foot standing still.
+4. Widen the stillness limits: 0.15 g and 25 °/s are the contract's (doc 05 §6).
+5. Read the stillness test through doc 04 §7's 20 Hz event path.
+
+### Decision
+3 and 5. A swing that ends in stillness claims its strongest impact after
+`kMinSwingS` as the contact, if it reached the candidate level `impactG` and is
+outside the refractory period. The stillness test reads |a| through a 2nd-order
+Butterworth low-pass at 20 Hz (`LowPass2`); contact detection keeps the raw
+signal, so impact peaks are not flattened.
+
+### Reason
+Both use only what the contract already defines (the candidate level, the minimum
+swing, the refractory period, the event path) and leave its thresholds alone.
+Measured on the five walks: contacts 86 → 92 of 92 counted, uncorrected cycles 8 → 5,
+no new split strides, the 6 m walk unchanged.
+
+### Trade-offs
+A soft contact is timed at an impact up to the stillness test's 80 ms before the
+claim. A turn's steps now produce contacts, and so short cycles. The filter delays
+the stillness test by a few milliseconds.
+
+### Consequences
+Doc 04 §7's 6 Hz gait path is still not implemented. A threshold change (the 25 °/s
+gyro limit, PROB-024 attempt 5) remains open for the user.

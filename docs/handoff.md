@@ -203,7 +203,7 @@ service-test pulses only.
 
 ## How To Verify
 The whole suite, before every commit:
-- `pio test -d firmware -e native` (77), `pio run -d firmware`,
+- `pio test -d firmware -e native` (79), `pio run -d firmware`,
   `pio run -d firmware/bench/bno086 -e foot -e shank`
 - `cd dashboard/src-tauri && cargo test` (64, 4 ignored) and
   `cargo clippy --all-targets -- -D warnings`
@@ -217,8 +217,11 @@ hardware tests; the second resets the board).
 ## Next Steps
 1. On the leg: mount maps measured and checked (TEST-051). First 10 m walks
    (TEST-052) found PROB-023, fixed in `gait.cpp` and flashed (0.1.0+77ae282).
-   Then PROB-024 (soft landings missed, slow strides short, low ZUPT quality)
-   by replay: `tools/session2eadlog.py SESSION out.eadlog`, then `eadreplay`.
+   PROB-024: contacts fixed (DEC-019, TEST-053); open are slow strides reading
+   30 % short and five stances with no zero-velocity update (the 25 °/s limit
+   is the user's decision). Check any detector change with
+   `tools/replay/walks.py`; a dashboard session becomes a fixture with
+   `tools/session2eadlog.py`.
 2. Dashboard gaps against doc 11: live gait metrics on LIVE, the seven TRENDS
    panels, CYCLES → RAW click-through, RAW cycle/error filters, the "roll the
    sole inward" mounting step, PAUSE/RESUME, CONFIG_SET.

@@ -32,5 +32,6 @@ The `walk10m-*` files are dashboard sessions written out by
 frames, so the replay needs no flag. Worn by the developer (ID `DEV-1`), firmware
 0.1.0+9c91b7d with the measured BNO086 maps; each starts and ends with about 5 s
 standing, and has a stand, a turn and a stand between the legs. Replay with
-`--still-seconds 5`. Results per engine version are in docs/testing.md (TEST-052
-onward).
+`--still-seconds 5`, or all five against their counts with
+`tools/replay/walks.py /path/to/eadreplay`. Results per engine version are in
+docs/testing.md (TEST-052 onward).

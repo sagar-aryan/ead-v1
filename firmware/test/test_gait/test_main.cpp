@@ -84,6 +84,13 @@ struct Run {
     }
   }
 
+  uint64_t lastTimeOf(ead::GaitEventType type) const {
+    for (auto it = events.rbegin(); it != events.rend(); ++it) {
+      if (it->type == type) return it->timeUs;
+    }
+    return 0;
+  }
+
   int count(ead::GaitEventType type) const {
     int n = 0;
     for (const auto& e : events) {
@@ -137,6 +144,53 @@ static void test_a_step_into_a_stop_without_an_impact_still_gets_zero_velocity()
   run.still(3.0f);
   TEST_ASSERT_TRUE(run.engine.inZupt());
   TEST_ASSERT_EQUAL_INT(contacts, run.count(ead::GaitEventType::InitialContact));
+}
+
+static void test_a_soft_landing_ending_a_swing_is_a_contact() {
+  // Slow footfalls land below the confirm level, which push-off can reach too
+  // (PROB-024). Late in a swing that then ends in stillness, the strongest
+  // impact is the footfall; an impact before the swing could end is not.
+  Run run;
+  run.still(1.0f);
+  walk(&run, 3);
+  const int before = run.count(ead::GaitEventType::InitialContact);
+  run.contact();
+  run.still(0.57f);
+  run.swing(0.40f);
+  const float soft[3] = {0.0f, 0.0f, 1.7f};
+  const float turning[3] = {0.0f, 60.0f, 0.0f};
+  const uint64_t landedUs = run.timeUs;
+  run.push(soft, turning, 80.0f);
+  run.still(1.0f);
+  TEST_ASSERT_EQUAL_INT(before + 2, run.count(ead::GaitEventType::InitialContact));
+  TEST_ASSERT_EQUAL_UINT64(landedUs, run.lastTimeOf(ead::GaitEventType::InitialContact));
+
+  Run early;
+  early.still(1.0f);
+  walk(&early, 3);
+  const int earlyBefore = early.count(ead::GaitEventType::InitialContact);
+  early.contact();
+  early.still(0.57f);
+  early.swing(0.10f);  // shorter than the minimum swing
+  early.push(soft, turning, 80.0f);
+  early.still(1.0f);
+  TEST_ASSERT_EQUAL_INT(earlyBefore + 1, early.count(ead::GaitEventType::InitialContact));
+}
+
+static void test_accel_jitter_in_foot_flat_does_not_block_zero_velocity() {
+  // Raw BNO086 frames: |a| alternating ±0.18 g between samples while the foot
+  // is flat. The stillness test reads the 20 Hz event path, so the jitter does
+  // not restart its count (PROB-024).
+  Run run;
+  run.still(1.0f);
+  walk(&run, 2);
+  run.contact();
+  const float gyro[3] = {0.0f, 10.0f, 0.0f};
+  for (int i = 0; i < 40; ++i) {
+    const float accel[3] = {0.0f, 0.0f, (i % 2) ? 1.18f : 0.82f};
+    run.push(accel, gyro, 0.0f);
+  }
+  TEST_ASSERT_TRUE(run.engine.inZupt());
 }
 
 static void test_cycle_timing_stance_ratio_and_cadence() {
@@ -313,6 +367,8 @@ int main() {
   RUN_TEST(test_a_still_foot_produces_a_zupt_and_no_cycles);
   RUN_TEST(test_a_walk_produces_one_cycle_per_stride);
   RUN_TEST(test_a_step_into_a_stop_without_an_impact_still_gets_zero_velocity);
+  RUN_TEST(test_a_soft_landing_ending_a_swing_is_a_contact);
+  RUN_TEST(test_accel_jitter_in_foot_flat_does_not_block_zero_velocity);
   RUN_TEST(test_cycle_timing_stance_ratio_and_cadence);
   RUN_TEST(test_a_second_impact_soon_after_is_the_same_footfall);
   RUN_TEST(test_a_cycle_longer_than_the_guard_is_marked_invalid);

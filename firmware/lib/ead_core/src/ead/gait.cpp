@@ -38,6 +38,29 @@ void ankleAngles(const float q[4], float* sagittalDeg, float* frontalDeg) {
 
 }  // namespace
 
+LowPass2::LowPass2(float cutoffHz, float sampleHz) {
+  const float k = std::tan(3.14159265f * cutoffHz / sampleHz);
+  const float norm = 1.0f / (1.0f + 1.41421356f * k + k * k);
+  b0_ = k * k * norm;
+  b1_ = 2.0f * b0_;
+  b2_ = b0_;
+  a1_ = 2.0f * (k * k - 1.0f) * norm;
+  a2_ = (1.0f - 1.41421356f * k + k * k) * norm;
+}
+
+void LowPass2::reset(float value) {
+  // Steady state of the transposed form for a constant input (unity DC gain).
+  z1_ = value - b0_ * value;
+  z2_ = b2_ * value - a2_ * value;
+}
+
+float LowPass2::step(float x) {
+  const float y = b0_ * x + z1_;
+  z1_ = b1_ * x - a1_ * y + z2_;
+  z2_ = b2_ * x - a2_ * y;
+  return y;
+}
+
 void GaitEngine::reset() {
   const GaitConfig config = config_;
   *this = GaitEngine{};
@@ -112,6 +135,16 @@ void GaitEngine::closeCycle(uint64_t timeUs, uint32_t frameIndex) {
   cycleOpen_ = false;
 }
 
+void GaitEngine::claimContact(uint64_t timeUs, uint32_t frameIndex, float sagittal) {
+  cycle_.contactSagittalDeg = sagittal;
+  // Close the previous cycle and open the next at the same instant.
+  closeCycle(timeUs, frameIndex);
+  emit(GaitEventType::InitialContact, timeUs, frameIndex);
+  lastContactUs_ = timeUs;
+  startCycle(timeUs, frameIndex);
+  cycle_.contactSagittalDeg = sagittal;
+}
+
 void GaitEngine::integrate(const GaitSample& sample, float dt) {
   // Acceleration in the world frame, with gravity removed.
   float worldG[3];
@@ -169,6 +202,7 @@ void GaitEngine::update(const GaitSample& sample) {
     }
     stillMs_ = movingMs_ = contactMs_ = toeOffMs_ = 0.0f;
     cycleOpen_ = false;
+    stillAccel_.reset(magnitude(sample.footAccelG));
     return;
   }
   const float ms = dt * 1000.0f;
@@ -176,7 +210,12 @@ void GaitEngine::update(const GaitSample& sample) {
   const float accelMagnitude = magnitude(sample.footAccelG);
   const float footRate = magnitude(sample.footGyroDps);
   const float shankRate = magnitude(sample.shankGyroDps);
-  const bool stillNow = std::fabs(accelMagnitude - 1.0f) <= config_.zuptAccelToleranceG &&
+  // The stillness test reads the event path (doc 04 §7). On raw BNO086 frames
+  // |a| jumps by ±0.2 g from one sample to the next during foot-flat, each jump
+  // restarting the 80 ms count, so whole stances went without a zero-velocity
+  // update (PROB-024). The MPU6500 build had a 42 Hz filter in the sensor.
+  const float stillAccel = stillAccel_.step(accelMagnitude);
+  const bool stillNow = std::fabs(stillAccel - 1.0f) <= config_.zuptAccelToleranceG &&
                         footRate <= config_.zuptGyroDps;
 
   stillMs_ = stillNow ? stillMs_ + ms : 0.0f;
@@ -251,6 +290,7 @@ void GaitEngine::update(const GaitSample& sample) {
         toeOffMs_ = 0.0f;
         toeOffUs_ = sample.timeUs;
         swingPeakRateDps_ = 0.0f;
+        lateImpact_ = 0.0f;
         emit(GaitEventType::ToeOff, sample.timeUs, sample.frameIndex);
       }
       break;
@@ -270,6 +310,11 @@ void GaitEngine::update(const GaitSample& sample) {
       // A contact candidate is an impact feature; the event is timestamped at
       // the strongest one inside the window, not at the first (doc 05 §3).
       const float impact = (swinging && slowing) ? std::fabs(accelMagnitude - 1.0f) : 0.0f;
+      if (impact > lateImpact_) {
+        lateImpact_ = impact;
+        lateImpactUs_ = sample.timeUs;
+        lateImpactFrame_ = sample.frameIndex;
+      }
       if (impact >= config_.impactG) {
         if (contactMs_ == 0.0f) {
           contactWindowUs_ = sample.timeUs;
@@ -308,21 +353,22 @@ void GaitEngine::update(const GaitSample& sample) {
       } else if (windowClosed) {
         state_ = GaitState::ContactTransition;
         contactMs_ = 0.0f;
-        cycle_.contactSagittalDeg = sagittal;
-        // Close the previous cycle and open the next at the same instant.
-        closeCycle(bestImpactUs_, bestImpactFrame_);
-        emit(GaitEventType::InitialContact, bestImpactUs_, bestImpactFrame_);
-        lastContactUs_ = bestImpactUs_;
-        const float contactSagittal = sagittal;
-        startCycle(bestImpactUs_, bestImpactFrame_);
-        cycle_.contactSagittalDeg = contactSagittal;
+        claimContact(bestImpactUs_, bestImpactFrame_, sagittal);
       } else if (stillMs_ >= kZuptHoldMs + kZuptEntryHysteresisMs) {
         // A foot still for as long as a zero-velocity window needs is on the
         // ground even when no contact was seen: a soft last step into a stop has
         // no impact. Staying in swing locked the zero-velocity update out while
         // the integrator ran on, and 17 s of standing became 29 m (PROB-023).
-        // No contact is claimed; the open cycle runs on to the next one.
         state_ = GaitState::Stance;
+        // A swing that ends in stillness ended in a footfall, too soft for the
+        // confirm level, which push-off can match (PROB-024). The footfall is
+        // the strongest impact once the swing was long enough to end.
+        const bool soonAfterContact =
+            lastContactUs_ != 0 &&
+            float(lateImpactUs_ - lastContactUs_) / 1e6f < config_.contactRefractoryS;
+        if (lateImpact_ >= config_.impactG && !soonAfterContact) {
+          claimContact(lateImpactUs_, lateImpactFrame_, sagittal);
+        }
       }
       break;
     }

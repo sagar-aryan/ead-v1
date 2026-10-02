@@ -132,6 +132,24 @@ constexpr float kContactRateFallRatio = 1.0f;
 /// built from recorded cycles; keeping them in a struct means a recording can be
 /// replayed with different values without rebuilding the firmware, and the
 /// values that win can then be defaulted here.
+/// Doc 04 §7's event path: a 2nd-order Butterworth low-pass at 20 Hz
+/// (CONFIG_V1.json event_path_lowpass_hz) for the stillness test (PROB-024).
+constexpr float kEventPathLowPassHz = 20.0f;
+constexpr float kFrameRateHz = 100.0f;
+
+/// 2nd-order Butterworth low-pass, bilinear transform, transposed direct form II.
+class LowPass2 {
+ public:
+  LowPass2(float cutoffHz, float sampleHz);
+  /// Settles the filter at a constant input, with no transient.
+  void reset(float value);
+  float step(float x);
+
+ private:
+  float b0_, b1_, b2_, a1_, a2_;
+  float z1_ = 0.0f, z2_ = 0.0f;
+};
+
 struct GaitConfig {
   float impactG = kImpactG;
   float contactConfirmG = kContactConfirmG;
@@ -165,6 +183,7 @@ class GaitEngine {
   void emit(GaitEventType type, uint64_t timeUs, uint32_t frameIndex);
   void startCycle(uint64_t timeUs, uint32_t frameIndex);
   void closeCycle(uint64_t timeUs, uint32_t frameIndex);
+  void claimContact(uint64_t timeUs, uint32_t frameIndex, float sagittal);
   void integrate(const GaitSample& sample, float dt);
   void applyZeroVelocity();
   void removeSegmentDrift(uint64_t nowUs);
@@ -178,6 +197,7 @@ class GaitEngine {
   float toeOffMs_ = 0.0f;
 
   uint64_t lastTimeUs_ = 0;
+  LowPass2 stillAccel_{kEventPathLowPassHz, kFrameRateHz};
   /// Strongest impact feature seen inside the current contact window.
   float bestImpact_ = 0.0f;
   uint64_t bestImpactUs_ = 0;
@@ -186,6 +206,10 @@ class GaitEngine {
   uint64_t lastContactUs_ = 0;
   /// Highest foot angular rate seen since toe-off, for the decreasing-rate test.
   float swingPeakRateDps_ = 0.0f;
+  /// Strongest impact feature since the swing became long enough to end.
+  float lateImpact_ = 0.0f;
+  uint64_t lateImpactUs_ = 0;
+  uint32_t lateImpactFrame_ = 0;
 
   // Current cycle in progress.
   bool cycleOpen_ = false;

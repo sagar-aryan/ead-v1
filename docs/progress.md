@@ -1626,3 +1626,31 @@ at 100.14 Hz, no faults). PROB-024 open.
 
 ### Next Steps
 Flash over USB; replay sweeps for PROB-024.
+
+## 2026-10-02 — PROB-024: soft footfalls and the event-path stillness test
+
+### Objective
+Work through PROB-024 on the five 10 m walks (now fixtures in `recordings/`).
+
+### Approach
+Replay sweeps against the counted landings and the course, with the 6 m walk as a
+regression check; traces of the failing stances; a scratch build instrumenting
+the drift correction.
+
+### Changes
+- `gait.{h,cpp}`: soft footfalls confirmed by stillness; `LowPass2` and the 20 Hz
+  event path for the stillness test (DEC-019). Two unit tests.
+- `tools/replay/walks.py` (new): per-leg comparison with the ground truth.
+
+### Problems
+Lowering the confirm level or the swing-start rate split strides (rejected).
+Slow strides still read 30 % short; cause unknown.
+
+### Verification
+TEST-053.
+
+### Current Status
+In progress: contacts done; distance partial (PROB-024).
+
+### Next Steps
+Flash; the user decides on the 25 °/s limit; the slow-stride shortfall.

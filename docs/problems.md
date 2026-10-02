@@ -1273,7 +1273,70 @@ Unknown for all four. Hypotheses, none tested:
 - 3: the 25 °/s foot-rate limit for a zero-velocity window is too tight for a
   board on the instep at these paces.
 
+### Attempts
+All on the five walks (`tools/replay/walks.py`), with the 6 m MPU6500 walk as a
+regression check (6 valid cycles, 6.39 m before and after every kept change).
+
+#### Attempt 1: lower the contact confirm level (rejected)
+`--confirm` 1.0: 90 of 92 landings, but 4 slow strides split in two (cycles under
+0.9 s at a 1.8 s cadence). 0.9 and below: the 6 m walk gains 2 false cycles. Slow
+landings peak at 0.9–1.0 g above gravity, and so does push-off: the level cannot
+separate them.
+
+#### Attempt 2: a swing that ends in stillness ended in a footfall (kept)
+In `Swing`, the strongest impact once the swing could end (`kMinSwingS`) is kept;
+when the foot then stands still (PROB-023's exit) and that impact reached the
+candidate level `impactG`, it is claimed as the contact, subject to the same
+refractory period (DEC-019). Contacts 86 → 92 of 92 counted; no new split
+strides; the 6 m walk unchanged. The new contacts are the soft second landing of
+the slow walk (8.68 s), the closing steps into each stop, and one step in two of
+the turns.
+
+#### Attempt 3: lower the swing-start rate to catch the first step (rejected)
+The first step from standing in `walk10m-normal3` swings at 86 °/s, under
+`kSwingGyroDps` (90). `--swing-rate` 80: 5 split strides at fast pace; 70: 17;
+60 and 50: worse. Kept at 90.
+
+#### Attempt 4: the stillness test on the event path (kept)
+Traced in `walk10m-normal3` at 19.39–19.60 s: the foot turns at 11–24 °/s for
+210 ms, but |a| alternates 0.82 / 1.24 / 0.82 g between consecutive samples, and
+each sample outside 1 ± 0.15 g restarts the 80 ms count. The MPU6500 build had a
+42 Hz low-pass in the sensor (PROB-003); the BNO086 build has none, and doc 04 §7's
+filtering layers (6 Hz gait path, 20 Hz event path) were never implemented. The
+stillness test now reads |a| through a 2nd-order Butterworth low-pass at 20 Hz
+(`LowPass2`, DEC-019). Both uncorrected cycles in `walk10m-normal3` leg 1 are
+corrected (13.00 → 9.57 m); uncorrected valid cycles 8 → 5 across the walks.
+
+#### Attempt 5: a higher gyro limit for stillness (measured, not applied)
+The five remaining uncorrected stances dip under 25 °/s for only 50–90 ms at a
+time (minimum 14–18 °/s). `--zupt-gyro` 30: uncorrected cycles 5 → 2,
+`walk10m-normal2` 24.2 → 18.3 m, `walk10m-fast` 24.2 → 17.4 m, one slow contact
+lost, 6 m walk 6.34 m. 35: 1 uncorrected. 25 °/s is the contract's (doc 05 §6);
+changing it is the user's decision.
+
+#### Investigation: why slow strides read short
+Instrumented `removeSegmentDrift` in a scratch build (not committed). At normal
+pace each swing ends at about −2 m/s (it should end at 0), and the linear drift
+correction adds about +1.2 m per stride: most of a normal stride comes from the
+correction. At slow pace the end velocity is ±0.3 m/s, the correction is under
+0.25 m, and the raw integration is what reads 30 % short. The Mahony filter
+already ignores the accelerometer when |a| is more than 0.25 g from 1 g; the
+MPU6500 build reached 6–10 m/s at the end of a swing (TEST-030). Cause of the
+slow-walk shortfall: Unknown.
+
+### Current state (after attempts 2 and 4)
+1. Contacts: 92 of 92 counted; per leg, one first step from standing is still
+   missed when its swing stays under 90 °/s (`walk10m-normal3` leg 2,
+   `walk10m-slow` leg 1).
+2. Slow strides: median 0.69 m, legs 6.24 and 6.16 m; unchanged. Open.
+3. Five valid cycles without a zero-velocity update, each followed by one of
+   2.5–6.3 m (`walk10m-normal2` leg 2, `walk10m-fast` leg 1). Open; attempt 5 is
+   the user's decision.
+4. The slow split stride (40.55 s): unchanged. Open.
+5. Legs without an uncorrected cycle read 8.0–9.6 m at normal and fast pace, for
+   10 m less the first step from standing.
+
 ### Next
-Replay sweeps over `--impact`, `--zupt-gyro` and the drift attribution on the
-five walks, against the counts and the course. Thresholds come from the
-contract (CONFIG_V1.json); changing one is a decision for the user.
+The slow-walk shortfall: compare the foot's integrated velocity through one slow
+swing with the stride the count implies, and test whether the drift ramp should
+start at toe-off instead of at the end of the previous zero-velocity window.
