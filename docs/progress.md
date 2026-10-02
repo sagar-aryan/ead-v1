@@ -1442,3 +1442,44 @@ Blocked on the user's measurement of GPIO42 (PROB-020) before TEST-043.
 Measure GPIO42; then TEST-043; then DEC-017 (delegated: our own two-sensor SH-2
 driver, Mahony on the BNO086's calibrated accel and gyro, the MPU6500 build retired,
 a protocol schema bump accepted).
+
+## 2026-10-02 — Both BNO086s pass on the real wiring; the power wiring hazard
+
+### Objective
+
+Run TEST-043 on the assembled build; answer the user's questions on the GPIO42
+measurement, the power wiring, the motor test and the PWM frequency.
+
+### Investigation
+
+- The user asked why GPIO42 must be measured. The sensor test does not need motor 3,
+  so the bench firmware now leaves GPIO42 undriven (its reset state) instead of
+  driving it LOW: harmless whatever it is wired to. The measurement is needed only
+  before motor 3 is driven.
+- The user described the power wiring: the switched LOAD+ feeds the ERM driver and
+  the XIAO's 5V pin. Seeed's wiki says that pin is USB VBUS and needs an external
+  diode as an input: PROB-021.
+- Holtek HT78xx Rev 1.51 (downloaded): SOT-89 pins 1 GND, 2 VIN, 3 VOUT (as the PCB
+  was soldered); input up to 8 V, absolute maximum 8.5 V.
+- User answers: master switch OFF; test pulses approved (DEC-018); foot cable about
+  30 cm; the motor that kept running during the PCB bring-up stopped when the user
+  disconnected and reconnected the dashboard; the sensor-driver choices were
+  delegated (DEC-017).
+
+### Changes
+
+`firmware/bench/bno086/src/main.cpp` (GPIO42 left undriven); docs: TEST-043 results,
+PROB-021, DEC-017, DEC-018, `hardware.md`, `wiring_reference.md` §15.
+
+### Verification
+
+TEST-043: PASS for both sensors (each flashed in turn, checks read back over USB).
+
+### Current Status
+
+Sensors proven. Motor 3 waits for PROB-020; any motor test waits for the switch rule
+of PROB-021 to be understood by the operator.
+
+### Next Steps
+
+The DEC-017 driver and the DEC-018 service test, then `ead --check`.

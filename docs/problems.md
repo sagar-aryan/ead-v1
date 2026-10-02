@@ -1070,3 +1070,56 @@ Board unpowered: resistance from the MTMS back pad to GND, compared with D0 to G
 (expected about 100 kΩ for both), and where the MTMS wire lands on the driver PCB.
 
 Root cause: Unknown.
+
+## PROB-021 — USB 5 V and the switched battery meet at the XIAO's 5V pin
+
+**Status:** Open — hazard identified from the vendor's documentation; not measured
+
+### Symptoms
+
+None observed. Found 2026-10-02 from the user's description of the power wiring.
+
+### Environment
+
+The DEC-016 build. The user wired the master switch output (from the MCP73833
+module's LOAD+) to the ERM driver's PWR+ and to the XIAO's 5V pin. The design
+(`wiring_reference.md` §9, the PCB's `ESP+` pad) used the XIAO's BAT+ pad and left
+5V unconnected.
+
+### Evidence
+
+- **Confirmed (vendor doc):** Seeed's XIAO ESP32-S3 wiki: "5V — This is 5v out from
+  the USB port. You can also use this as a voltage input but you must have some sort
+  of diode … between your external power source and this pin, with anode to
+  battery, cathode to 5V pin." So nothing on the XIAO stops USB 5 V reaching the pin.
+- **Confirmed (datasheet):** the HT7833 accepts up to 8 V (absolute maximum 8.5 V)
+  (Holtek HT78xx Rev 1.51), so 5 V on PWR+ does not harm the regulators. At 5 V in,
+  each regulator dissipates 1.7 V × its load: about 0.2 W for one motor at 120 mA,
+  about 0.46 W for three at 90 mA, close to its 0.50 W rating.
+
+### Consequences (from the wiring, not measured)
+
+- **USB plugged in, switch OFF (how TEST-043 ran):** USB 5 V powers the ERM driver,
+  so both motor rails are live from the laptop's USB port. Motors still need a gate
+  driven high to run.
+- **USB plugged in, switch ON:** USB 5 V is connected straight to the charger
+  module's LOAD+ output. What that does to the module and the cell depends on the
+  module (whether LOAD+ is the cell itself) and on whether the cell has a protection
+  circuit; both unknown. Treated as a hazard.
+- **USB unplugged, switch ON:** works: the battery feeds the XIAO through its 5V pin
+  and regulator. The 3.3 V rail will sag earlier as the cell discharges than it would
+  on BAT+ (not measured).
+
+### Workaround
+
+Never turn the master switch ON while USB is plugged into the XIAO.
+
+### Options (the user's decision)
+
+1. Move the XIAO feed from the 5V pin to the BAT+ pad, as designed. The XIAO's own
+   power path then handles USB and battery; with USB plugged in it charges the cell
+   at about 50 mA through BAT+ when the switch is ON.
+2. Keep the 5V pin and add a Schottky diode (anode at the switch output, cathode at
+   the 5V pin), as Seeed instructs. Costs about 0.3 V of the battery range.
+
+Root cause: a deviation from the designed power wiring.

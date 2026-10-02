@@ -44,7 +44,8 @@ A result is only recorded as PASS when it was run and checked.
 | TEST-040 | 2026-09-23 | BNO086 identity and the 086-only features | PASS (idle power not measured) |
 | TEST-041 | 2026-10-01 | Pad states and JTAG eFuses on the chip | PASS |
 | TEST-042 | 2026-10-02 | A device reboot discards the host's calibration record | PARTIAL (unit tests PASS; hardware NOT RUN) |
-| TEST-043 | pending | Each BNO086 on the DEC-016 wiring | NOT RUN |
+| TEST-043 | 2026-10-02 | Each BNO086 on the DEC-016 wiring | PASS (both sensors) |
+| TEST-044 | 2026-10-02 | Pad readback on the assembled build | PARTIAL (GPIO42 anomaly, PROB-020) |
 
 ## TEST-008 — M0 firmware build
 
@@ -1441,11 +1442,38 @@ For each sensor, from TEST-039/040 on the bench part:
 
 ### Actual
 
-Not run (the board was not connected on 2026-10-02).
+Run 2026-10-02 over USB, master switch OFF, bench firmware with GPIO42 left
+undriven (PROB-020).
+
+| Check | Foot (CS 43, INT 39) | Shank (CS 44, INT 40) |
+|---|---|---|
+| `int_idle_in_reset` | PASS | PASS |
+| Readback MISO / CS / SCK / MOSI | 1/1, 1/0, 1/1, 1/1 | 1/1, 1/0, 1/1, 1/1 |
+| `other_rst_int` | other INT high in reset, low after release | same |
+| `rst_int` | PASS, 112 ms | PASS, 112 ms |
+| `spi_init` | PASS, 1 MHz, mode 3 | PASS, 1 MHz, mode 3 |
+| Product ID | part 10004563, 3.12.6, build 62, reset cause 4 | same |
+| `wake` | PASS, 1 ms | PASS, 1 ms |
+| `reports`, `izro_*` | PASS | PASS |
+| `accel_bits` | PASS, 1011.2 steps/g, 13.98 bits | PASS, 1024.3 steps/g, 14.00 bits |
+| `still` | PASS, \|a\| 9.937 m/s², \|ω\| 0.0000 rad/s | PASS, \|a\| 9.813 m/s², \|ω\| 0.0000 rad/s |
+| Stream | about 98 Hz | 99.8 Hz (998 lines over 9.994 s) |
 
 ### Result
 
-NOT RUN
+PASS, both sensors.
+
+### Notes
+
+- Every one of the nine lines per sensor took part in a passing step: 3V3, GND and
+  RST (the sensor boots on reset release), INT (idle high in reset, then asserted),
+  SCK, MISO, MOSI and CS (an SH-2 request and its answer), WAKE (the 1 ms answer).
+- Which physical sensor answers on which CS is not verified by this test: both
+  were still. The mounting check on the leg confirms foot vs shank.
+- Both runs print `CHK,reset,INFO,sensor reset itself` once, just after streaming
+  starts, and stream normally afterwards. Root cause: unknown; most likely the
+  library reporting the reset event of its own RST pulse late. Not investigated.
+- Motor gates 1, 2, 4, 5, 6 were held LOW and GPIO42 left undriven throughout.
 
 ## TEST-044 — Pad readback on the assembled DEC-016 build (padstate's stored report)
 

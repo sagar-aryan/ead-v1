@@ -652,3 +652,80 @@ reach a back pad rather than an edge pin.
 - Confirmed on the chip on 2026-10-01 (TEST-041): the JTAG eFuses are at
   factory default, so the back pads are not connected to JTAG and GPIO3's strap
   is ignored; every motor pin has no internal pull; the chip selects sit high.
+
+## DEC-017 — BNO086 product firmware: approach
+
+**Date:** 2026-10-02
+
+**Status:** Accepted (the user delegated the choice to the agent)
+
+### Context
+
+The physical device is the DEC-016 build: two BNO086s on one SPI bus. The product
+firmware supports only the retired MPU6500 build. TEST-043 proved the wiring with
+the SparkFun library, which can drive only one sensor at a time.
+
+### Options Considered
+
+1. Driver: our own SHTP/SH-2 code for two sensors; CEVA's `sh2` sources vendored
+   (one global instance; would need changes for two sensors, and is an external
+   dependency in a dependency-free build).
+2. Orientation: the contract's Mahony on the device, fed by the BNO086's calibrated
+   accelerometer and gyroscope; or the BNO086's own game rotation vector.
+3. MPU6500 support: keep as a build variant, or retire.
+
+### Decision
+
+Our own two-sensor SH-2 driver; Mahony on the device from the BNO086's calibrated
+accel and gyro; the MPU6500 acquisition code retired; a protocol schema bump
+accepted where the new data needs it. The raw-data layout is decided and recorded
+when the driver is written.
+
+### Reason
+
+- Our own driver keeps the product build free of external libraries and can run
+  two sensors on one bus under the wiring rules (one CS at a time, INT within 1 ms).
+- Mahony keeps the contract (doc 04), the tuned gravity gate (PROB-012) and
+  bit-identical host replay; the BNO086 fusion cannot be replayed from raw data.
+- The MPU6500 hardware no longer exists; git history keeps the code.
+
+### Trade-offs
+
+More firmware to write and test than vendoring; the BNO086's own fusion and
+calibration are not used for orientation (they remain available for comparison).
+
+### Consequences
+
+`config_v1.h` moves to the DEC-016 pins. Mount maps and gait thresholds must be
+re-measured on the leg with the new sensors.
+
+## DEC-018 — Motor service test before haptic feedback (lifts DEC-006 in part)
+
+**Date:** 2026-10-02
+
+**Status:** Accepted (user-approved: "test pulses is ok")
+
+### Context
+
+The ERM driver is fitted. The user wants `ead --check` to run each motor on its
+own. DEC-006 forbade haptic code until the drivers were fitted.
+
+### Decision
+
+Firmware may drive the motors for the contract's service test only (doc 07 §7,
+doc 08 `SERVICE_TEST`, doc 11 §6): one motor at a time, a pulse of fixed length
+timed on the device, duty within the contract's 20–80 %, the 5 s and rolling-duty
+limits enforced, refused during a patient session. Error-driven haptic feedback
+stays off (DEC-006 still holds for it).
+
+### Reason
+
+The pulse ends on the device whatever the link does. The ERM driver's own bring-up
+(`~/Documents/ead pcb/`, 2026-09-24) had motors keep running after their command
+went to zero until the user reconnected; LEDC holds its last duty with no CPU
+involvement.
+
+### Consequences
+
+Motor 3 is not driven until PROB-020 is resolved. The PWM frequency stays the
+contract's 200 Hz unless the user decides otherwise.

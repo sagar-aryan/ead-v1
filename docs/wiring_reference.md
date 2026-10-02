@@ -436,6 +436,12 @@ the window in which a motor there would have switched on.
 
 ## 15. What is wired today
 
+**As built, power (user, 2026-10-02):** the switched LOAD+ goes to the ERM
+driver's PWR+ and to the XIAO's **5V pin**, not to BAT+ as §9 and the PCB design
+specify. Seeed: the 5V pin is USB VBUS and needs an external diode when used as an
+input **[vendor doc]**. Consequence and options: PROB-021. **Never turn the master
+switch ON while USB is plugged into the XIAO.**
+
 **Current device (user, 2026-10-02): the DEC-016 build of §3, with the ERM driver
 PCB of §6, everything fitted.**
 

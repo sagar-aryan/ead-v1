@@ -417,6 +417,11 @@ void setup() {
   // Wiring rules 1 and 3: motor gates LOW, then both chip selects high, before
   // anything else.
   for (uint8_t pin : kMotorPins) {
+    // PROB-020: GPIO42 reads held low on the assembled build and its wiring is
+    // not yet measured; driving it is safe only if it really reaches a gate. It
+    // stays as reset leaves it (input, no pull), where the gate's 100 kOhm
+    // pulldown holds motor 3 off, as at every power-up.
+    if (pin == 42) continue;
     pinMode(pin, OUTPUT);
     digitalWrite(pin, LOW);
   }

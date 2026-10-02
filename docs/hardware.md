@@ -18,7 +18,9 @@ Every row states its evidence; "unverified" means nobody has measured it yet.
 | Which XIAO | The one measured in TEST-041: USB serial number (= MAC) `44:B1:76:AF:FB:7C` | Read from the USB descriptor, 2026-10-02 |
 | Firmware on it | `firmware/bench/padstate`; it has booted on the new wiring (TEST-044) | Its reply to a `?`, 2026-10-02 |
 | ERM driver | Separate PCB from `~/Documents/ead pcb/`: Holtek HT7833 SOT-89 ×2, IRLML6344 ×6, 1N5819W, 100 Ω / 100 kΩ, 10 nF across each motor, 100 nF per channel. Motors rated 3 V, 90 mA, 120 mA at start. Its bring-up on 2026-09-24 ran the motors at 20 kHz PWM from GPIO1–6 (`erm_channel_test.ino`); a stuck-motor event there has no established root cause | PCB project docs |
-| Measured on the assembled build | Pad readback only (TEST-044): sensor lines as expected; **GPIO42 (motor 3) held low, unlike the other five motor pins (PROB-020)** | TEST-044 |
+| Measured on the assembled build | Both BNO086s pass every wiring, identity and data check at 1 MHz (TEST-043). Pad readback: **GPIO42 (motor 3) held low, unlike the other five motor pins (PROB-020)** | TEST-043, TEST-044 |
+| XIAO power | The switched LOAD+ feeds the ERM driver's PWR+ **and the XIAO's 5V (VUSB) pin**, not its BAT+ pad. **The XIAO has no diode on that pin**, so with USB plugged in, USB 5 V sits on the switched node: switch OFF, it powers the ERM driver (motor rails live); switch ON, it meets the charger's LOAD+ (PROB-021) | User, 2026-10-02; Seeed XIAO ESP32-S3 wiki |
+| Foot cable | About 30 cm | User, 2026-10-02 |
 
 **Do not flash the product firmware onto this build.** It still uses the doc-03 pins:
 it would run I²C bus recovery and `Wire` on GPIO5/6 (motor gates 5 and 6) and drive
