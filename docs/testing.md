@@ -50,7 +50,7 @@ A result is only recorded as PASS when it was run and checked.
 | TEST-046 | 2026-10-02 | Acquisition on the DEC-016 build, 60 s over USB | PASS after a fix (125 Hz frames) |
 | TEST-047 | 2026-10-02 | Sensor check from the product firmware | PASS, both sensors |
 | TEST-048 | 2026-10-02 | Dashboard backend recording from the BNO086 build | PASS |
-| TEST-049 | 2026-10-02 | `ead --check` in the real app | PARTIAL (motor pulse not felt by a person) |
+| TEST-049 | 2026-10-02 | `ead --check` in the real app | PASS (all six motors felt at 50 %; cables not swapped) |
 | TEST-050 | 2026-10-02 | Replay with the recording's own conversion; schema 7 migration | PASS |
 
 ## TEST-008 — M0 firmware build
@@ -1672,10 +1672,20 @@ Release build (`tauri build --no-bundle`), launched as `ead --check` under X11
   button; moved into the Motors panel and re-verified.
 - Synthetic clicks on scrolled content never reached WebKit in this setup (not seen with
   unscrolled content); the M3 press was made with Tab and Space instead.
-- Not run: an accepted pulse felt by a person; the "which sensor is which" turn.
+- Not run by the agent: an accepted pulse felt by a person; the "which sensor is which"
+  turn. Both were done by the user later the same day (below).
+
+### User run (2026-10-02, 13:52–14:40 UTC, from the service-test log)
+- All six motors pulsed for 1 s and marked **felt** at duty 128 (50 %): M1, M2, M4, M5,
+  M6 (tests 11–15), M3 after PROB-020 (test 17). Earlier pulses at 75 % were left
+  unanswered. The lowest perceivable strength was not tested.
+- "Which sensor is which": moving the shank sensor changed the Shank column, and the
+  foot sensor the Foot column (user): the cables are not swapped.
+- Sensor check from the app: every step PASS on both sensors; boot 120 / 114 ms, WAKE
+  454 / 469 µs (user's screenshot).
 
 ### Result
-PARTIAL
+PASS
 
 ## TEST-050 — Replay with the recording's own conversion; schema 7 migration
 

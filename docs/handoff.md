@@ -27,8 +27,10 @@ placeholder or fake data, no features the spec does not need.
 - **`ead --check`** opens the dashboard on the Check view: the per-wire table,
   live rates to tell foot from shank, per-motor pulses with a "felt" answer
   (TEST-049). All six motors are enabled (PROB-020 resolved).
-- **Not yet measured with the BNO086 sensors:** mount maps (identity for now),
-  gait thresholds, foot vs shank cable identity, any motor pulse felt by a person.
+- All six motors felt at 50 %, and the foot and shank cables confirmed not swapped
+  (user, TEST-049).
+- **Not yet measured with the BNO086 sensors:** mount maps (identity for now) and gait
+  thresholds; both need the leg.
 - **On the MPU6500 build, everything M0–M6 worked and was verified:** 100 Hz
   data-ready acquisition with 0 lost frames in 30 min (TEST-018); calibration and
   Mahony orientation on the leg (TEST-027–029); gait and ZUPT, 6.39 m on a
@@ -97,14 +99,13 @@ and USB links → Rust backend with SQLite → React views and exports.
 Nothing in flight.
 
 ## Milestone Plan
-1. **The user:** pulse all six motors in `ead --check` and answer "felt".
-2. **On the leg:** the mounting check to measure both BNO086 mount maps (as TEST-027),
+1. **On the leg:** the mounting check to measure both BNO086 mount maps (as TEST-027),
    confirm foot vs shank, calibrate, then new ground-truth walks into `recordings/` and
    re-validate the gait thresholds by replay.
-3. **Walking validation:** a new reference, a check, an evaluation, an export read end
+2. **Walking validation:** a new reference, a check, an evaluation, an export read end
    to end.
-4. **Haptic feedback** (DEC-006 still holds for it): doc 06 §6–§10.
-5. **M7**, on-device storage: needs a DEC (the default partition leaves 1.5 MB).
+3. **Haptic feedback** (DEC-006 still holds for it): doc 06 §6–§10.
+4. **M7**, on-device storage: needs a DEC (the default partition leaves 1.5 MB).
 
 ## Known Problems
 - **No trustworthy reference profile:** v1–v3 carry the PROB-016 fault.
@@ -214,12 +215,11 @@ On hardware over USB, device still: `eadprobe check` (all PASS), `eadprobe stats
 hardware tests; the second resets the board).
 
 ## Next Steps
-1. Motor pulses felt by the user (TEST-049).
-2. On the leg: mount maps, foot vs shank, new walks, threshold re-validation.
-3. Dashboard gaps against doc 11: live gait metrics on LIVE, the seven TRENDS
+1. On the leg: mount maps, foot vs shank, new walks, threshold re-validation.
+2. Dashboard gaps against doc 11: live gait metrics on LIVE, the seven TRENDS
    panels, CYCLES → RAW click-through, RAW cycle/error filters, the "roll the
    sole inward" mounting step, PAUSE/RESUME, CONFIG_SET.
-4. M7 storage DEC, then the code.
+3. M7 storage DEC, then the code.
 
 ## Warnings
 - **Only firmware on the DEC-016 pins goes on this board** (product firmware from
