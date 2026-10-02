@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate EAD-V1 protocol golden vectors (schema 1).
+"""Generate EAD-V1 protocol golden vectors (schema 5).
 
 These bytes are built independently of the firmware: Python `struct`, `zlib`
 and `hashlib`, a separate COBS implementation, and the contract JSON for the
@@ -11,6 +11,7 @@ Layouts: docs/protocol.md.  Run:  python3 protocol/vectors/generate.py
 """
 import hashlib
 import json
+import math
 import pathlib
 import struct
 import zlib
@@ -20,13 +21,14 @@ ROOT = HERE.parent.parent
 CONFIG_JSON = ROOT / "ead_agent_docs_v2" / "CONFIG_V1.json"
 
 PROTOCOL_VERSION = 1
-SCHEMA = 4
+SCHEMA = 5
 
 # Message types (doc 08 §3).
 HELLO, CONFIG_GET, STATUS, ERROR = 0x01, 0x02, 0x0C, 0x0E
 RAW_SAMPLE_BATCH, BACKFILL_REQUEST, BACKFILL_DATA = 0x08, 0x10, 0x11
 SESSION_START, SESSION_STOP = 0x04, 0x05
 EVENT_BATCH, STEP_BATCH = 0x09, 0x0A
+SERVICE_TEST = 0x12
 
 # Calibration states and reject bits (docs/protocol.md §5.3, §6.5).
 CALIB_READY = 2
@@ -43,15 +45,25 @@ FAULT_FOOT_FROZEN, FAULT_SHANK_FROZEN, FAULT_ACQUISITION_STALLED = 1 << 7, 1 << 
 STATE_READY = 4
 LINK_USB_ACTIVE = 1 << 0
 CAP_PSRAM_RING = 1 << 2
+CAP_MOTOR_SERVICE_TEST = 1 << 3
+SENSOR_ANSWERED = 0x86
 
-# Datasheet sensitivities (MPU-6000/6050 and MPU-6500 product specifications).
-ACCEL_LSB_PER_G = {2: 16384.0, 4: 8192.0, 8: 4096.0, 16: 2048.0}
-GYRO_LSB_PER_DPS = {250: 131.0, 500: 65.5, 1000: 32.8, 2000: 16.4}
-
-# As-built mount maps (docs/hardware.md); not part of the contract JSON.
+# Sensors and pins of the BNO086 build (DEC-016, DEC-017); they replace the
+# contract JSON's "mpu6050" and "pins" groups, so they are written out here.
+SENSOR_KIND_BNO086 = 1
+SPI_HZ = 1_000_000
+REPORT_INTERVAL_US = 10_000
+ACCEL_RANGE_G, GYRO_RANGE_DPS = 8, 2000
+# Calibrated SH-2 reports: accelerometer Q8 m/s^2, gyroscope Q9 rad/s.
+ACCEL_LSB_PER_G = 256 * 9.80665
+GYRO_LSB_PER_DPS = 512 * math.pi / 180
+# SCK, MISO, MOSI, foot CS, shank CS, foot INT, shank INT, RST, WAKE; motors M1-M6.
+SENSOR_PINS = (7, 8, 9, 43, 44, 39, 40, 41, 3)
+MOTOR_PINS = (1, 2, 42, 4, 5, 6)
+# Not yet measured for the BNO086 boards (config_v1.h).
 FOOT_MOUNT = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
-SHANK_MOUNT = [[0, 0, -1], [0, 1, 0], [1, 0, 0]]
-HAPTICS_FITTED = 0  # DEC-006
+SHANK_MOUNT = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+HAPTICS_FITTED = 0  # DEC-006: no error-driven feedback
 
 
 def header(msg_type, payload_len, seq, time_us, flags=0):
@@ -104,23 +116,38 @@ def raw_batch_payload(frames):
     return struct.pack("<BB", len(frames), 54) + b"".join(frames)
 
 
-def config_section(cfg):
+def config_section_format1(cfg):
+    """The MPU6500 build's section (format 1), as stored with every session
+    recorded before schema 5: hosts must keep reading it."""
     m, p = cfg["mpu6050"], cfg["pins"]
-    cal, gait, zupt = cfg["calibration"], cfg["gait"], cfg["zupt"]
-    err, hap, net = cfg["error"], cfg["haptics"], cfg["network"]
-    sto, ref = cfg["storage"], cfg["reference"]
     out = bytearray()
     out += struct.pack(
         "<BBIHBHBBBff",
         int(m["foot_address"], 16), int(m["shank_address"], 16), m["i2c_hz"], m["sample_hz"],
         m["accelerometer_range_g"], m["gyroscope_range_dps"], m["dlpf_hz"], m["dlpf_cfg"],
-        m["sample_rate_divider"], ACCEL_LSB_PER_G[m["accelerometer_range_g"]],
-        GYRO_LSB_PER_DPS[m["gyroscope_range_dps"]])
-    for mount in (FOOT_MOUNT, SHANK_MOUNT):
+        m["sample_rate_divider"], 8192.0, 65.5)  # MPU-6500 sensitivities at +-4 g, +-500 dps
+    # The MPU6500 build's mount maps, measured on the leg (TEST-027).
+    for mount in ([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [[0, 0, -1], [0, 1, 0], [1, 0, 0]]):
         out += struct.pack("<9b", *[v for row in mount for v in row])
     motors = p["motor_pwm_gpio"]
     out += struct.pack("<10B", p["i2c_sda_gpio"], p["i2c_scl_gpio"], p["foot_imu_int_gpio"],
                        p["shank_imu_int_gpio"], *[motors[f"M{i}"] for i in range(1, 7)])
+    # Everything after the pins is the same in both formats. In format 2 it
+    # starts after 22 bytes of sensor fields, 18 of mount maps and 15 of pins.
+    return bytes(out) + config_section(cfg)[22 + 18 + 15:]
+
+
+def config_section(cfg):
+    cal, gait, zupt = cfg["calibration"], cfg["gait"], cfg["zupt"]
+    err, hap, net = cfg["error"], cfg["haptics"], cfg["network"]
+    sto, ref = cfg["storage"], cfg["reference"]
+    out = bytearray()
+    out += struct.pack("<BIHIBHff", SENSOR_KIND_BNO086, SPI_HZ, cfg["mpu6050"]["sample_hz"],
+                       REPORT_INTERVAL_US, ACCEL_RANGE_G, GYRO_RANGE_DPS, ACCEL_LSB_PER_G,
+                       GYRO_LSB_PER_DPS)
+    for mount in (FOOT_MOUNT, SHANK_MOUNT):
+        out += struct.pack("<9b", *[v for row in mount for v in row])
+    out += struct.pack("<15B", *SENSOR_PINS, *MOTOR_PINS)
     out += struct.pack("<Bff", cal["static_seconds"], cal["mahony_kp"], cal["mahony_ki"])
     out += struct.pack("<ffffHHH", gait["gait_lowpass_hz"], gait["event_path_lowpass_hz"],
                        gait["min_cycle_s"], gait["max_cycle_s"], gait["event_contact_guard_ms"],
@@ -158,17 +185,19 @@ def main():
     cfg = json.loads(CONFIG_JSON.read_text())
 
     hello_request = message(HELLO, struct.pack("<H", SCHEMA), seq=7, time_us=0)
-    write("hello_request.hex", "Host HELLO, schema 4, command sequence 7.", hello_request)
+    write("hello_request.hex", "Host HELLO, schema 5, command sequence 7.", hello_request)
 
     fw = "0.1.0+test"
     sha = hashlib.sha256(b"ead").digest()
     hello_info_payload = (
         struct.pack("<HBBI", SCHEMA, STATE_READY, 1, 0xA1B2C3D4)
         + bytes([0x44, 0xB1, 0x76, 0xAF, 0xFB, 0x7C])
-        + struct.pack("<BBB", 0x70, 0x70, CAP_PSRAM_RING) + sha + struct.pack("<II", 1, 42) + str8(fw))
+        + struct.pack("<BBB", SENSOR_ANSWERED, 0, CAP_PSRAM_RING | CAP_MOTOR_SERVICE_TEST) + sha
+        + struct.pack("<II", 1, 42) + str8(fw))
     write("hello_info.hex",
           "Device HELLO: READY, reset reason 1, boot_id 0xA1B2C3D4, MAC 44:B1:76:AF:FB:7C,\n"
-          "WHO 0x70/0x70, capabilities 0x04 (PSRAM ring), config SHA-256 of b'ead',\n"
+          "foot sensor answered (0x86), shank did not (0), capabilities 0x0C (PSRAM ring,\n"
+          "motor service test), config SHA-256 of b'ead',\n"
           "sequence window 1..42, firmware '0.1.0+test'. Header sequence 42, time 123456789.",
           message(HELLO, hello_info_payload, seq=42, time_us=123456789))
 
@@ -179,7 +208,7 @@ def main():
     assert len(status_payload) == 58
     write("status.hex",
           "Device STATUS: READY, USB link active, faults 0x0300 (shank frozen + acquisition\n"
-          "stalled), frame 123456, dropped 3, shank repeated 17, I2C errors 2, reinits 1,\n"
+          "stalled), frame 123456, dropped 3, shank repeated 17, bus errors 2, reinits 1,\n"
           "sequence window 1..42, RSSI -47 dBm, 1 station, heap min 201000,\n"
           "stack free 1500/2600/3100/4200, calibration ready from 500 samples,\n"
           "gait FOOT_FLAT_ZV with 37 cycles completed.\n"
@@ -280,16 +309,45 @@ def main():
 
     section = config_section(cfg)
     write("config_section.hex",
-          "CONFIG_GET section format 1, built from ead_agent_docs_v2/CONFIG_V1.json plus\n"
-          "as-built mount maps, datasheet sensitivities and haptics_fitted = 0.", section)
-    config_payload = (struct.pack("<H", 1) + hashlib.sha256(section).digest()
+          "CONFIG_GET section format 2: BNO086 sensors and DEC-016 pins as in generate.py,\n"
+          "identity mount maps, haptics_fitted = 0, everything else from CONFIG_V1.json.", section)
+    write("config_section_format1.hex",
+          "CONFIG_GET section format 1: the MPU6500 build (I2C addresses, DLPF, 8192 LSB/g,\n"
+          "65.5 LSB/(deg/s), the shank map measured in TEST-027, doc-03 pins). Kept because\n"
+          "every session recorded before schema 5 stores this layout.",
+          config_section_format1(cfg))
+    config_payload = (struct.pack("<H", 2) + hashlib.sha256(section).digest()
                       + struct.pack("<H", len(section)) + section)
     write("config_response.hex",
-          "Device CONFIG_GET response payload (no header): format 1, SHA-256 of the section,\n"
+          "Device CONFIG_GET response payload (no header): format 2, SHA-256 of the section,\n"
           "section length, section.", config_payload)
 
     write("usb_frame_hello_request.hex", "hello_request.hex framed for USB: 00 | COBS(msg || CRC32-LE) | 00.",
           usb_frame(hello_request))
+
+    write("service_test_check_request.hex",
+          "Host SERVICE_TEST: sensor check, rerun = 1. Command sequence 9.",
+          message(SERVICE_TEST, struct.pack("<BB", 1, 1), seq=9, time_us=0))
+    write("service_test_pulse_request.hex",
+          "Host SERVICE_TEST: motor pulse, motor 4, duty 128 of 255, 1000 ms.\n"
+          "Command sequence 10.",
+          message(SERVICE_TEST, struct.pack("<BBBBH", 2, 4, 128, 0, 1000), seq=10, time_us=0))
+    foot_check = struct.pack("<HHHBBBBHII", 0x7F, 112, 900, 4, 3, 12, 0, 6, 10004563, 62)
+    shank_check = struct.pack("<HHHBBBBHII", 0x0F, 113, 0xFFFF, 0, 0, 0, 0, 0, 0, 0)
+    assert len(foot_check) == 20
+    write("sensor_check.hex",
+          "Device SERVICE_TEST reply, sensor check. Foot: every step passed (flags 0x7F),\n"
+          "booted 112 ms after RST, answered WAKE in 900 us, reset cause 4, version 3.12.6,\n"
+          "part 10004563, build 62. Shank: flags 0x0F (int idle high, booted, read valid,\n"
+          "INT released), booted in 113 ms, never answered WAKE (0xFFFF), no product ID.\n"
+          "Header sequence 42, time 5000000.",
+          message(SERVICE_TEST, struct.pack("<BB", 1, 0) + foot_check + shank_check, seq=42,
+                  time_us=5_000_000))
+    write("motor_pulse.hex",
+          "Device SERVICE_TEST reply: motor pulse accepted, motor 4, duty 128, 1000 ms.\n"
+          "Header sequence 42, time 6000000.",
+          message(SERVICE_TEST, struct.pack("<BBBBH", 2, 4, 128, 0, 1000), seq=42,
+                  time_us=6_000_000))
 
     long_payload = bytes((i % 255) + 1 for i in range(300))
     long_msg = message(STATUS, long_payload, seq=1, time_us=2)

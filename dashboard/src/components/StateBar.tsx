@@ -99,9 +99,18 @@ export function StateBar({
 
       <div className="state-block">
         <span className="label">Haptics</span>
-        <span className="value absent" title="No ERM driver channels are fitted (DEC-006)">
-          not fitted
-        </span>
+        {snapshot?.motor_service_test ? (
+          <span
+            className="value"
+            title="The ERM driver is fitted; motors run only as service-test pulses (DEC-018). Error-driven feedback is not built (DEC-006)."
+          >
+            no feedback
+          </span>
+        ) : (
+          <span className="value absent" title="No ERM driver channels are fitted (DEC-006)">
+            not fitted
+          </span>
+        )}
       </div>
 
       <div className="state-block">

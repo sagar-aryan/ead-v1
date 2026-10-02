@@ -1073,7 +1073,9 @@ Root cause: Unknown.
 
 ## PROB-021 — USB 5 V and the switched battery meet at the XIAO's 5V pin
 
-**Status:** Open — hazard identified from the vendor's documentation; not measured
+**Status:** Closed by the user (2026-10-02): "the power wiring is correct, I have
+implemented a way". The provision was not described and has not been verified.
+The hazard analysis below stays as the record.
 
 ### Symptoms
 

@@ -138,7 +138,11 @@ export function Device({ device }: { device: DeviceApi }) {
               {snapshot?.capabilities.length ? snapshot.capabilities.join(", ") : <span className="absent">none</span>}
             </Field>
             <Field label="Haptics">
-              <span className="absent">not fitted</span>
+              {snapshot?.motor_service_test ? (
+                "service-test pulses only; no feedback (DEC-006)"
+              ) : (
+                <span className="absent">not fitted</span>
+              )}
             </Field>
           </div>
         </div>
@@ -157,8 +161,8 @@ export function Device({ device }: { device: DeviceApi }) {
             <Field label="Dropped">
               <span className="num">{status.frames_dropped}</span>
             </Field>
-            <Field label="I²C errors">
-              <span className="num">{status.i2c_errors}</span>
+            <Field label="Bus errors">
+              <span className="num">{status.bus_errors}</span>
             </Field>
             <Field label="Shank repeats">
               <span className="num">{status.shank_repeated}</span>
@@ -213,14 +217,26 @@ export function Device({ device }: { device: DeviceApi }) {
             <Field label="Gyroscope">
               <span className="num">±{config.imu.gyro_range_dps}<span className="unit">°/s</span></span>
             </Field>
-            <Field label="Low-pass">
-              <span className="num">{config.imu.dlpf_hz}<span className="unit">Hz</span></span>
-            </Field>
-            <Field label="I²C addresses">
-              <span className="num">
-                0x{config.imu.foot_address.toString(16)} / 0x{config.imu.shank_address.toString(16)}
-              </span>
-            </Field>
+            {config.imu.bus.part === "bno086" ? (
+              <>
+                <Field label="Sensors">BNO086, SPI</Field>
+                <Field label="SPI clock">
+                  <span className="num">{config.imu.bus.spi_hz / 1e6}<span className="unit">MHz</span></span>
+                </Field>
+              </>
+            ) : (
+              <>
+                <Field label="Low-pass">
+                  <span className="num">{config.imu.bus.dlpf_hz}<span className="unit">Hz</span></span>
+                </Field>
+                <Field label="I²C addresses">
+                  <span className="num">
+                    0x{config.imu.bus.foot_address.toString(16)} / 0x
+                    {config.imu.bus.shank_address.toString(16)}
+                  </span>
+                </Field>
+              </>
+            )}
             <Field label="Mahony gains">
               <span className="num">
                 {config.mahony_kp} / {config.mahony_ki}

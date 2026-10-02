@@ -20,26 +20,24 @@ void writeMount(ByteWriter& w, const EadMountMap& map) {
 size_t encodeConfigSection(uint8_t* out, size_t cap) {
   ByteWriter w(out, cap);
 
-  // IMUs
-  w.u8(EAD_FOOT_MPU_ADDR);
-  w.u8(EAD_SHANK_MPU_ADDR);
-  w.u32(EAD_I2C_HZ);
+  // Sensors
+  w.u8(kSensorKindBno086);
+  w.u32(EAD_SPI_HZ);
   w.u16(EAD_SAMPLE_HZ);
+  w.u32(EAD_REPORT_INTERVAL_US);
   w.u8(EAD_ACCEL_RANGE_G);
   w.u16(EAD_GYRO_RANGE_DPS);
-  w.u8(EAD_MPU_DLPF_HZ);
-  w.u8(EAD_MPU_DLPF_CFG);
-  w.u8(EAD_MPU_SMPLRT_DIV);
   w.f32(EAD_ACCEL_LSB_PER_G);
   w.f32(EAD_GYRO_LSB_PER_DPS);
   writeMount(w, kEadFootMount);
   writeMount(w, kEadShankMount);
 
   // Pins
-  w.u8(EAD_PIN_I2C_SDA);
-  w.u8(EAD_PIN_I2C_SCL);
-  w.u8(EAD_PIN_FOOT_IMU_INT);
-  w.u8(EAD_PIN_SHANK_IMU_INT);
+  for (uint8_t pin : {EAD_PIN_SPI_SCK, EAD_PIN_SPI_MISO, EAD_PIN_SPI_MOSI, EAD_PIN_FOOT_CS,
+                      EAD_PIN_SHANK_CS, EAD_PIN_FOOT_INT, EAD_PIN_SHANK_INT, EAD_PIN_SENSOR_RST,
+                      EAD_PIN_SENSOR_WAKE}) {
+    w.u8(pin);
+  }
   for (uint8_t pin : {EAD_MOTOR_M1_GPIO, EAD_MOTOR_M2_GPIO, EAD_MOTOR_M3_GPIO, EAD_MOTOR_M4_GPIO,
                       EAD_MOTOR_M5_GPIO, EAD_MOTOR_M6_GPIO}) {
     w.u8(pin);
@@ -76,7 +74,7 @@ size_t encodeConfigSection(uint8_t* out, size_t cap) {
     w.f32(weight);
   }
 
-  // Haptics (contract values; hardware not fitted)
+  // Haptics (contract values). The first byte: 0 = no error-driven feedback (DEC-006).
   w.u8(EAD_HAPTICS_FITTED);
   w.u16(EAD_HAPTIC_PWM_HZ);
   w.u8(EAD_HAPTIC_RES_BITS);

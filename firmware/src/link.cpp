@@ -1,6 +1,8 @@
 #include "link.h"
 
+#include "acquisition.h"
 #include "calibration_service.h"
+#include "motors.h"
 #include "session_service.h"
 
 #include <algorithm>
@@ -17,6 +19,23 @@ namespace {
 
 constexpr int64_t kHostTimeoutUs = 3000000;
 constexpr int64_t kStatusPeriodUs = 200000;  // 5 Hz
+
+// Why a pulse was refused, for the ERROR detail a person reads.
+const char* refusalText(ead::MotorGuard::Refusal refusal, uint8_t motor) {
+  using Refusal = ead::MotorGuard::Refusal;
+  switch (refusal) {
+    case Refusal::BadMotor: return "motor must be 1..6";
+    case Refusal::Disabled:
+      return motor == 3 ? "motor 3 stays off until its wiring is measured (PROB-020)"
+                        : "motor output is not available";
+    case Refusal::BadDuty: return "duty must be 51..204 of 255 (20-80 %)";
+    case Refusal::BadDuration: return "duration must be 100..5000 ms";
+    case Refusal::Busy: return "another motor is pulsing: one at a time";
+    case Refusal::RollingLimit: return "rolling limit: at most 5 s on per motor in any 10 s";
+    case Refusal::None: break;
+  }
+  return "";
+}
 
 uint32_t latestSequence() {
   uint32_t oldest = 0, last = 0;
@@ -161,6 +180,50 @@ void Link::onMessage(const uint8_t* msg, size_t len, int64_t nowUs) {
       }
       return;
     }
+    case MsgType::ServiceTest: {
+      ead::ServiceOp op{};
+      bool rerun = false;
+      ead::MotorPulse pulse{};
+      if (!ead::decodeServiceTest(payload, h.length, &op, &rerun, &pulse)) {
+        queueError(h.sequence, h.type, ErrorCode::BadPayload,
+                   "SERVICE_TEST is {1, rerun} or {2, motor, duty, 0, u16 ms}", nowUs);
+        return;
+      }
+      if (op == ead::ServiceOp::SensorCheck && !rerun) {
+        queueSensorCheck(nowUs);
+        return;
+      }
+      // Doc 07 §7: no service test during a session; a calibration needs the
+      // leg still and the sensors streaming.
+      if (session::active() ||
+          calibration::state() == ead::CalibrationState::Collecting) {
+        queueError(h.sequence, h.type, ErrorCode::InvalidState,
+                   "not during a session or a calibration", nowUs);
+        return;
+      }
+      if (op == ead::ServiceOp::SensorCheck) {
+        if (!acquisition::requestCheck(activeFlag_)) {
+          queueError(h.sequence, h.type, ErrorCode::InvalidState, "a sensor check is running",
+                     nowUs);
+        }
+        return;  // the report follows when the check finishes (peek)
+      }
+      const ead::MotorGuard::Refusal refusal = motors::pulse(pulse);
+      if (refusal == ead::MotorGuard::Refusal::None) {
+        uint8_t body[ead::kMotorPulsePayloadSize];
+        queueReply(MsgType::ServiceTest, body,
+                   ead::encodeMotorPulsePayload(pulse, body, sizeof body), nowUs);
+        return;
+      }
+      const bool badRequest = refusal == ead::MotorGuard::Refusal::BadMotor ||
+                              refusal == ead::MotorGuard::Refusal::BadDuty ||
+                              refusal == ead::MotorGuard::Refusal::BadDuration;
+      const ErrorCode code = badRequest ? ErrorCode::BadPayload
+                             : refusal == ead::MotorGuard::Refusal::Busy ? ErrorCode::InvalidState
+                                                                         : ErrorCode::Rejected;
+      queueError(h.sequence, h.type, code, refusalText(refusal, pulse.motor), nowUs);
+      return;
+    }
     case MsgType::BackfillRequest: {
       uint32_t first = 0, last = 0;
       if (!ead::decodeBackfillRequest(payload, h.length, &first, &last)) {
@@ -210,6 +273,15 @@ void Link::queueReply(MsgType type, const uint8_t* payload, size_t len, int64_t 
   replyCount_++;
 }
 
+void Link::queueSensorCheck(int64_t nowUs) {
+  ead::SensorCheck foot{};
+  ead::SensorCheck shank{};
+  acquisition::latestCheck(&foot, &shank);
+  uint8_t body[ead::kSensorCheckPayloadSize];
+  queueReply(MsgType::ServiceTest, body,
+             ead::encodeSensorCheckPayload(foot, shank, body, sizeof body), nowUs);
+}
+
 void Link::queueError(uint32_t cmdSeq, uint8_t cmdType, ErrorCode code, const char* detail,
                       int64_t nowUs) {
   uint8_t body[128];
@@ -227,6 +299,10 @@ size_t Link::peek(uint8_t* out, size_t cap, int64_t nowUs) {
     return r.len;
   }
   if (!streaming(nowUs)) return 0;
+
+  if (acquisition::takeCheckDone(activeFlag_)) {
+    queueSensorCheck(nowUs);  // goes out on the next peek
+  }
 
   if (calibration::takeCompletion()) {
     ead::CalibrationRecord record;

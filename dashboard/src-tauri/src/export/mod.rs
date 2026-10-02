@@ -130,7 +130,7 @@ fn metadata_json(
 ) -> Result<String> {
     let config = store
         .session_config(&session.session_id)?
-        .and_then(|bytes| crate::protocol::parse_section(&bytes).ok());
+        .and_then(|section| section.parse().ok());
     let calibration: Option<serde_json::Value> = store
         .session_calibration(&session.session_id)?
         .and_then(|text| serde_json::from_str(&text).ok());

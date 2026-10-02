@@ -12,12 +12,12 @@ pub(crate) mod tests;
 
 use reader::Reader;
 
-pub use config::parse_section;
+pub use config::ConfigSection;
 
 pub const PROTOCOL_VERSION: u16 = 1;
 use std::cmp::Ordering;
 
-pub const SCHEMA_VERSION: u16 = 4;
+pub const SCHEMA_VERSION: u16 = 5;
 pub const HEADER_SIZE: usize = 20;
 pub const RAW_FRAME_SIZE: usize = 54;
 /// Largest message the device will send (`docs/protocol.md` §7).
@@ -165,8 +165,10 @@ pub struct Hello {
     pub reset_reason: u8,
     pub boot_id: u32,
     pub mac: [u8; 6],
-    pub who_foot: u8,
-    pub who_shank: u8,
+    /// `SENSOR_ANSWERED` when the BNO086 gave its product ID at boot, else 0
+    /// (schema 5; the MPU6500 build sent WHO_AM_I here).
+    pub sensor_foot: u8,
+    pub sensor_shank: u8,
     pub capabilities: u8,
     pub config_sha256: [u8; 32],
     pub oldest_seq: u32,
@@ -175,13 +177,19 @@ pub struct Hello {
 }
 
 pub const CAP_HAPTICS_FITTED: u8 = 1 << 0;
+pub const CAP_MOTOR_SERVICE_TEST: u8 = 1 << 3;
 
 /// Capability bits, `docs/protocol.md` §6.4.
-pub const CAPABILITY_NAMES: [&str; 3] = ["haptics_fitted", "flash_storage", "psram_ring"];
+pub const CAPABILITY_NAMES: [&str; 4] =
+    ["haptics_fitted", "flash_storage", "psram_ring", "motor_service_test"];
 
 impl Hello {
     pub fn haptics_fitted(&self) -> bool {
         self.capabilities & CAP_HAPTICS_FITTED != 0
+    }
+
+    pub fn motor_service_test(&self) -> bool {
+        self.capabilities & CAP_MOTOR_SERVICE_TEST != 0
     }
 
     pub fn capability_names(&self) -> Vec<&'static str> {
@@ -201,8 +209,8 @@ pub fn parse_hello(payload: &[u8]) -> Result<Hello> {
         reset_reason: r.u8()?,
         boot_id: r.u32()?,
         mac: r.array::<6>()?,
-        who_foot: r.u8()?,
-        who_shank: r.u8()?,
+        sensor_foot: r.u8()?,
+        sensor_shank: r.u8()?,
         capabilities: r.u8()?,
         config_sha256: r.array::<32>()?,
         oldest_seq: r.u32()?,
@@ -229,7 +237,8 @@ pub struct Status {
     pub frame_index: u32,
     pub frames_dropped: u32,
     pub shank_repeated: u32,
-    pub i2c_errors: u32,
+    /// Failed or invalid sensor reads (I²C on format-1 devices, SPI on format 2).
+    pub bus_errors: u32,
     pub imu_reinits: u32,
     pub oldest_seq: u32,
     pub last_seq: u32,
@@ -261,7 +270,7 @@ pub fn parse_status(payload: &[u8]) -> Result<Status> {
         frame_index: r.u32()?,
         frames_dropped: r.u32()?,
         shank_repeated: r.u32()?,
-        i2c_errors: r.u32()?,
+        bus_errors: r.u32()?,
         imu_reinits: r.u32()?,
         oldest_seq: r.u32()?,
         last_seq: r.u32()?,
@@ -761,6 +770,104 @@ pub fn parse_config(payload: &[u8]) -> Result<DeviceConfig> {
     let length = r.u16()? as usize;
     let section = r.bytes(length)?.to_vec();
     Ok(DeviceConfig { format, sha256, section })
+}
+
+// ---- SERVICE_TEST (`docs/protocol.md` §5.14) --------------------------------
+
+const SERVICE_OP_SENSOR_CHECK: u8 = 1;
+const SERVICE_OP_MOTOR_PULSE: u8 = 2;
+const SENSOR_CHECK_RECORD_SIZE: usize = 20;
+
+/// The steps of a sensor check, in flag-bit order.
+pub const CHECK_STEPS: [&str; 7] = [
+    "int_high_in_reset",
+    "booted",
+    "read_valid",
+    "int_released",
+    "wake",
+    "product_id",
+    "reports",
+];
+
+/// One sensor's wiring check: which steps passed, and what it said about itself.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct SensorCheck {
+    pub passed: Vec<&'static str>,
+    pub boot_ms: Option<u16>,
+    pub wake_us: Option<u16>,
+    pub reset_cause: u8,
+    pub version: String,
+    pub part_number: u32,
+    pub build_number: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MotorPulse {
+    pub motor: u8,
+    pub duty: u8,
+    pub duration_ms: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct SensorCheckReport {
+    pub foot: SensorCheck,
+    pub shank: SensorCheck,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServiceReply {
+    SensorCheck(SensorCheckReport),
+    MotorPulse(MotorPulse),
+}
+
+pub fn sensor_check_request(rerun: bool) -> Vec<u8> {
+    vec![SERVICE_OP_SENSOR_CHECK, u8::from(rerun)]
+}
+
+pub fn motor_pulse_request(pulse: &MotorPulse) -> Vec<u8> {
+    let mut payload = vec![SERVICE_OP_MOTOR_PULSE, pulse.motor, pulse.duty, 0];
+    payload.extend_from_slice(&pulse.duration_ms.to_le_bytes());
+    payload
+}
+
+fn sensor_check(r: &mut Reader<'_>) -> Result<SensorCheck> {
+    let flags = r.u16()?;
+    let boot_ms = r.u16()?;
+    let wake_us = r.u16()?;
+    let reset_cause = r.u8()?;
+    let major = r.u8()?;
+    let minor = r.u8()?;
+    r.u8()?;
+    let patch = r.u16()?;
+    Ok(SensorCheck {
+        passed: names_for(flags, &CHECK_STEPS),
+        boot_ms: (boot_ms != 0xFFFF).then_some(boot_ms),
+        wake_us: (wake_us != 0xFFFF).then_some(wake_us),
+        reset_cause,
+        version: format!("{major}.{minor}.{patch}"),
+        part_number: r.u32()?,
+        build_number: r.u32()?,
+    })
+}
+
+/// A device SERVICE_TEST reply. Told apart by its operation and length.
+pub fn parse_service_test(payload: &[u8]) -> Result<ServiceReply> {
+    let mut r = Reader::new(payload);
+    match (r.u8()?, payload.len()) {
+        (SERVICE_OP_SENSOR_CHECK, len) if len == 2 + 2 * SENSOR_CHECK_RECORD_SIZE => {
+            r.u8()?;
+            let foot = sensor_check(&mut r)?;
+            let shank = sensor_check(&mut r)?;
+            Ok(ServiceReply::SensorCheck(SensorCheckReport { foot, shank }))
+        }
+        (SERVICE_OP_MOTOR_PULSE, 6) => {
+            let motor = r.u8()?;
+            let duty = r.u8()?;
+            r.u8()?;
+            Ok(ServiceReply::MotorPulse(MotorPulse { motor, duty, duration_ms: r.u16()? }))
+        }
+        _ => Err(ProtocolError::BadPayload("SERVICE_TEST")),
+    }
 }
 
 // ---- BACKFILL --------------------------------------------------------------

@@ -1,17 +1,16 @@
-// EAD-V1 firmware: data-ready-clocked 100 Hz acquisition of the foot and shank
-// IMUs, streamed as binary protocol messages over Wi-Fi and USB.
+// EAD-V1 firmware: 100 Hz acquisition of the foot and shank BNO086 sensors,
+// streamed as binary protocol messages over Wi-Fi and USB.
 // Architecture: docs/architecture.md. Protocol: docs/protocol.md.
 #include <Arduino.h>
-#include <Wire.h>
 #include <esp_log.h>
 
 #include "acquisition.h"
 #include "config_v1.h"
 #include "device.h"
 #include "ead/protocol.h"
-#include "imu.h"
 #include "link_usb.h"
 #include "link_wifi.h"
+#include "motors.h"
 #include "telemetry.h"
 
 static const uint8_t kMotorGpios[EAD_MOTOR_COUNT] = {
@@ -19,11 +18,15 @@ static const uint8_t kMotorGpios[EAD_MOTOR_COUNT] = {
     EAD_MOTOR_M4_GPIO, EAD_MOTOR_M5_GPIO, EAD_MOTOR_M6_GPIO};
 
 void setup() {
-  // Motor outputs first: doc 03 §4 requires them LOW before anything else.
-  // No drivers are fitted and nothing else touches these pins (DEC-006).
-  for (uint8_t pin : kMotorGpios) {
-    pinMode(pin, OUTPUT);
-    digitalWrite(pin, LOW);
+  // Motor outputs first: doc 03 §4 and wiring rule 1 require them LOW before
+  // anything else. A channel switched off in EAD_MOTOR_ENABLED_MASK stays as
+  // reset leaves it, held off by its gate pulldown: GPIO42 (motor 3) reads held
+  // low on the assembled build and driving it is safe only if it really reaches
+  // a gate (PROB-020).
+  for (int m = 0; m < EAD_MOTOR_COUNT; m++) {
+    if ((EAD_MOTOR_ENABLED_MASK & (1u << m)) == 0) continue;
+    pinMode(kMotorGpios[m], OUTPUT);
+    digitalWrite(kMotorGpios[m], LOW);
   }
 
   // USB carries only binary frames (DEC-005) through link_usb.cpp, which drives
@@ -31,16 +34,15 @@ void setup() {
   // ESP-IDF logging, which would otherwise write into the same FIFO.
   esp_log_level_set("*", ESP_LOG_NONE);
 
-  imu::recoverBus(EAD_PIN_I2C_SDA, EAD_PIN_I2C_SCL);
-  Wire.begin(EAD_PIN_I2C_SDA, EAD_PIN_I2C_SCL, EAD_I2C_HZ);
-  Wire.setTimeOut(5);
-
   const bool psramRing = telemetry::begin();
   if (!psramRing) device::raiseFault(ead::kFaultNoPsram);
 
   const QueueHandle_t frames = xQueueCreate(64, sizeof(ead::RawFrame));
-  const acquisition::BootReport boot = acquisition::start(frames);
-  device::captureIdentity(boot.whoFoot, boot.whoShank, psramRing);
+  acquisition::start(frames);
+  const bool motorTest = motors::begin();
+  device::captureIdentity(acquisition::sensorAnswered(0) ? ead::kSensorAnswered : 0,
+                          acquisition::sensorAnswered(1) ? ead::kSensorAnswered : 0, psramRing,
+                          motorTest);
   telemetry::startProcessing(frames);
   startUsbLink();
   startWifiLink();

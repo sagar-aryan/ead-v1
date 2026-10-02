@@ -67,6 +67,10 @@ pub struct Snapshot {
     pub session_kind: Option<&'static str>,
     /// Valid cycles since that session started.
     pub session_valid_cycles: u32,
+    /// The device can pulse its motors for the service test (DEC-018).
+    pub motor_service_test: bool,
+    /// The latest sensor check from this boot, when one has been asked for.
+    pub sensor_check: Option<protocol::SensorCheckReport>,
 }
 
 #[derive(Default)]
@@ -88,13 +92,16 @@ struct State {
     /// the same rule the device's builder applies, so it tracks the count the
     /// thirty-cycle gate will use — up to the builder's sixty-four cycle ring.
     session_valid_cycles: u32,
+    sensor_check: Option<protocol::SensorCheckReport>,
+    /// SERVICE_TEST replies received, so a command can tell its own from older.
+    service_replies: u64,
     frames_received: u64,
     missing_messages: u32,
     rejected_frames: u64,
     schema_mismatch: bool,
     config: Option<Arc<DeviceConfigSection>>,
     config_sha256: Option<[u8; 32]>,
-    config_section: Option<Vec<u8>>,
+    config_section: Option<protocol::ConfigSection>,
 }
 
 pub struct Device {
@@ -157,6 +164,8 @@ impl Device {
                 None
             },
             session_valid_cycles: state.session_valid_cycles,
+            motor_service_test: state.hello.as_ref().is_some_and(|h| h.motor_service_test()),
+            sensor_check: if connected { state.sensor_check.clone() } else { None },
         }
     }
 
@@ -215,6 +224,33 @@ impl Device {
         Ok(())
     }
 
+    /// Asks for the sensor check. With `rerun` the device resets both sensors
+    /// and checks every line again, which stops frames for about two seconds.
+    /// Returns the reply count to wait past.
+    pub fn request_sensor_check(&self, rerun: bool) -> Result<u64, String> {
+        self.request_service(&protocol::sensor_check_request(rerun))
+    }
+
+    /// Asks for one motor pulse; the device ends it by itself.
+    pub fn request_motor_pulse(&self, pulse: &protocol::MotorPulse) -> Result<u64, String> {
+        self.request_service(&protocol::motor_pulse_request(pulse))
+    }
+
+    fn request_service(&self, payload: &[u8]) -> Result<u64, String> {
+        let seen = self.service_replies();
+        self.clear_error();
+        self.send_now(MsgType::ServiceTest, payload)?;
+        Ok(seen)
+    }
+
+    pub fn service_replies(&self) -> u64 {
+        self.state.lock().expect("device state").service_replies
+    }
+
+    pub fn sensor_check(&self) -> Option<protocol::SensorCheckReport> {
+        self.state.lock().expect("device state").sensor_check.clone()
+    }
+
     /// Clears the last error, so that one arriving next can be attributed to
     /// the command about to be sent.
     pub fn clear_error(&self) {
@@ -253,7 +289,7 @@ impl Device {
 
     /// The configuration section exactly as the device sent it, stored with a
     /// session so the recording describes the device that produced it.
-    pub fn config_section(&self) -> Option<Vec<u8>> {
+    pub fn config_section(&self) -> Option<protocol::ConfigSection> {
         self.state.lock().expect("device state").config_section.clone()
     }
 
@@ -457,6 +493,17 @@ impl Tracker {
                     }
                 }
             }
+            MsgType::ServiceTest => match protocol::parse_service_test(payload) {
+                Ok(reply) => {
+                    let mut state = self.state.lock().expect("device state");
+                    // A pulse reply only says it was accepted: the count is enough.
+                    if let protocol::ServiceReply::SensorCheck(report) = reply {
+                        state.sensor_check = Some(report);
+                    }
+                    state.service_replies += 1;
+                }
+                Err(e) => self.note_error(format!("SERVICE_TEST: {e}")),
+            },
             MsgType::BackfillData => {
                 if let Ok(chunk) = protocol::parse_backfill_data(payload) {
                     for message in chunk.messages {
@@ -503,6 +550,7 @@ impl Tracker {
         // reconnect: a replug of the same boot keeps its calibration.
         if state.hello.as_ref().map(|h| h.boot_id) != Some(hello.boot_id) {
             state.calibration = None;
+            state.sensor_check = None;  // a check describes the boot it ran in
         }
         state.schema_mismatch = hello.schema != protocol::SCHEMA_VERSION;
         state.hello = Some(hello);
@@ -526,11 +574,13 @@ impl Tracker {
                 return;
             }
         }
-        match protocol::parse_section(&response.section) {
+        let section =
+            protocol::ConfigSection { format: response.format, bytes: response.section.clone() };
+        match section.parse() {
             Ok(config) => {
                 state.config = Some(Arc::new(config));
                 state.config_sha256 = Some(digest);
-                state.config_section = Some(response.section.clone());
+                state.config_section = Some(section);
             }
             Err(err) => state.last_error = Some(format!("device configuration: {err}")),
         }

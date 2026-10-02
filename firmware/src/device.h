@@ -18,7 +18,7 @@ struct Counters {
   std::atomic<uint32_t> frameIndex{0};
   std::atomic<uint32_t> framesDropped{0};
   std::atomic<uint32_t> shankRepeated{0};
-  std::atomic<uint32_t> i2cErrors{0};
+  std::atomic<uint32_t> busErrors{0};
   std::atomic<uint32_t> imuReinits{0};
 };
 
@@ -32,8 +32,10 @@ void setWifiStackFree(uint16_t bytes);
 enum class TaskRole : uint8_t { Acquisition, Processing, Usb };
 void registerTask(TaskRole role, TaskHandle_t handle);
 
-// Called once after self-test, before any link starts.
-void captureIdentity(uint8_t whoFoot, uint8_t whoShank, bool psramRing);
+// Called once after self-test, before any link starts. The sensor bytes are
+// ead::kSensorAnswered or 0 (HELLO, schema 5).
+void captureIdentity(uint8_t sensorFoot, uint8_t sensorShank, bool psramRing,
+                     bool motorServiceTest);
 void markBooted();
 
 void fillHello(ead::HelloInfo* info);

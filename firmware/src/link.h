@@ -34,6 +34,7 @@ class Link {
   void queueReply(ead::MsgType type, const uint8_t* payload, size_t len, int64_t nowUs);
   void queueError(uint32_t cmdSeq, uint8_t cmdType, ead::ErrorCode code, const char* detail,
                   int64_t nowUs);
+  void queueSensorCheck(int64_t nowUs);
   void startBackfill(uint32_t cmdSeq, uint8_t cmdType, uint32_t first, uint32_t last,
                      int64_t nowUs);
   size_t buildBackfill(uint8_t* out, size_t cap, int64_t nowUs);

@@ -23,7 +23,8 @@ export interface DeviceStatus {
   frame_index: number;
   frames_dropped: number;
   shank_repeated: number;
-  i2c_errors: number;
+  /** Failed or invalid sensor reads (SPI on the BNO086 build). */
+  bus_errors: number;
   imu_reinits: number;
   oldest_seq: number;
   last_seq: number;
@@ -67,33 +68,67 @@ export interface Snapshot {
   session_kind: string | null;
   /** Valid cycles since that session started. */
   session_valid_cycles: number;
+  /** The device can pulse its motors for the service test (DEC-018). */
+  motor_service_test: boolean;
+  /** The latest sensor check from this boot, once asked for. */
+  sensor_check: SensorCheckReport | null;
+}
+
+/** One sensor's wiring check (docs/protocol.md §5.14). */
+export interface SensorCheck {
+  /** The steps that passed, by name (see CHECK_STEPS in Check.tsx). */
+  passed: string[];
+  boot_ms: number | null;
+  wake_us: number | null;
+  reset_cause: number;
+  version: string;
+  part_number: number;
+  build_number: number;
+}
+
+export interface SensorCheckReport {
+  foot: SensorCheck;
+  shank: SensorCheck;
+}
+
+export interface ServiceTest {
+  test_id: number;
+  at: string;
+  kind: "sensor_check" | "motor_pulse";
+  motor: number | null;
+  duty: number | null;
+  duration_ms: number | null;
+  felt: boolean | null;
+  report: string | null;
 }
 
 export interface MountMap extends Array<[number, number, number]> {}
 
+/** Which build a configuration describes (docs/protocol.md §5.5). */
+export type SensorBus =
+  | {
+      part: "mpu6500";
+      foot_address: number;
+      shank_address: number;
+      i2c_hz: number;
+      dlpf_hz: number;
+      dlpf_cfg: number;
+      sample_rate_divider: number;
+    }
+  | { part: "bno086"; spi_hz: number; report_interval_us: number };
+
 export interface DeviceConfig {
   imu: {
-    foot_address: number;
-    shank_address: number;
-    i2c_hz: number;
+    bus: SensorBus;
     sample_hz: number;
     accel_range_g: number;
     gyro_range_dps: number;
-    dlpf_hz: number;
-    dlpf_cfg: number;
-    sample_rate_divider: number;
     accel_lsb_per_g: number;
     gyro_lsb_per_dps: number;
     foot_mount: MountMap;
     shank_mount: MountMap;
   };
-  pins: {
-    i2c_sda: number;
-    i2c_scl: number;
-    foot_imu_int: number;
-    shank_imu_int: number;
-    motors: number[];
-  };
+  pins: { motors: number[] };
   calibration_static_s: number;
   mahony_kp: number;
   mahony_ki: number;
@@ -339,6 +374,14 @@ export const api = {
   snapshot: () => invoke<Snapshot>("device_snapshot"),
   config: () => invoke<DeviceConfig | null>("device_config"),
   vocabulary: () => invoke<Vocabulary>("vocabulary"),
+  /** "check" when started as `ead --check`. */
+  launchMode: () => invoke<"check" | "normal">("launch_mode"),
+  sensorCheck: (rerun: boolean) => invoke<SensorCheckReport>("sensor_check", { rerun }),
+  /** Returns the logged test's id, for its "felt" answer. */
+  motorPulse: (motor: number, duty: number) => invoke<number>("motor_pulse", { motor, duty }),
+  recordMotorFelt: (testId: number, felt: boolean) =>
+    invoke<void>("record_motor_felt", { testId, felt }),
+  serviceTests: () => invoke<ServiceTest[]>("service_tests"),
   subscribeLive: (channel: Channel<LiveTick>) => invoke<void>("subscribe_live", { channel }),
   unsubscribeLive: () => invoke<void>("unsubscribe_live"),
   createPatient: (patientId: string, name: string) =>

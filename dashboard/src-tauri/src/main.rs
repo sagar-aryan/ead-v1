@@ -22,7 +22,9 @@ fn main() {
             // Research data lives beside the app's other user data.
             let directory = handle.path().app_data_dir()?;
             let store = store::Store::open(directory.join("ead.sqlite3"))?;
-            let state = app::App::new(store);
+            // `ead --check` opens on the sensor and motor checks.
+            let check_mode = std::env::args().any(|arg| arg == "--check");
+            let state = app::App::new(store, check_mode);
             tauri::async_runtime::spawn(live::run(
                 state.live.clone(),
                 state.shutdown_signal(),
@@ -68,6 +70,11 @@ fn main() {
             app::start_calibration,
             app::cancel_calibration,
             app::session_config,
+            app::launch_mode,
+            app::sensor_check,
+            app::motor_pulse,
+            app::record_motor_felt,
+            app::service_tests,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -83,8 +83,8 @@ size_t encodeHelloPayload(const HelloInfo& info, uint8_t* out, size_t cap) {
   w.u8(info.reset_reason);
   w.u32(info.boot_id);
   w.bytes(info.mac, sizeof info.mac);
-  w.u8(info.who_foot);
-  w.u8(info.who_shank);
+  w.u8(info.sensor_foot);
+  w.u8(info.sensor_shank);
   w.u8(info.capabilities);
   w.bytes(info.config_sha256, sizeof info.config_sha256);
   w.u32(info.oldest_seq);
@@ -108,7 +108,7 @@ size_t encodeStatusPayload(const StatusInfo& s, uint8_t* out, size_t cap) {
   w.u32(s.frame_index);
   w.u32(s.frames_dropped);
   w.u32(s.shank_repeated);
-  w.u32(s.i2c_errors);
+  w.u32(s.bus_errors);
   w.u32(s.imu_reinits);
   w.u32(s.oldest_seq);
   w.u32(s.last_seq);
@@ -204,6 +204,64 @@ size_t encodeErrorPayload(uint32_t cmdSeq, uint8_t cmdType, ErrorCode code, cons
   w.u8(cmdType);
   w.u16(uint16_t(code));
   w.str8(detail);
+  return w.ok() ? w.size() : 0;
+}
+
+bool decodeServiceTest(const uint8_t* payload, size_t len, ServiceOp* op, bool* rerun,
+                       MotorPulse* pulse) {
+  if (len == 0) return false;
+  ByteReader r(payload, len);
+  *op = ServiceOp(r.u8());
+  if (*op == ServiceOp::SensorCheck) {
+    if (len != 2) return false;
+    *rerun = r.u8() != 0;
+    return r.ok();
+  }
+  if (*op == ServiceOp::MotorPulse) {
+    if (len != kMotorPulsePayloadSize) return false;
+    pulse->motor = r.u8();
+    pulse->duty = r.u8();
+    r.u8();  // reserved
+    pulse->durationMs = r.u16();
+    return r.ok();
+  }
+  return false;
+}
+
+namespace {
+
+void writeCheck(ByteWriter& w, const SensorCheck& c) {
+  w.u16(c.flags);
+  w.u16(c.bootMs);
+  w.u16(c.wakeUs);
+  w.u8(c.resetCause);
+  w.u8(c.versionMajor);
+  w.u8(c.versionMinor);
+  w.u8(0);
+  w.u16(c.versionPatch);
+  w.u32(c.partNumber);
+  w.u32(c.buildNumber);
+}
+
+}  // namespace
+
+size_t encodeSensorCheckPayload(const SensorCheck& foot, const SensorCheck& shank, uint8_t* out,
+                                size_t cap) {
+  ByteWriter w(out, cap);
+  w.u8(uint8_t(ServiceOp::SensorCheck));
+  w.u8(0);
+  writeCheck(w, foot);
+  writeCheck(w, shank);
+  return w.ok() ? w.size() : 0;
+}
+
+size_t encodeMotorPulsePayload(const MotorPulse& pulse, uint8_t* out, size_t cap) {
+  ByteWriter w(out, cap);
+  w.u8(uint8_t(ServiceOp::MotorPulse));
+  w.u8(pulse.motor);
+  w.u8(pulse.duty);
+  w.u8(0);
+  w.u16(pulse.durationMs);
   return w.ok() ? w.size() : 0;
 }
 

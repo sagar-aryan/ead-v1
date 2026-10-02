@@ -7,7 +7,7 @@ use rusqlite::{Connection, Result};
 
 use crate::protocol::RawFrame;
 
-pub const SCHEMA_VERSION: i32 = 6;
+pub const SCHEMA_VERSION: i32 = 7;
 
 pub fn migrate(connection: &mut Connection) -> Result<()> {
     // WAL keeps readers (UI queries) from blocking the writer thread.
@@ -41,6 +41,7 @@ pub fn migrate(connection: &mut Connection) -> Result<()> {
             3 => transaction.execute_batch(MIGRATE_3_TO_4)?,
             4 => transaction.execute_batch(MIGRATE_4_TO_5)?,
             5 => transaction.execute_batch(MIGRATE_5_TO_6)?,
+            6 => transaction.execute_batch(MIGRATE_6_TO_7)?,
             other => unreachable!("no migration from schema {other}"),
         }
         version += 1;
@@ -209,6 +210,50 @@ CREATE TABLE status_changes (
   faults       INTEGER NOT NULL,
   PRIMARY KEY (session_id, frame_index)
 ) WITHOUT ROWID;
+
+-- Schema 7: the configuration format each session's section is written in. The
+-- section bytes alone cannot say which layout they follow; every session before
+-- schema 7 came from the MPU6500 build, format 1 (docs/protocol.md §5.5).
+ALTER TABLE sessions ADD COLUMN config_format INTEGER NOT NULL DEFAULT 1;
+
+-- Service tests (doc 07 §7, DEC-018): sensor checks and motor pulses, outside any
+-- session and excluded from every outcome statistic. A motor pulse proves only
+-- that the device drove the output; `felt` is the operator's answer.
+CREATE TABLE service_tests (
+  test_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  at          TEXT NOT NULL,
+  device_mac  TEXT,
+  boot_id     INTEGER,
+  kind        TEXT NOT NULL CHECK (kind IN ('sensor_check', 'motor_pulse')),
+  motor       INTEGER,
+  duty        INTEGER,
+  duration_ms INTEGER,
+  felt        INTEGER,
+  report      TEXT
+);
+"#;
+
+const MIGRATE_6_TO_7: &str = r#"
+-- Schema 7: the configuration format each session's section is written in. The
+-- section bytes alone cannot say which layout they follow; every session before
+-- schema 7 came from the MPU6500 build, format 1 (docs/protocol.md §5.5).
+ALTER TABLE sessions ADD COLUMN config_format INTEGER NOT NULL DEFAULT 1;
+
+-- Service tests (doc 07 §7, DEC-018): sensor checks and motor pulses, outside any
+-- session and excluded from every outcome statistic. A motor pulse proves only
+-- that the device drove the output; `felt` is the operator's answer.
+CREATE TABLE service_tests (
+  test_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  at          TEXT NOT NULL,
+  device_mac  TEXT,
+  boot_id     INTEGER,
+  kind        TEXT NOT NULL CHECK (kind IN ('sensor_check', 'motor_pulse')),
+  motor       INTEGER,
+  duty        INTEGER,
+  duration_ms INTEGER,
+  felt        INTEGER,
+  report      TEXT
+);
 "#;
 
 const MIGRATE_5_TO_6: &str = r#"

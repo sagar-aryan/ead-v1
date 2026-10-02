@@ -203,7 +203,20 @@ pub struct DeviceIdentity {
     pub boot_id: Option<u32>,
     /// The device's configuration section, stored so a recording of raw counts
     /// is self-describing (`docs/protocol.md` §5.5).
-    pub config_section: Option<Vec<u8>>,
+    pub config_section: Option<crate::protocol::ConfigSection>,
+}
+
+/// A service test as recorded (doc 07 §7).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct StoredServiceTest {
+    pub test_id: i64,
+    pub at: String,
+    pub kind: String,
+    pub motor: Option<u8>,
+    pub duty: Option<u8>,
+    pub duration_ms: Option<u16>,
+    pub felt: Option<bool>,
+    pub report: Option<String>,
 }
 
 /// A gait cycle as stored, in physical units (doc 05 §11).
@@ -321,6 +334,83 @@ impl Store {
         Ok(connection)
     }
 
+    // ---- service tests (doc 07 §7, DEC-018) ---------------------------------
+
+    /// Records a sensor check; `report` is its per-sensor result as JSON.
+    pub fn record_sensor_check(&self, identity: &DeviceIdentity, report: &str) -> Result<i64> {
+        self.insert_service_test(identity, "sensor_check", None, Some(report))
+    }
+
+    /// Records a motor pulse the device accepted; whether it was felt comes later.
+    pub fn record_motor_pulse(
+        &self,
+        identity: &DeviceIdentity,
+        pulse: &crate::protocol::MotorPulse,
+    ) -> Result<i64> {
+        self.insert_service_test(identity, "motor_pulse", Some(pulse), None)
+    }
+
+    fn insert_service_test(
+        &self,
+        identity: &DeviceIdentity,
+        kind: &str,
+        pulse: Option<&crate::protocol::MotorPulse>,
+        report: Option<&str>,
+    ) -> Result<i64> {
+        let connection = self.reader()?;
+        connection.execute(
+            "INSERT INTO service_tests
+               (at, device_mac, boot_id, kind, motor, duty, duration_ms, report)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                now_utc(),
+                &identity.mac,
+                identity.boot_id.map(i64::from),
+                kind,
+                pulse.map(|p| p.motor),
+                pulse.map(|p| p.duty),
+                pulse.map(|p| p.duration_ms),
+                report,
+            ],
+        )?;
+        Ok(connection.last_insert_rowid())
+    }
+
+    /// The operator's answer to "did you feel it?" for one motor pulse.
+    pub fn set_motor_felt(&self, test_id: i64, felt: bool) -> Result<()> {
+        let connection = self.reader()?;
+        let changed = connection.execute(
+            "UPDATE service_tests SET felt = ?2 WHERE test_id = ?1 AND kind = 'motor_pulse'",
+            (test_id, felt),
+        )?;
+        if changed == 0 {
+            return Err(StoreError::Rejected(format!("no motor pulse {test_id}")));
+        }
+        Ok(())
+    }
+
+    /// The latest service tests, newest first.
+    pub fn service_tests(&self, limit: usize) -> Result<Vec<StoredServiceTest>> {
+        let connection = self.reader()?;
+        let mut statement = connection.prepare(
+            "SELECT test_id, at, kind, motor, duty, duration_ms, felt, report
+             FROM service_tests ORDER BY test_id DESC LIMIT ?1",
+        )?;
+        let rows = statement.query_map([limit as i64], |row| {
+            Ok(StoredServiceTest {
+                test_id: row.get(0)?,
+                at: row.get(1)?,
+                kind: row.get(2)?,
+                motor: row.get(3)?,
+                duty: row.get(4)?,
+                duration_ms: row.get(5)?,
+                felt: row.get(6)?,
+                report: row.get(7)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     // ---- patients ----------------------------------------------------------
 
     pub fn create_patient(&self, patient_id: &str, name: &str) -> Result<Patient> {
@@ -391,9 +481,9 @@ impl Store {
         connection.execute(
             "INSERT INTO sessions
                (session_id, patient_id, kind, started_at, firmware, config_sha256, device_mac,
-                boot_id, config_section, reference_id, max_cycles_per_segment,
-                max_errors_per_segment, calibration)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                boot_id, config_section, config_format, reference_id,
+                max_cycles_per_segment, max_errors_per_segment, calibration)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             rusqlite::params![
                 &session_id,
                 patient_id,
@@ -403,7 +493,8 @@ impl Store {
                 &identity.config_sha256,
                 &identity.mac,
                 identity.boot_id.map(i64::from),
-                &identity.config_section,
+                identity.config_section.as_ref().map(|c| &c.bytes),
+                identity.config_section.as_ref().map_or(1, |c| c.format),
                 reference_id,
                 limits.map(|l| i64::from(l.max_cycles)),
                 limits.map(|l| i64::from(l.max_errors)),
@@ -848,10 +939,7 @@ impl Store {
         max_points: usize,
     ) -> Result<RawWindow> {
         let stored = self.session_config(session_id)?;
-        let config = match stored.as_deref() {
-            Some(bytes) => crate::protocol::parse_section(bytes).ok(),
-            None => None,
-        };
+        let config = stored.and_then(|section| section.parse().ok());
         let connection = self.reader()?;
         raw::read_window(
             &connection,
@@ -866,13 +954,17 @@ impl Store {
 
     /// The device configuration stored with a session, if the device reported
     /// one when it started.
-    pub fn session_config(&self, session_id: &str) -> Result<Option<Vec<u8>>> {
+    pub fn session_config(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<crate::protocol::ConfigSection>> {
         let connection = self.reader()?;
-        Ok(connection.query_row(
-            "SELECT config_section FROM sessions WHERE session_id = ?1",
+        let (bytes, format): (Option<Vec<u8>>, u16) = connection.query_row(
+            "SELECT config_section, config_format FROM sessions WHERE session_id = ?1",
             [session_id],
-            |row| row.get(0),
-        )?)
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        Ok(bytes.map(|bytes| crate::protocol::ConfigSection { format, bytes }))
     }
 
     #[cfg(test)]

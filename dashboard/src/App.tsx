@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import { StateBar } from "./components/StateBar";
 import { useDevice } from "./useDevice";
+import { Check } from "./views/Check";
 import { Device } from "./views/Device";
 import { Live } from "./views/Live";
 import { Cycles } from "./views/Cycles";
@@ -12,7 +13,10 @@ import { References } from "./views/References";
 import { Raw } from "./views/Raw";
 import { Sessions } from "./views/Sessions";
 
-/** Doc 11 order. HAPTICS is absent because no drivers are fitted (DEC-006). */
+/**
+ * Doc 11 order. HAPTICS is absent: no error-driven feedback exists (DEC-006).
+ * Check is doc 11 §6's motor test, with the sensor wiring check beside it.
+ */
 const VIEWS = [
   "Live",
   "Cycles",
@@ -22,6 +26,7 @@ const VIEWS = [
   "Sessions",
   "Export",
   "Device",
+  "Check",
 ] as const;
 type View = (typeof VIEWS)[number];
 
@@ -29,6 +34,19 @@ export default function App() {
   const device = useDevice();
   const [view, setView] = useState<View>("Device");
   const [recording, setRecording] = useState<string | null>(null);
+  const [checkMode, setCheckMode] = useState(false);
+
+  // `ead --check` opens on the checks and stays there once connected.
+  useEffect(() => {
+    api
+      .launchMode()
+      .then((mode) => {
+        if (mode !== "check") return;
+        setCheckMode(true);
+        setView("Check");
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     const poll = () => api.recordingSession().then(setRecording).catch(() => undefined);
@@ -39,7 +57,7 @@ export default function App() {
 
   // Once the device is live, the sensors are the interesting view.
   useEffect(() => {
-    if (device.connected && view === "Device") setView("Live");
+    if (device.connected && view === "Device" && !checkMode) setView("Live");
     // Only on the transition into a live link.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device.connected]);
@@ -69,6 +87,7 @@ export default function App() {
           {view === "Sessions" && <Sessions device={device} />}
           {view === "Export" && <Export />}
           {view === "Device" && <Device device={device} />}
+          {view === "Check" && <Check device={device} recording={recording} />}
         </main>
       </div>
     </div>

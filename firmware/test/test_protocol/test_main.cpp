@@ -53,9 +53,9 @@ static void test_device_hello() {
   info.boot_id = 0xA1B2C3D4u;
   const uint8_t mac[6] = {0x44, 0xB1, 0x76, 0xAF, 0xFB, 0x7C};
   std::memcpy(info.mac, mac, 6);
-  info.who_foot = 0x70;
-  info.who_shank = 0x70;
-  info.capabilities = ead::kCapPsramRing;
+  info.sensor_foot = ead::kSensorAnswered;
+  info.sensor_shank = 0;
+  info.capabilities = ead::kCapPsramRing | ead::kCapMotorServiceTest;
   const auto v = loadVector("hello_info.hex");
   // The vector's SHA-256 bytes sit at payload offset 17.
   std::memcpy(info.config_sha256, v.data() + ead::kHeaderSize + 17, 32);
@@ -77,7 +77,7 @@ static void test_device_status() {
   s.frame_index = 123456;
   s.frames_dropped = 3;
   s.shank_repeated = 17;
-  s.i2c_errors = 2;
+  s.bus_errors = 2;
   s.imu_reinits = 1;
   s.oldest_seq = 1;
   s.last_seq = 42;
@@ -411,8 +411,56 @@ static void test_a_reference_with_a_zero_spread_is_refused() {
   TEST_ASSERT_FALSE(ead::decodeReferenceProfile(encoded, sizeof encoded, &decoded));
 }
 
+static void test_service_test_requests_decode() {
+  ead::Header h{};
+  const uint8_t* payload = nullptr;
+  ead::ServiceOp op{};
+  bool rerun = false;
+  ead::MotorPulse pulse{};
+
+  const auto check = loadVector("service_test_check_request.hex");
+  TEST_ASSERT_TRUE(ead::parseMessage(check.data(), check.size(), &h, &payload));
+  TEST_ASSERT_EQUAL_UINT8(uint8_t(MsgType::ServiceTest), h.type);
+  TEST_ASSERT_TRUE(ead::decodeServiceTest(payload, h.length, &op, &rerun, &pulse));
+  TEST_ASSERT_EQUAL(ead::ServiceOp::SensorCheck, op);
+  TEST_ASSERT_TRUE(rerun);
+
+  const auto pulseMsg = loadVector("service_test_pulse_request.hex");
+  TEST_ASSERT_TRUE(ead::parseMessage(pulseMsg.data(), pulseMsg.size(), &h, &payload));
+  TEST_ASSERT_TRUE(ead::decodeServiceTest(payload, h.length, &op, &rerun, &pulse));
+  TEST_ASSERT_EQUAL(ead::ServiceOp::MotorPulse, op);
+  TEST_ASSERT_EQUAL_UINT8(4, pulse.motor);
+  TEST_ASSERT_EQUAL_UINT8(128, pulse.duty);
+  TEST_ASSERT_EQUAL_UINT16(1000, pulse.durationMs);
+
+  // Short, long and unknown requests are refused rather than read short.
+  const uint8_t truncated[5] = {2, 4, 128, 0, 0xE8};
+  TEST_ASSERT_FALSE(ead::decodeServiceTest(truncated, sizeof truncated, &op, &rerun, &pulse));
+  const uint8_t unknown[2] = {3, 0};
+  TEST_ASSERT_FALSE(ead::decodeServiceTest(unknown, sizeof unknown, &op, &rerun, &pulse));
+  TEST_ASSERT_FALSE(ead::decodeServiceTest(unknown, 0, &op, &rerun, &pulse));
+}
+
+static void test_service_test_replies_match_the_vectors() {
+  ead::SensorCheck foot{0x7F, 112, 900, 4, 3, 12, 6, 10004563, 62};
+  ead::SensorCheck shank{0x0F, 113, 0xFFFF, 0, 0, 0, 0, 0, 0};
+  uint8_t payload[ead::kSensorCheckPayloadSize];
+  TEST_ASSERT_EQUAL_size_t(sizeof payload,
+                           ead::encodeSensorCheckPayload(foot, shank, payload, sizeof payload));
+  auto msg = message(MsgType::ServiceTest, 42, 5000000, payload, sizeof payload);
+  assertBytes(loadVector("sensor_check.hex"), msg.data(), msg.size());
+
+  uint8_t pulse[ead::kMotorPulsePayloadSize];
+  TEST_ASSERT_EQUAL_size_t(sizeof pulse,
+                           ead::encodeMotorPulsePayload({4, 128, 1000}, pulse, sizeof pulse));
+  msg = message(MsgType::ServiceTest, 42, 6000000, pulse, sizeof pulse);
+  assertBytes(loadVector("motor_pulse.hex"), msg.data(), msg.size());
+}
+
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_service_test_requests_decode);
+  RUN_TEST(test_service_test_replies_match_the_vectors);
   RUN_TEST(test_session_start_with_reference_decodes);
   RUN_TEST(test_reference_profile_round_trip);
   RUN_TEST(test_a_reference_with_a_zero_spread_is_refused);

@@ -79,9 +79,11 @@ fn device_hello_decodes() {
     assert_eq!(hello.device_state, 4); // READY
     assert_eq!(hello.boot_id, 0xA1B2_C3D4);
     assert_eq!(hello.mac_string(), "44:B1:76:AF:FB:7C");
-    assert_eq!((hello.who_foot, hello.who_shank), (0x70, 0x70));
+    // Foot BNO086 answered its product ID, shank did not.
+    assert_eq!((hello.sensor_foot, hello.sensor_shank), (0x86, 0));
     assert!(!hello.haptics_fitted());
-    assert_eq!(hello.capability_names(), vec!["psram_ring"]);
+    assert!(hello.motor_service_test());
+    assert_eq!(hello.capability_names(), vec!["psram_ring", "motor_service_test"]);
     assert_eq!((hello.oldest_seq, hello.last_seq), (1, 42));
     assert_eq!(hello.fw_version, "0.1.0+test");
 }
@@ -146,7 +148,7 @@ fn device_error_decodes() {
 fn config_response_hash_matches_section() {
     let payload = vector("config_response.hex");
     let config = parse_config(&payload).unwrap();
-    assert_eq!(config.format, 1);
+    assert_eq!(config.format, config::FORMAT_BNO086);
     assert_eq!(config.section, vector("config_section.hex"));
     // The device reports this hash in HELLO; recompute it the same way.
     use sha2::{Digest, Sha256};
@@ -156,17 +158,35 @@ fn config_response_hash_matches_section() {
 #[test]
 fn config_section_decodes_every_documented_field() {
     let section = vector("config_section.hex");
-    let config = config::parse_section(&section).unwrap();
+    let config = config::parse_section(config::FORMAT_BNO086, &section).unwrap();
+
+    // The BNO086 build (DEC-016, DEC-017).
+    assert_eq!(
+        config.imu.bus,
+        config::SensorBus::Bno086 { spi_hz: 1_000_000, report_interval_us: 10_000 }
+    );
+    assert_eq!(config.imu.sample_hz, 100);
+    assert_eq!((config.imu.accel_range_g, config.imu.gyro_range_dps), (8, 2000));
+    // Q8 m/s^2 and Q9 rad/s as counts per g and per deg/s.
+    assert!((config.imu.accel_lsb_per_g - 256.0 * 9.80665).abs() < 1e-3);
+    assert!((config.imu.gyro_lsb_per_dps - 512.0 * std::f32::consts::PI / 180.0).abs() < 1e-5);
+    assert_eq!(
+        config.pins.sensors,
+        config::SensorPins::Spi {
+            sck: 7,
+            miso: 8,
+            mosi: 9,
+            foot_cs: 43,
+            shank_cs: 44,
+            foot_int: 39,
+            shank_int: 40,
+            rst: 41,
+            wake: 3,
+        }
+    );
+    assert_eq!(config.pins.motors, [1, 2, 42, 4, 5, 6]);
 
     // Contract values (CONFIG_V1.json).
-    assert_eq!(config.imu.foot_address, 0x68);
-    assert_eq!(config.imu.shank_address, 0x69);
-    assert_eq!(config.imu.sample_hz, 100);
-    assert_eq!(config.imu.accel_range_g, 4);
-    assert_eq!(config.imu.gyro_range_dps, 500);
-    assert_eq!(config.imu.accel_lsb_per_g, 8192.0);
-    assert_eq!(config.imu.gyro_lsb_per_dps, 65.5);
-    assert_eq!(config.pins.motors, [1, 2, 4, 9, 43, 44]);
     assert_eq!(config.mahony_kp, 2.0);
     assert_eq!(config.gait.min_cycle_s, 0.45);
     assert_eq!(config.zupt.gyro_threshold_dps, 25.0);
@@ -175,21 +195,82 @@ fn config_section_decodes_every_documented_field() {
     assert_eq!(config.ws_port, 8080);
     assert_eq!(config.reference_min_cycles, 30);
 
-    // As-built values (docs/hardware.md, DEC-006/009).
+    // No error-driven feedback (DEC-006); maps not yet measured for these boards.
     assert!(!config.haptics.fitted);
     assert_eq!(config.imu.foot_mount, [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
-    assert_eq!(config.imu.shank_mount, [[0, 0, -1], [0, 1, 0], [1, 0, 0]]);
+    assert_eq!(config.imu.shank_mount, [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
 
     // Trailing bytes mean a layout this build does not know.
     let mut longer = section.clone();
     longer.push(0);
-    assert!(config::parse_section(&longer).is_err());
-    assert!(config::parse_section(&section[..section.len() - 1]).is_err());
+    assert!(config::parse_section(config::FORMAT_BNO086, &longer).is_err());
+    assert!(config::parse_section(config::FORMAT_BNO086, &section[..section.len() - 1]).is_err());
+    // Neither does a format number it has never seen.
+    assert!(config::parse_section(3, &section).is_err());
+}
+
+/// Every session recorded before schema 5 stores the MPU6500 build's section;
+/// it must keep reading as it did.
+#[test]
+fn format_1_sections_still_decode() {
+    let section = vector("config_section_format1.hex");
+    let config = config::parse_section(config::FORMAT_MPU6500, &section).unwrap();
+    assert_eq!(
+        config.imu.bus,
+        config::SensorBus::Mpu6500 {
+            foot_address: 0x68,
+            shank_address: 0x69,
+            i2c_hz: 400_000,
+            dlpf_hz: 42,
+            dlpf_cfg: 3,
+            sample_rate_divider: 9,
+        }
+    );
+    assert_eq!((config.imu.accel_lsb_per_g, config.imu.gyro_lsb_per_dps), (8192.0, 65.5));
+    assert_eq!(config.imu.shank_mount, [[0, 0, -1], [0, 1, 0], [1, 0, 0]]);
+    assert_eq!(config.pins.motors, [1, 2, 4, 9, 43, 44]);
+    assert_eq!(config.reference_min_cycles, 30);
+    // A format-1 section is not a valid format-2 one.
+    assert!(config::parse_section(config::FORMAT_BNO086, &section).is_err());
+}
+
+#[test]
+fn service_test_vectors_round_trip() {
+    let check = vector("service_test_check_request.hex");
+    let (header, payload) = parse(&check).unwrap();
+    assert_eq!(header.msg_type, MsgType::ServiceTest as u8);
+    assert_eq!(payload, sensor_check_request(true));
+
+    let request = vector("service_test_pulse_request.hex");
+    let (_, payload) = parse(&request).unwrap();
+    let pulse = MotorPulse { motor: 4, duty: 128, duration_ms: 1000 };
+    assert_eq!(payload, motor_pulse_request(&pulse));
+
+    let reply = vector("motor_pulse.hex");
+    let (_, payload) = parse(&reply).unwrap();
+    assert_eq!(parse_service_test(payload).unwrap(), ServiceReply::MotorPulse(pulse));
+
+    let report_msg = vector("sensor_check.hex");
+    let (_, payload) = parse(&report_msg).unwrap();
+    let ServiceReply::SensorCheck(report) = parse_service_test(payload).unwrap() else {
+        panic!("not a sensor check");
+    };
+    assert_eq!(report.foot.passed.len(), CHECK_STEPS.len());
+    assert_eq!(report.foot.boot_ms, Some(112));
+    assert_eq!(report.foot.wake_us, Some(900));
+    assert_eq!(report.foot.version, "3.12.6");
+    assert_eq!((report.foot.part_number, report.foot.build_number), (10_004_563, 62));
+    assert_eq!(report.shank.passed, vec!["int_high_in_reset", "booted", "read_valid", "int_released"]);
+    assert_eq!(report.shank.wake_us, None);
+    // A payload of neither shape is refused.
+    assert!(parse_service_test(&payload[..10]).is_err());
 }
 
 #[test]
 fn mount_maps_produce_anatomical_units() {
-    let config = config::parse_section(&vector("config_section.hex")).unwrap();
+    // The MPU6500 build's measured maps exercise every sign and axis swap.
+    let config =
+        config::parse_section(config::FORMAT_MPU6500, &vector("config_section_format1.hex")).unwrap();
     // One g on chip +Z with the foot mount (identity) is one g anatomical up.
     let (accel, gyro) = config.foot_anatomical(&[0, 0, 8192, 0, 0, 655]);
     assert_eq!(accel, [0.0, 0.0, 1.0]);

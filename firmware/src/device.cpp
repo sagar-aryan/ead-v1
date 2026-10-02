@@ -30,8 +30,8 @@ std::atomic<bool> s_booted{false};
 uint32_t s_bootId = 0;
 uint8_t s_mac[6] = {};
 uint8_t s_resetReason = 0;
-uint8_t s_whoFoot = 0;
-uint8_t s_whoShank = 0;
+uint8_t s_sensorFoot = 0;
+uint8_t s_sensorShank = 0;
 uint8_t s_capabilities = 0;
 uint8_t s_configSection[256] = {};
 size_t s_configLen = 0;
@@ -71,14 +71,16 @@ void registerTask(TaskRole role, TaskHandle_t handle) {
   s_tasks[static_cast<size_t>(role)] = handle;
 }
 
-void captureIdentity(uint8_t whoFoot, uint8_t whoShank, bool psramRing) {
+void captureIdentity(uint8_t sensorFoot, uint8_t sensorShank, bool psramRing,
+                     bool motorServiceTest) {
   s_bootId = esp_random();
   esp_efuse_mac_get_default(s_mac);
   s_resetReason = uint8_t(esp_reset_reason());
-  s_whoFoot = whoFoot;
-  s_whoShank = whoShank;
+  s_sensorFoot = sensorFoot;
+  s_sensorShank = sensorShank;
   s_capabilities = (EAD_HAPTICS_FITTED ? ead::kCapHapticsFitted : 0) |
-                   (psramRing ? ead::kCapPsramRing : 0);
+                   (psramRing ? ead::kCapPsramRing : 0) |
+                   (motorServiceTest ? ead::kCapMotorServiceTest : 0);
   s_configLen = ead::encodeConfigSection(s_configSection, sizeof s_configSection);
   mbedtls_sha256_ret(s_configSection, s_configLen, s_configSha256, 0);
 }
@@ -93,8 +95,8 @@ void fillHello(ead::HelloInfo* info) {
   info->reset_reason = s_resetReason;
   info->boot_id = s_bootId;
   std::copy(s_mac, s_mac + 6, info->mac);
-  info->who_foot = s_whoFoot;
-  info->who_shank = s_whoShank;
+  info->sensor_foot = s_sensorFoot;
+  info->sensor_shank = s_sensorShank;
   info->capabilities = s_capabilities;
   std::copy(s_configSha256, s_configSha256 + 32, info->config_sha256);
   telemetry::window(&info->oldest_seq, &info->last_seq);
@@ -109,7 +111,7 @@ void fillStatus(ead::StatusInfo* s) {
   s->frame_index = counters.frameIndex.load();
   s->frames_dropped = counters.framesDropped.load();
   s->shank_repeated = counters.shankRepeated.load();
-  s->i2c_errors = counters.i2cErrors.load();
+  s->bus_errors = counters.busErrors.load();
   s->imu_reinits = counters.imuReinits.load();
   telemetry::window(&s->oldest_seq, &s->last_seq);
 

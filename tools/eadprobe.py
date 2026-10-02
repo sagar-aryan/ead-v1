@@ -27,13 +27,14 @@ import time
 import zlib
 
 PROTOCOL_VERSION = 1
-SCHEMA = 3
+SCHEMA = 5
 HEADER = struct.Struct("<HBBIIQ")
 
 HELLO, CONFIG_GET, RAW_SAMPLE_BATCH, STATUS, ERROR = 0x01, 0x02, 0x08, 0x0C, 0x0E
 SESSION_START, SESSION_STOP = 0x04, 0x05
 EVENT_BATCH, STEP_BATCH = 0x09, 0x0A
 BACKFILL_REQUEST, BACKFILL_DATA = 0x10, 0x11
+SERVICE_TEST = 0x12
 DURABLE = {0x08, 0x09, 0x0A, 0x0B}
 
 STATES = ["BOOT", "SELF_TEST", "CALIBRATING", "REFERENCE_CAPTURE", "READY", "RUNNING",
@@ -49,7 +50,17 @@ ERROR_CODES = {1: "BadFrame", 2: "SchemaMismatch", 3: "NotSupported", 4: "Invali
 USB_VID, USB_PID = 0x303A, 0x1001
 RAW_FRAME = struct.Struct("<QI6h6h4h4hH")
 STATUS_PAYLOAD = struct.Struct("<BBHIIIIIIIbBIHHHHBIHBI")
-ACCEL_LSB_PER_G = 8192.0  # +-4 g (datasheet)
+SENSOR_CHECK = struct.Struct("<HHHBBBBHII")
+CHECK_FLAGS = ["int_high_in_reset", "booted", "read_valid", "int_released", "wake",
+               "product_id", "reports"]
+# Which wires each check step proves (docs/protocol.md §5.14).
+CHECK_WIRES = [("int_high_in_reset", "INT not shorted low"),
+               ("booted", "3V3, GND, RST, INT"),
+               ("read_valid", "SCK, MISO, CS"),
+               ("int_released", "CS and INT reach the same board"),
+               ("wake", "WAKE"),
+               ("product_id", "MOSI"),
+               ("reports", "accelerometer and gyroscope streaming")]
 
 
 def flag_names(value, names):
@@ -277,20 +288,21 @@ class WsTransport:
 def decode_hello(p):
     schema, state, reset, boot_id = struct.unpack_from("<HBBI", p)
     mac = ":".join(f"{x:02X}" for x in p[8:14])
-    who_foot, who_shank, caps = p[14], p[15], p[16]
+    sensor_foot, sensor_shank, caps = p[14], p[15], p[16]
     sha = p[17:49].hex()
     oldest, last = struct.unpack_from("<II", p, 49)
     fw = p[58:58 + p[57]].decode()
     return dict(schema=schema, state=STATES[state], reset_reason=reset, boot_id=f"{boot_id:08x}",
-                mac=mac, who_foot=f"0x{who_foot:02X}", who_shank=f"0x{who_shank:02X}",
+                mac=mac, sensor_foot=f"0x{sensor_foot:02X}", sensor_shank=f"0x{sensor_shank:02X}",
                 haptics_fitted=bool(caps & 1), flash_storage=bool(caps & 2),
-                psram_ring=bool(caps & 4), config_sha256=sha, oldest_seq=oldest, last_seq=last,
+                psram_ring=bool(caps & 4), motor_service_test=bool(caps & 8),
+                config_sha256=sha, oldest_seq=oldest, last_seq=last,
                 firmware=fw)
 
 
 def decode_status(p):
     names = ["state", "links", "faults", "frame_index", "frames_dropped", "shank_repeated",
-             "i2c_errors", "imu_reinits", "oldest_seq", "last_seq", "ap_rssi_dbm", "ap_stations",
+             "bus_errors", "imu_reinits", "oldest_seq", "last_seq", "ap_rssi_dbm", "ap_stations",
              "heap_free_min", "stack_free_acquisition", "stack_free_processing", "stack_free_usb",
              "stack_free_wifi", "calibration_state", "calibration_samples",
              "calibration_reject", "gait_state", "cycles_completed"]
@@ -396,6 +408,27 @@ def decode_error(p):
            f"{p[8:8 + p[7]].decode(errors='replace')}"
 
 
+def decode_service_test(p):
+    """SERVICE_TEST: a host request, the sensor check report, or an accepted pulse."""
+    op = p[0]
+    if op == 1 and len(p) == 2:
+        return {"op": "sensor_check", "rerun": bool(p[1])}
+    if op == 1 and len(p) == 2 + 2 * SENSOR_CHECK.size:
+        report = {}
+        for i, name in enumerate(("foot", "shank")):
+            flags, boot_ms, wake_us, cause, major, minor, _, patch, part, build = \
+                SENSOR_CHECK.unpack_from(p, 2 + i * SENSOR_CHECK.size)
+            report[name] = dict(
+                flags=flag_names(flags, CHECK_FLAGS), boot_ms=None if boot_ms == 0xFFFF else boot_ms,
+                wake_us=None if wake_us == 0xFFFF else wake_us, reset_cause=cause,
+                version=f"{major}.{minor}.{patch}", part=part, build=build)
+        return {"op": "sensor_check", "report": report}
+    if op == 2 and len(p) == 6:
+        motor, duty, _, ms = struct.unpack_from("<BBBH", p, 1)
+        return {"op": "motor_pulse", "motor": motor, "duty": duty, "duration_ms": ms}
+    raise ValueError(f"not a SERVICE_TEST payload: {p.hex()}")
+
+
 def decode_config(p):
     fmt = struct.unpack_from("<H", p)[0]
     sha, length = p[2:34], struct.unpack_from("<H", p, 34)[0]
@@ -403,8 +436,8 @@ def decode_config(p):
     return fmt, sha, section
 
 
-def config_fields(section):
-    """Decodes the format-1 section in docs/protocol.md order."""
+def config_fields(section, fmt=2):
+    """Decodes a configuration section in docs/protocol.md order (format 1 or 2)."""
     fields, pos = {}, 0
 
     def take(fmt, *names):
@@ -416,13 +449,23 @@ def config_fields(section):
         else:
             fields.update(zip(names, values))
 
-    take("BBIHBHBBBff", "foot_addr", "shank_addr", "i2c_hz", "sample_hz", "accel_range_g",
-         "gyro_range_dps", "dlpf_hz", "dlpf_cfg", "smplrt_div", "accel_lsb_per_g",
-         "gyro_lsb_per_dps")
+    if fmt == 1:  # the MPU6500 build
+        take("BBIHBHBBBff", "foot_addr", "shank_addr", "i2c_hz", "sample_hz", "accel_range_g",
+             "gyro_range_dps", "dlpf_hz", "dlpf_cfg", "smplrt_div", "accel_lsb_per_g",
+             "gyro_lsb_per_dps")
+    elif fmt == 2:  # the BNO086 build (DEC-016, DEC-017)
+        take("BIHIBHff", "sensor_kind", "spi_hz", "sample_hz", "report_interval_us",
+             "accel_range_g", "gyro_range_dps", "accel_lsb_per_g", "gyro_lsb_per_dps")
+    else:
+        raise ValueError(f"unknown configuration format {fmt}")
     take("9b", "foot_mount")
     take("9b", "shank_mount")
-    take("BBBB6B", "pin_sda", "pin_scl", "pin_foot_int", "pin_shank_int", "m1", "m2", "m3", "m4",
-         "m5", "m6")
+    if fmt == 1:
+        take("BBBB", "pin_sda", "pin_scl", "pin_foot_int", "pin_shank_int")
+    else:
+        take("9B", "pin_sck", "pin_miso", "pin_mosi", "pin_foot_cs", "pin_shank_cs",
+             "pin_foot_int", "pin_shank_int", "pin_rst", "pin_wake")
+    take("6B", "m1", "m2", "m3", "m4", "m5", "m6")
     take("Bff", "cal_static_s", "mahony_kp", "mahony_ki")
     take("ffffHHH", "gait_lowpass_hz", "event_lowpass_hz", "min_cycle_s", "max_cycle_s",
          "contact_guard_ms", "toeoff_guard_ms", "ic_window_ms")
@@ -694,10 +737,12 @@ def cmd_vectors(args):
         SESSION_STOP: lambda p: (decode_reference(p) if len(p) == REFERENCE_RECORD.size
                                  else decode_calibration(p)),
         SESSION_START: decode_session_start,
+        SERVICE_TEST: decode_service_test,
     }
     # Three vectors are not messages: two are payloads on their own, and the
     # long pair exists to exercise framing with an oversized body.
-    payload_only = {"config_response.hex": decode_config, "config_section.hex": config_fields}
+    payload_only = {"config_response.hex": decode_config, "config_section.hex": config_fields,
+                    "config_section_format1.hex": lambda p: config_fields(p, 1)}
     framing_only = {"long_message.hex", "usb_frame_long.hex"}
     failures = 0
     for path in sorted(root.glob("*.hex")):
@@ -737,10 +782,47 @@ def cmd_config(args):
     ok = hashlib.sha256(section).digest() == sha and sha.hex() == info["config_sha256"]
     print(f"format {fmt}, {len(section)} bytes, SHA-256 {sha.hex()} "
           f"({'verified, matches HELLO' if ok else 'MISMATCH'})")
-    for k, v in config_fields(section).items():
+    for k, v in config_fields(section, fmt).items():
         print(f"  {k:20} {v}")
     if not ok:
         sys.exit(1)
+
+
+def print_check(report):
+    for name in ("foot", "shank"):
+        r = report[name]
+        print(f"{name}: BNO086 part {r['part']} version {r['version']} build {r['build']}, "
+              f"boot {r['boot_ms']} ms, WAKE answered in {r['wake_us']} us")
+        for flag, wires in CHECK_WIRES:
+            verdict = "PASS" if flag in r["flags"] else "FAIL"
+            print(f"  {verdict}  {flag:18} {wires}")
+
+
+def cmd_check(args):
+    """Prints the per-wire sensor check; --rerun resets both sensors and checks again."""
+    s = Session(args)
+    s.open()
+    s.hello()
+    reply = s.request(SERVICE_TEST, struct.pack("<BB", 1, 1 if args.rerun else 0), SERVICE_TEST,
+                      timeout=5.0)
+    s.transport.close()
+    print_check(decode_service_test(reply)["report"])
+
+
+def cmd_pulse(args):
+    """One motor pulse (DEC-018): the device ends it by itself after --ms."""
+    s = Session(args)
+    s.open()
+    s.hello()
+    try:
+        reply = s.request(SERVICE_TEST,
+                          struct.pack("<BBBBH", 2, args.motor, args.duty, 0, args.ms),
+                          SERVICE_TEST)
+    except TimeoutError:
+        s.transport.close()
+        sys.exit(1)  # the refusal was printed as an ERROR
+    s.transport.close()
+    print(decode_service_test(reply))
 
 
 def cmd_reopen(args):
@@ -769,6 +851,7 @@ class Stats:
         self.errors = []
         self.reconnects = 0
         self.repair_requests = 0
+        self.accel_lsb_per_g = None  # from the device's CONFIG_GET
 
     def add_durable(self, msg, from_backfill):
         t, seq, _, p = parse(msg)
@@ -821,6 +904,14 @@ def cmd_stats(args):
         nonlocal last_seq, boot_id
         s.open()
         info = s.hello()
+        # The scale to read |a| with, and, for a recording, the configuration a
+        # replay needs (the counts mean nothing without it).
+        config = s.request(CONFIG_GET, b"", CONFIG_GET)
+        fmt, _, section = decode_config(config)
+        stats.accel_lsb_per_g = config_fields(section, fmt)["accel_lsb_per_g"]
+        if record:
+            msg = message(CONFIG_GET, config, 0)
+            record.write(struct.pack("<IQ", len(msg), time.time_ns() // 1000) + msg)
         if boot_id is not None and info["boot_id"] != boot_id:
             print("device rebooted: sequence numbers restarted", file=sys.stderr)
             last_seq = None
@@ -934,9 +1025,9 @@ def report(stats, elapsed, rejected):
         for bit in range(len(RAW_FLAGS)):
             flag_counts[bit] += bool(status & (1 << bit))
         if not status & 1:
-            foot_mag.append(math.sqrt(sum(v * v for v in foot[:3])) / ACCEL_LSB_PER_G)
+            foot_mag.append(math.sqrt(sum(v * v for v in foot[:3])) / stats.accel_lsb_per_g)
         if not status & 2:
-            shank_mag.append(math.sqrt(sum(v * v for v in shank[:3])) / ACCEL_LSB_PER_G)
+            shank_mag.append(math.sqrt(sum(v * v for v in shank[:3])) / stats.accel_lsb_per_g)
     print("frame flags         " + ", ".join(f"{n} {c}" for n, c in zip(RAW_FLAGS, flag_counts)))
     for name, mags in (("foot", foot_mag), ("shank", shank_mag)):
         if mags:
@@ -974,13 +1065,20 @@ def main():
                     help="EVALUATION rather than REFERENCE_CHECK")
     ve = sub.add_parser("vectors", help="decode the golden vectors with this tool")
     ve.add_argument("--verbose", action="store_true")
+    ck = sub.add_parser("check", help="per-wire sensor check (SERVICE_TEST)")
+    ck.add_argument("--rerun", action="store_true", help="reset both sensors and check again")
+    pu = sub.add_parser("pulse", help="one motor pulse (SERVICE_TEST, DEC-018)")
+    pu.add_argument("motor", type=int, help="1..6")
+    pu.add_argument("--duty", type=int, default=128, help="51..204 of 255 (default 128)")
+    pu.add_argument("--ms", type=int, default=1000, help="100..5000 (default 1000)")
     ro = sub.add_parser("reopen")
     ro.add_argument("--cycles", type=int, default=20)
     ro.add_argument("--pause", type=float, default=0.5)
     args = ap.parse_args()
     {"hello": cmd_hello, "config": cmd_config, "stats": cmd_stats, "reopen": cmd_reopen,
      "calibrate": cmd_calibrate, "walk": cmd_walk, "capture": cmd_capture,
-     "score": cmd_score, "vectors": cmd_vectors}[args.command](args)
+     "score": cmd_score, "vectors": cmd_vectors, "check": cmd_check,
+     "pulse": cmd_pulse}[args.command](args)
 
 
 if __name__ == "__main__":

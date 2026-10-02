@@ -1483,3 +1483,39 @@ of PROB-021 to be understood by the operator.
 ### Next Steps
 
 The DEC-017 driver and the DEC-018 service test, then `ead --check`.
+
+## 2026-10-02 — BNO086 product firmware, SERVICE_TEST, `ead --check` (schema 5)
+
+### Objective
+The main build: product firmware for the DEC-016 wiring with our own two-sensor SH-2
+driver (DEC-017), motor service-test pulses (DEC-018), and the `ead --check` view.
+
+### Changes
+- Firmware: `ead/sh2.{h,cpp}` (SHTP/SH-2 codec), `ead/motor_guard.{h,cpp}` (contract
+  motor limits), `src/bno086.{h,cpp}` (SPI transport, per-wire check), acquisition
+  rewritten (gyro-clocked frames), `src/motors.{h,cpp}` (LEDC 200 Hz, device-timed
+  pulses), SERVICE_TEST in `link.cpp`; `config_v1.h` on DEC-016 pins and BNO086
+  scales; MPU6500 driver removed. Protocol schema 5, config format 2.
+- Vectors: format 2, four SERVICE_TEST vectors, `config_section_format1.hex`
+  (byte-identical to the old section, kept for stored sessions).
+- Dashboard: both config formats, store schema 7 (`config_format`, `service_tests`),
+  service-test commands, Check view, `--check` launch mode. `eadprobe`: schema 5,
+  `check`, `pulse`, scale from the device config, recordings carry CONFIG.
+
+### Problems
+- Frames first came at 125 Hz: the BNO086 runs the accelerometer at its nearest rate,
+  125 Hz, while the gyroscope runs at 100 Hz. Frames are now gyro-clocked.
+- After a sensor reset, one 152 ms pause follows the first gyro report (sequence +1):
+  sensor start-up behaviour, shown by the timestamps.
+- Shank repeats 1.9 % (clusters every ~2.4 s, phase crossings); period sd 200 us.
+- Check view first showed errors at the page top, far from the button: fixed per panel.
+- Synthetic X clicks on scrolled content do not reach WebKit here; keyboard works.
+
+### Verification
+Native 76/76, Rust 62 (+ hardware test PASS on the device), frontend 28/28, vectors 22.
+On hardware over USB: all 7 check steps PASS on both sensors; 60 s at 100.142 Hz, 0
+missing, 0 dropped, 0 bus errors, |a| 1.013 / 1.002 g; re-check resumes streaming;
+GUI: Check table all PASS, M3 pulse refused with the PROB-020 text. Database migrated
+to schema 7 (backup `ead.sqlite3.schema6-backup-2026-10-02`), 18 sessions intact.
+Not done: an accepted motor pulse felt by a person; protocol.md / DEC-017 detail /
+TEST entries / handoff for this work; mount maps and gait on the leg.

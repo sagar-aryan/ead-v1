@@ -1,5 +1,5 @@
 use super::*;
-use crate::protocol::RawFrame;
+use crate::protocol::{ConfigSection, MotorPulse, RawFrame};
 
 fn temp_store() -> (Arc<Store>, tempdir::TempDir) {
     let dir = tempdir::TempDir::new();
@@ -192,10 +192,14 @@ fn session_records_the_device_configuration() {
         config_sha256: Some("abc123".into()),
         mac: Some("44:B1:76:AF:FB:7C".into()),
         boot_id: Some(7),
-        config_section: Some(vec![1, 2, 3, 4]),
+        config_section: Some(ConfigSection { format: 2, bytes: vec![1, 2, 3, 4] }),
     };
     let session = store.start_session("P-001", SessionKind::Recording, &identity, None, None).unwrap();
-    assert_eq!(store.session_config(&session.session_id).unwrap(), Some(vec![1, 2, 3, 4]));
+    // The format comes back with the bytes: they cannot be read without it.
+    assert_eq!(
+        store.session_config(&session.session_id).unwrap(),
+        Some(ConfigSection { format: 2, bytes: vec![1, 2, 3, 4] })
+    );
     assert_eq!(store.session(&session.session_id).unwrap().firmware.as_deref(), Some("0.1.0+test"));
 }
 
@@ -534,10 +538,12 @@ fn schema_upgrades_from_version_2_keeping_frames() {
         store.flush();
         let connection = store.reader().unwrap();
         // Pretend this store predates the gait tables: undo everything schemas
-        // 3, 4, 5 and 6 added, so it really looks like a v2 store.
+        // 3 to 7 added, so it really looks like a v2 store.
         connection
             .execute_batch(
-                "DROP TABLE status_changes;
+                "DROP TABLE service_tests;
+                 ALTER TABLE sessions DROP COLUMN config_format;
+                 DROP TABLE status_changes;
                  ALTER TABLE sessions DROP COLUMN calibration;
                  DROP TABLE segments;
                  ALTER TABLE sessions DROP COLUMN reference_id;
@@ -894,4 +900,32 @@ fn a_session_left_open_by_a_crash_is_closed_at_the_next_start() {
     let seconds = |t: &str| t[17..23].parse::<f64>().unwrap();
     let elapsed = (seconds(&stopped) - seconds(started)).rem_euclid(60.0);
     assert!((elapsed - 1.0).abs() < 0.01, "{started} -> {stopped}");
+}
+
+#[test]
+fn service_tests_are_logged_and_a_pulse_gets_its_answer() {
+    let (store, _dir) = temp_store();
+    let identity = DeviceIdentity {
+        calibration: None,
+        firmware: None,
+        config_sha256: None,
+        mac: Some("44:B1:76:AF:FB:7C".into()),
+        boot_id: Some(9),
+        config_section: None,
+    };
+    let check = store.record_sensor_check(&identity, "{\"foot\":{}}").unwrap();
+    let pulse = MotorPulse { motor: 4, duty: 128, duration_ms: 1000 };
+    let test = store.record_motor_pulse(&identity, &pulse).unwrap();
+    store.set_motor_felt(test, true).unwrap();
+    // Only a pulse can be felt.
+    assert!(store.set_motor_felt(check, true).is_err());
+
+    let tests = store.service_tests(10).unwrap();
+    assert_eq!(tests.len(), 2);
+    assert_eq!(tests[0].kind, "motor_pulse");
+    assert_eq!((tests[0].motor, tests[0].duty, tests[0].duration_ms), (Some(4), Some(128), Some(1000)));
+    assert_eq!(tests[0].felt, Some(true));
+    assert_eq!(tests[1].kind, "sensor_check");
+    assert_eq!(tests[1].felt, None);
+    assert_eq!(tests[1].report.as_deref(), Some("{\"foot\":{}}"));
 }

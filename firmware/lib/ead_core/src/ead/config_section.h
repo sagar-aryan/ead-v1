@@ -9,7 +9,10 @@
 
 namespace ead {
 
-constexpr uint16_t kConfigFormat = 1;
+// Format 2: the BNO086/SPI build (DEC-016, DEC-017). Format 1 was the MPU6500 one.
+constexpr uint16_t kConfigFormat = 2;
+
+constexpr uint8_t kSensorKindBno086 = 1;
 
 // Returns the section length, or 0 if `cap` is too small.
 size_t encodeConfigSection(uint8_t* out, size_t cap);

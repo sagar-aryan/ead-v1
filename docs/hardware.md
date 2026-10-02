@@ -21,6 +21,7 @@ Every row states its evidence; "unverified" means nobody has measured it yet.
 | Measured on the assembled build | Both BNO086s pass every wiring, identity and data check at 1 MHz (TEST-043). Pad readback: **GPIO42 (motor 3) held low, unlike the other five motor pins (PROB-020)** | TEST-043, TEST-044 |
 | XIAO power | The switched LOAD+ feeds the ERM driver's PWR+ **and the XIAO's 5V (VUSB) pin**, not its BAT+ pad. **The XIAO has no diode on that pin**, so with USB plugged in, USB 5 V sits on the switched node: switch OFF, it powers the ERM driver (motor rails live); switch ON, it meets the charger's LOAD+ (PROB-021) | User, 2026-10-02; Seeed XIAO ESP32-S3 wiki |
 | Foot cable | About 30 cm | User, 2026-10-02 |
+| Charger | SmartElex MCP73833 module (Robocraze): USB mini-B, 500 mA default charge, separate battery and load connectors. Its product page names no protection IC; whether the cell has its own protection board is not recorded | User, 2026-10-02; product page |
 
 **Do not flash the product firmware onto this build.** It still uses the doc-03 pins:
 it would run I²C bus recovery and `Wire` on GPIO5/6 (motor gates 5 and 6) and drive

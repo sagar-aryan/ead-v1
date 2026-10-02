@@ -41,10 +41,11 @@ pub struct App {
     link_stop: Mutex<Option<tokio::sync::watch::Sender<bool>>>,
     config: Mutex<Option<Arc<DeviceConfigSection>>>,
     shutdown: tokio::sync::watch::Sender<bool>,
+    check_mode: bool,
 }
 
 impl App {
-    pub fn new(store: Arc<Store>) -> Arc<Self> {
+    pub fn new(store: Arc<Store>, check_mode: bool) -> Arc<Self> {
         let live = LiveHub::new();
         let telemetry = Arc::new(Telemetry { store: store.clone(), live: live.clone() });
         let (shutdown, _) = tokio::sync::watch::channel(false);
@@ -55,6 +56,7 @@ impl App {
             link_stop: Mutex::new(None),
             config: Mutex::new(None),
             shutdown,
+            check_mode,
         })
     }
 
@@ -519,9 +521,97 @@ pub fn session_config(
 ) -> CommandResult<Option<DeviceConfigSection>> {
     let section = app.store.session_config(&session_id).map_err(failed)?;
     match section {
-        Some(bytes) => crate::protocol::parse_section(&bytes).map(Some).map_err(failed),
+        Some(section) => section.parse().map(Some).map_err(failed),
         None => Ok(None),
     }
 }
 
 
+
+// ---- service tests (doc 07 §7, doc 11 §6, DEC-018) -------------------------
+
+/// How long a motor pulse lasts: long enough to tell whether it is felt, well
+/// inside the contract's 5 s.
+const MOTOR_PULSE_MS: u16 = 1000;
+
+/// "check" when started as `ead --check`, else "normal".
+#[tauri::command]
+pub fn launch_mode(app: tauri::State<'_, Arc<App>>) -> &'static str {
+    if app.check_mode {
+        "check"
+    } else {
+        "normal"
+    }
+}
+
+/// Doc 11 §6: the service and test UI is disabled while a session runs. The
+/// device refuses too; this says why without a round trip.
+fn refuse_while_recording(app: &App) -> CommandResult<()> {
+    match app.store.recording_session() {
+        Some(session) => Err(format!("not while session {session} is recording")),
+        None => Ok(()),
+    }
+}
+
+/// Waits for the SERVICE_TEST reply after `seen`, or the device's ERROR.
+async fn await_service_reply(app: &App, seen: u64, timeout_ms: u64) -> CommandResult<()> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+    while std::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        if app.device.service_replies() > seen {
+            return Ok(());
+        }
+        if let Some(error) = app.device.last_error() {
+            return Err(format!("the device refused: {error}"));
+        }
+    }
+    Err("the device did not answer".into())
+}
+
+/// The per-wire sensor check (docs/protocol.md §5.14). With `rerun` the device
+/// resets both sensors and checks again; that result is logged.
+#[tauri::command]
+pub async fn sensor_check(
+    app: tauri::State<'_, Arc<App>>,
+    rerun: bool,
+) -> CommandResult<crate::protocol::SensorCheckReport> {
+    refuse_while_recording(&app)?;
+    let seen = app.device.request_sensor_check(rerun)?;
+    await_service_reply(&app, seen, if rerun { 6000 } else { 2000 }).await?;
+    let report = app.device.sensor_check().ok_or("the device sent no sensor check")?;
+    if rerun {
+        let json = serde_json::to_string(&report).map_err(failed)?;
+        app.store.record_sensor_check(&app.device_identity(), &json).map_err(failed)?;
+    }
+    Ok(report)
+}
+
+/// One motor pulse; returns the logged test, whose "felt" answer comes next.
+#[tauri::command]
+pub async fn motor_pulse(
+    app: tauri::State<'_, Arc<App>>,
+    motor: u8,
+    duty: u8,
+) -> CommandResult<i64> {
+    refuse_while_recording(&app)?;
+    let pulse = crate::protocol::MotorPulse { motor, duty, duration_ms: MOTOR_PULSE_MS };
+    let seen = app.device.request_motor_pulse(&pulse)?;
+    await_service_reply(&app, seen, 1000).await?;
+    app.store.record_motor_pulse(&app.device_identity(), &pulse).map_err(failed)
+}
+
+#[tauri::command]
+pub fn record_motor_felt(
+    app: tauri::State<'_, Arc<App>>,
+    test_id: i64,
+    felt: bool,
+) -> CommandResult<()> {
+    app.store.set_motor_felt(test_id, felt).map_err(failed)
+}
+
+#[tauri::command]
+pub fn service_tests(
+    app: tauri::State<'_, Arc<App>>,
+) -> CommandResult<Vec<crate::store::StoredServiceTest>> {
+    app.store.service_tests(50).map_err(failed)
+}

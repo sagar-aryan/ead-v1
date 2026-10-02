@@ -1,5 +1,5 @@
 # Device STATUS: READY, USB link active, faults 0x0300 (shank frozen + acquisition
-# stalled), frame 123456, dropped 3, shank repeated 17, I2C errors 2, reinits 1,
+# stalled), frame 123456, dropped 3, shank repeated 17, bus errors 2, reinits 1,
 # sequence window 1..42, RSSI -47 dBm, 1 station, heap min 201000,
 # stack free 1500/2600/3100/4200, calibration ready from 500 samples,
 # gait FOOT_FLAT_ZV with 37 cycles completed.

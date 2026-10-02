@@ -86,12 +86,24 @@ fn records_a_session_from_a_real_device() {
     assert!(!snapshot.haptics_fitted, "no ERM drivers are fitted (DEC-006)");
     assert_eq!(snapshot.faults, Vec::<&str>::new(), "device reports faults");
 
-    // The configuration must be the as-built one (docs/hardware.md).
+    // The configuration must be the as-built one (docs/hardware.md): the BNO086
+    // build, maps not yet measured for its boards.
     let config = device.config().expect("configuration");
+    assert!(matches!(config.imu.bus, crate::protocol::config::SensorBus::Bno086 { .. }));
     assert_eq!(config.imu.foot_mount, [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
-    assert_eq!(config.imu.shank_mount, [[0, 0, -1], [1, 0, 0], [0, -1, 0]]);
+    assert_eq!(config.imu.shank_mount, [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
     assert_eq!(config.imu.sample_hz, 100);
     assert!(!config.haptics.fitted);
+
+    // The boot-time sensor check, decoded from the device's own bytes: every
+    // step passes on both sensors (TEST-043 wiring).
+    let seen = device.request_sensor_check(false).expect("request sensor check");
+    wait_for(Duration::from_secs(3), "sensor check", || device.service_replies() > seen);
+    let check = device.sensor_check().expect("sensor check");
+    for (name, sensor) in [("foot", &check.foot), ("shank", &check.shank)] {
+        assert_eq!(sensor.passed, crate::protocol::CHECK_STEPS.to_vec(), "{name} check");
+        assert_eq!(sensor.part_number, 10_004_563, "{name} part");
+    }
 
     // Opening the port mid-stream leaves a partial frame in the buffer, which is
     // discarded by design. What matters is that nothing is corrupted afterwards.
@@ -201,6 +213,6 @@ fn records_a_session_from_a_real_device() {
     // The session carries the configuration that produced it, so it reads
     // correctly with no device attached.
     let stored = store.session_config(&stopped.session_id).unwrap().expect("stored configuration");
-    let reparsed = crate::protocol::parse_section(&stored).expect("parse stored configuration");
+    let reparsed = stored.parse().expect("parse stored configuration");
     assert_eq!(reparsed.imu.shank_mount, config.imu.shank_mount);
 }

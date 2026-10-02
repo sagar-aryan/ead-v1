@@ -1,4 +1,4 @@
-//! The device configuration section (`docs/protocol.md` §5.5, format 1).
+//! The device configuration section (`docs/protocol.md` §5.5, formats 1 and 2).
 //!
 //! This is the device's own copy of the fixed V1 values, hashed into the
 //! configuration hash recorded with every session (doc 18). The host needs the
@@ -10,17 +10,36 @@ use super::{ProtocolError, Reader, Result};
 /// 3×3 signed permutation, row-major: `anatomical = m · chip` (DEC-009).
 pub type MountMap = [[i8; 3]; 3];
 
+/// Format 1 described the MPU6500 build; format 2 the BNO086 build (DEC-017).
+/// Sessions keep the section they were recorded with, so both stay readable.
+pub const FORMAT_MPU6500: u16 = 1;
+pub const FORMAT_BNO086: u16 = 2;
+
+/// What the sensors are and how they are read: the only part that differs
+/// between the two builds, besides the pins.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(tag = "part", rename_all = "snake_case")]
+pub enum SensorBus {
+    Mpu6500 {
+        foot_address: u8,
+        shank_address: u8,
+        i2c_hz: u32,
+        dlpf_hz: u8,
+        dlpf_cfg: u8,
+        sample_rate_divider: u8,
+    },
+    Bno086 {
+        spi_hz: u32,
+        report_interval_us: u32,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct ImuConfig {
-    pub foot_address: u8,
-    pub shank_address: u8,
-    pub i2c_hz: u32,
+    pub bus: SensorBus,
     pub sample_hz: u16,
     pub accel_range_g: u8,
     pub gyro_range_dps: u16,
-    pub dlpf_hz: u8,
-    pub dlpf_cfg: u8,
-    pub sample_rate_divider: u8,
     pub accel_lsb_per_g: f32,
     pub gyro_lsb_per_dps: f32,
     pub foot_mount: MountMap,
@@ -28,11 +47,25 @@ pub struct ImuConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(tag = "bus", rename_all = "snake_case")]
+pub enum SensorPins {
+    I2c { sda: u8, scl: u8, foot_int: u8, shank_int: u8 },
+    Spi {
+        sck: u8,
+        miso: u8,
+        mosi: u8,
+        foot_cs: u8,
+        shank_cs: u8,
+        foot_int: u8,
+        shank_int: u8,
+        rst: u8,
+        wake: u8,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct PinConfig {
-    pub i2c_sda: u8,
-    pub i2c_scl: u8,
-    pub foot_imu_int: u8,
-    pub shank_imu_int: u8,
+    pub sensors: SensorPins,
     pub motors: [u8; 6],
 }
 
@@ -121,30 +154,99 @@ fn f32_array<const N: usize>(r: &mut Reader<'_>) -> Result<[f32; N]> {
     Ok(out)
 }
 
-pub fn parse_section(section: &[u8]) -> Result<DeviceConfigSection> {
-    let mut r = Reader::new(section);
-    let imu = ImuConfig {
-        foot_address: r.u8()?,
-        shank_address: r.u8()?,
-        i2c_hz: r.u32()?,
-        sample_hz: r.u16()?,
-        accel_range_g: r.u8()?,
-        gyro_range_dps: r.u16()?,
+fn imu_mpu6500(r: &mut Reader<'_>) -> Result<ImuConfig> {
+    let foot_address = r.u8()?;
+    let shank_address = r.u8()?;
+    let i2c_hz = r.u32()?;
+    let sample_hz = r.u16()?;
+    let accel_range_g = r.u8()?;
+    let gyro_range_dps = r.u16()?;
+    let bus = SensorBus::Mpu6500 {
+        foot_address,
+        shank_address,
+        i2c_hz,
         dlpf_hz: r.u8()?,
         dlpf_cfg: r.u8()?,
         sample_rate_divider: r.u8()?,
+    };
+    Ok(ImuConfig {
+        bus,
+        sample_hz,
+        accel_range_g,
+        gyro_range_dps,
         accel_lsb_per_g: r.f32()?,
         gyro_lsb_per_dps: r.f32()?,
-        foot_mount: mount_map(&mut r)?,
-        shank_mount: mount_map(&mut r)?,
+        foot_mount: mount_map(r)?,
+        shank_mount: mount_map(r)?,
+    })
+}
+
+fn imu_bno086(r: &mut Reader<'_>) -> Result<ImuConfig> {
+    const SENSOR_KIND_BNO086: u8 = 1;
+    if r.u8()? != SENSOR_KIND_BNO086 {
+        return Err(ProtocolError::BadPayload("configuration section"));
+    }
+    let spi_hz = r.u32()?;
+    let sample_hz = r.u16()?;
+    let report_interval_us = r.u32()?;
+    Ok(ImuConfig {
+        bus: SensorBus::Bno086 { spi_hz, report_interval_us },
+        sample_hz,
+        accel_range_g: r.u8()?,
+        gyro_range_dps: r.u16()?,
+        accel_lsb_per_g: r.f32()?,
+        gyro_lsb_per_dps: r.f32()?,
+        foot_mount: mount_map(r)?,
+        shank_mount: mount_map(r)?,
+    })
+}
+
+/// A section with the format it is written in: the bytes alone cannot say.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigSection {
+    pub format: u16,
+    pub bytes: Vec<u8>,
+}
+
+impl ConfigSection {
+    pub fn parse(&self) -> Result<DeviceConfigSection> {
+        parse_section(self.format, &self.bytes)
+    }
+}
+
+/// Parses a section of the given format (from CONFIG_GET, or as stored with a
+/// session).
+pub fn parse_section(format: u16, section: &[u8]) -> Result<DeviceConfigSection> {
+    let mut r = Reader::new(section);
+    let (imu, sensors) = match format {
+        FORMAT_MPU6500 => {
+            let imu = imu_mpu6500(&mut r)?;
+            let pins = SensorPins::I2c {
+                sda: r.u8()?,
+                scl: r.u8()?,
+                foot_int: r.u8()?,
+                shank_int: r.u8()?,
+            };
+            (imu, pins)
+        }
+        FORMAT_BNO086 => {
+            let imu = imu_bno086(&mut r)?;
+            let pins = SensorPins::Spi {
+                sck: r.u8()?,
+                miso: r.u8()?,
+                mosi: r.u8()?,
+                foot_cs: r.u8()?,
+                shank_cs: r.u8()?,
+                foot_int: r.u8()?,
+                shank_int: r.u8()?,
+                rst: r.u8()?,
+                wake: r.u8()?,
+            };
+            (imu, pins)
+        }
+        _ => return Err(ProtocolError::BadPayload("configuration format")),
     };
-    let pins = PinConfig {
-        i2c_sda: r.u8()?,
-        i2c_scl: r.u8()?,
-        foot_imu_int: r.u8()?,
-        shank_imu_int: r.u8()?,
-        motors: r.array::<6>()?,
-    };
+    let pins = PinConfig { sensors, motors: r.array::<6>()? };
     let calibration_static_s = r.u8()?;
     let mahony_kp = r.f32()?;
     let mahony_ki = r.f32()?;

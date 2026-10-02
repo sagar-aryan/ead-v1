@@ -10,7 +10,7 @@
 namespace ead {
 
 constexpr uint16_t kProtocolVersion = 1;  // doc 08 header field
-constexpr uint16_t kSchemaVersion = 4;    // payload layouts, docs/protocol.md
+constexpr uint16_t kSchemaVersion = 5;    // payload layouts, docs/protocol.md
 constexpr size_t kHeaderSize = 20;
 constexpr size_t kRawFrameSize = 54;
 constexpr size_t kMaxRawFramesPerBatch = 10;
@@ -95,6 +95,7 @@ enum Capability : uint8_t {
   kCapHapticsFitted = 1u << 0,
   kCapFlashStorage = 1u << 1,
   kCapPsramRing = 1u << 2,
+  kCapMotorServiceTest = 1u << 3,
 };
 
 struct HelloInfo {
@@ -103,8 +104,8 @@ struct HelloInfo {
   uint8_t reset_reason;
   uint32_t boot_id;
   uint8_t mac[6];
-  uint8_t who_foot;
-  uint8_t who_shank;
+  uint8_t sensor_foot;   // kSensorAnswered when the BNO086 gave its product ID
+  uint8_t sensor_shank;
   uint8_t capabilities;
   uint8_t config_sha256[32];
   uint32_t oldest_seq;
@@ -155,7 +156,7 @@ struct StatusInfo {
   uint32_t frame_index;
   uint32_t frames_dropped;
   uint32_t shank_repeated;
-  uint32_t i2c_errors;
+  uint32_t bus_errors;
   uint32_t imu_reinits;
   uint32_t oldest_seq;
   uint32_t last_seq;
@@ -247,6 +248,54 @@ enum class ErrorCode : uint16_t {
 
 size_t encodeErrorPayload(uint32_t cmdSeq, uint8_t cmdType, ErrorCode code, const char* detail,
                           uint8_t* out, size_t cap);
+
+// ---- SERVICE_TEST (docs/protocol.md §5.14) ---------------------------------
+
+enum class ServiceOp : uint8_t { SensorCheck = 1, MotorPulse = 2 };
+
+/// HELLO sensor byte: the BNO086 answered its product ID request.
+constexpr uint8_t kSensorAnswered = 0x86;
+
+/// One sensor's wiring check: each flag is a step that passed.
+enum SensorCheckFlag : uint16_t {
+  kCheckIntHighInReset = 1u << 0,  // INT idles high while RST is held low
+  kCheckBooted = 1u << 1,          // INT asserted after RST was released
+  kCheckReadValid = 1u << 2,       // a valid packet came back through its CS
+  kCheckIntReleased = 1u << 3,     // reading through its CS released its INT
+  kCheckWake = 1u << 4,            // INT answered WAKE
+  kCheckProductId = 1u << 5,       // it answered a product ID request (MOSI)
+  kCheckReports = 1u << 6,         // it accepted the accelerometer and gyroscope reports
+};
+
+struct SensorCheck {
+  uint16_t flags;
+  uint16_t bootMs;  // RST release to INT; 0xFFFF if it never came
+  uint16_t wakeUs;  // WAKE to INT; 0xFFFF if it never came
+  uint8_t resetCause;
+  uint8_t versionMajor;
+  uint8_t versionMinor;
+  uint16_t versionPatch;
+  uint32_t partNumber;
+  uint32_t buildNumber;
+};
+
+constexpr size_t kSensorCheckRecordSize = 20;
+constexpr size_t kSensorCheckPayloadSize = 2 + 2 * kSensorCheckRecordSize;
+constexpr size_t kMotorPulsePayloadSize = 6;
+
+struct MotorPulse {
+  uint8_t motor;  // 1..6
+  uint8_t duty;   // of 255
+  uint16_t durationMs;
+};
+
+/// Host request: {u8 op=1, u8 rerun} or {u8 op=2, u8 motor, u8 duty, u8 0, u16 ms}.
+bool decodeServiceTest(const uint8_t* payload, size_t len, ServiceOp* op, bool* rerun,
+                       MotorPulse* pulse);
+/// Device replies: the check of both sensors (foot, shank), or the accepted pulse.
+size_t encodeSensorCheckPayload(const SensorCheck& foot, const SensorCheck& shank, uint8_t* out,
+                                size_t cap);
+size_t encodeMotorPulsePayload(const MotorPulse& pulse, uint8_t* out, size_t cap);
 
 // ---- CONFIG_GET response ---------------------------------------------------
 

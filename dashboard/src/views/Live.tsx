@@ -224,7 +224,7 @@ export function Live({ device }: { device: DeviceApi }) {
             </span>
           </div>
           <Axis label="dropped" value={snapshot?.status?.frames_dropped ?? null} unit="" />
-          <Axis label="I²C errors" value={snapshot?.status?.i2c_errors ?? null} unit="" />
+          <Axis label="bus errors" value={snapshot?.status?.bus_errors ?? null} unit="" />
           <Axis label="shank repeats" value={snapshot?.status?.shank_repeated ?? null} unit="" />
           <Axis label="missing messages" value={snapshot?.missing_messages ?? null} unit="" />
         </div>
