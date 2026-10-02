@@ -1034,3 +1034,39 @@ are about on-device storage, M7), so the choice is the user's. Options:
 ### Verification
 
 None yet.
+
+## PROB-020 — GPIO42 (motor 3) is held low, unlike the other five motor pins
+
+**Status:** Open — needs a measurement by the user
+
+### Symptoms
+
+TEST-044: GPIO42 (MTMS back pad, motor 3 in DEC-016) reads 0 with the internal
+pull-up on. GPIO1, 2, 4, 5 and 6, wired to identical channels, read 1. On the bare
+chip (TEST-041) GPIO42 read 1/0, so the pull-up works; something outside holds it low.
+
+### Expected Behavior
+
+The same reading as the other motor pins: 100 Ω to the gate, 100 kΩ gate to GND.
+
+### Hypotheses (none tested)
+
+1. A wrong pulldown value on channel 3 (for example 100 Ω fitted as R9).
+2. The MTMS wire on GND or EGND instead of PWM3.
+3. The MTMS wire on the M3- pad (MOSFET drain) or a rail, with rail A unpowered at
+   that boot (its 220 µF would hold the pin low for far longer than 300 µs).
+4. A copper or solder bridge to the GND pour (the driver PCB is bare copper).
+
+### Why it matters
+
+Every firmware for this build drives the motor pins LOW first. Under hypotheses 1,
+2 and 4 that is harmless. Under hypothesis 3, with rail A powered, it would sink
+motor current through GPIO42. Driving it HIGH (any motor-3 test) would be wrong
+under 2, 3 and 4. So nothing is flashed until it is measured.
+
+### Next step
+
+Board unpowered: resistance from the MTMS back pad to GND, compared with D0 to GND
+(expected about 100 kΩ for both), and where the MTMS wire lands on the driver PCB.
+
+Root cause: Unknown.

@@ -1400,3 +1400,45 @@ could not be observed with the tools available.
 ### Current Status
 
 `ead` done on this machine. `ead --check` designed only (questions to the user).
+
+## 2026-10-02 — Board on USB; the ERM driver PCB; motor 3 pin held low
+
+### Objective
+
+The user plugged the DEC-016 build in, pointed to `~/Documents/ead pcb/` for the
+ERM driver, and delegated the sensor-driver choices (DEC-017) to the agent.
+
+### Investigation
+
+- Read the PCB project's handoff, hardware, testing and progress docs, its BOM, its
+  bring-up procedure and `erm_channel_test.ino`. It answers several open hardware
+  questions (wiring reference §16): Holtek HT7833 SOT-89 with the pinout read from
+  the Holtek datasheet; motors rated 3 V, 90 mA, 120 mA at start; an external master
+  switch after the charger. It also differs from the wiring reference: the 10 nF
+  across each motor is fitted, and its bench sketch drove 20 kHz PWM where the
+  contract says 200 Hz. Its 2026-09-24 log has a stuck-motor event with no
+  established root cause and a host-silence failsafe never exercised on hardware.
+- USB descriptor: the XIAO is `44:B1:76:AF:FB:7C`, the TEST-041 chip.
+- A single `?` returned `padstate`'s stored report from a boot on the wired board
+  (TEST-044). Sensor lines look as expected; GPIO42 (motor 3) is held low, unlike
+  the other five motor pins (PROB-020).
+
+### Approach
+
+Stop before flashing. The bench firmware drives GPIO42 LOW, which is harmful only
+if GPIO42 is wired to a drain or rail; that has to be measured, not assumed.
+
+### Changes
+
+`docs/wiring_reference.md` (§6, §7, §15, §16), `docs/hardware.md`,
+`docs/testing.md` (TEST-044), `docs/problems.md` (PROB-020).
+
+### Current Status
+
+Blocked on the user's measurement of GPIO42 (PROB-020) before TEST-043.
+
+### Next Steps
+
+Measure GPIO42; then TEST-043; then DEC-017 (delegated: our own two-sensor SH-2
+driver, Mahony on the BNO086's calibrated accel and gyro, the MPU6500 build retired,
+a protocol schema bump accepted).

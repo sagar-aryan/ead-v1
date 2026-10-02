@@ -15,9 +15,10 @@ Every row states its evidence; "unverified" means nobody has measured it yet.
 | Powered | Yes, since assembly | User, 2026-10-02 |
 | `wiring_reference.md` §13 pre-power checks | Not recorded | — |
 | HT7833 part and the pinout it was soldered by | Not recorded (§7 said not to solder by the Airupton table until the part is known) | — |
-| Which XIAO | Unknown; the user is not sure. Its USB serial number is its MAC, so `lsusb -v` answers it once plugged in. The XIAO measured in TEST-041 is MAC `44:b1:76:af:fb:7c` | User, 2026-10-02 |
-| Firmware on it | `firmware/bench/padstate`, if it is the TEST-041 XIAO. Whether it has booted on the new wiring is not known to the user | — |
-| Measured on the assembled build | Nothing yet (TEST-043 not run) | — |
+| Which XIAO | The one measured in TEST-041: USB serial number (= MAC) `44:B1:76:AF:FB:7C` | Read from the USB descriptor, 2026-10-02 |
+| Firmware on it | `firmware/bench/padstate`; it has booted on the new wiring (TEST-044) | Its reply to a `?`, 2026-10-02 |
+| ERM driver | Separate PCB from `~/Documents/ead pcb/`: Holtek HT7833 SOT-89 ×2, IRLML6344 ×6, 1N5819W, 100 Ω / 100 kΩ, 10 nF across each motor, 100 nF per channel. Motors rated 3 V, 90 mA, 120 mA at start. Its bring-up on 2026-09-24 ran the motors at 20 kHz PWM from GPIO1–6 (`erm_channel_test.ino`); a stuck-motor event there has no established root cause | PCB project docs |
+| Measured on the assembled build | Pad readback only (TEST-044): sensor lines as expected; **GPIO42 (motor 3) held low, unlike the other five motor pins (PROB-020)** | TEST-044 |
 
 **Do not flash the product firmware onto this build.** It still uses the doc-03 pins:
 it would run I²C bus recovery and `Wire` on GPIO5/6 (motor gates 5 and 6) and drive

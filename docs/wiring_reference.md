@@ -154,6 +154,13 @@ little static current.
 
 ## 6. One motor channel — repeated six times
 
+**As built (2026-10-02):** the six channels and both haptic rails (§7) are on a
+separate ERM driver PCB, designed in `~/Documents/ead pcb/` (KiCad, with its own
+docs). Same circuit as below, plus a 10 nF across each motor (C9–C14, fitted), a
+100 nF rail-to-GND per channel, and 10 µF at each regulator input **[PCB project
+BOM]**. Its PWM1–PWM6 pads take the motor GPIOs of §3; its `ESP+` pad feeds the
+XIAO's BAT+ from the switched battery.
+
 **[CONTRACT]** `02_HARDWARE_WIRING.md` §4. Pin numbers **[DS]** Infineon.
 
 ```text
@@ -236,6 +243,11 @@ half of the band, rail B the back-medial half.
   table could not be read. **Do not solder by this table** until the package
   and seller are known (§16); a regulator fitted backwards puts battery voltage
   on the motor rail.
+- **Update 2026-10-02:** the ERM driver PCB uses the Holtek HT7833, SOT-89, with
+  pad 1 GND, pad 2 VIN (and the tab), pad 3 VOUT, read by that project from
+  Holtek HT78xx Rev 1.51 (`holtek.com/webapi/116711/HT78xxv151.pdf`) **[DS, PCB
+  project]**: the same order as the Airupton SOT-89 row above. The fitted parts'
+  marking has not been checked against it.
 
 Thermal check, worst case: full cell 4.2 V, three motors running. Dissipation
 is (4.2 − 3.3) V × I. At 300 mA that is 0.27 W; a SOT-89 at 200 °C/W **[DS]**
@@ -424,7 +436,10 @@ the window in which a motor there would have switched on.
 
 ## 15. What is wired today
 
-**Current device — built.** Two MPU6500s on I²C, which the BNO086 build replaces.
+**Current device (user, 2026-10-02): the DEC-016 build of §3, with the ERM driver
+PCB of §6, everything fitted.**
+
+**Previous device, no longer exists.** Two MPU6500s on I²C.
 
 | Function | XIAO pin | GPIO |
 |---|---|---:|
@@ -443,11 +458,11 @@ Each item blocks one specific connection. Everything else is final.
 
 | # | Question | Blocks | Fastest way to answer |
 |---:|---|---|---|
-| 1 | HT7833: which package, and from which seller? | The regulator's three solder joints (§7) | The product page link, or a photo of the part's marking |
-| 2 | ERM motor: part number, or rated voltage and current? | The rail current budget and thermal check (§7) | Product page link |
+| 1 | HT7833: which package, and from which seller? **Answered by the PCB project: Holtek, SOT-89 (§7)** | The regulator's three solder joints (§7) | The product page link, or a photo of the part's marking |
+| 2 | ERM motor: part number, or rated voltage and current? **Ratings from the PCB project: 3 V, 90 mA, 120 mA at start; part number still unknown** | The rail current budget and thermal check (§7) | Product page link |
 | 3 | MCP73833 module: which board? | Its four connections (§9) | Product page link or photo |
 | 4 | Does the cell have a protection circuit? | Whether one must be added (§9) | A small board under the tape at the wire end of the cell |
-| 5 | Is there a power switch? | The charge-with-switch-off arrangement (§9) | Yes or no |
+| 5 | Is there a power switch? **The PCB design puts an external master switch between the charger's LOAD+ and the system** | The charge-with-switch-off arrangement (§9) | Yes or no |
 
 ## 17. Sources
 

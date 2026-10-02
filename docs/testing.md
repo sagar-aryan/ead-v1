@@ -1446,3 +1446,60 @@ Not run (the board was not connected on 2026-10-02).
 ### Result
 
 NOT RUN
+
+## TEST-044 — Pad readback on the assembled DEC-016 build (padstate's stored report)
+
+### Objective
+
+Learn what the wiring does to each pad before any firmware drives a pin on the
+assembled build.
+
+### Environment
+
+The DEC-016 build, XIAO `44:B1:76:AF:FB:7C`, running `firmware/bench/padstate`
+since 2026-10-01. USB, opened with DTR/RTS set before open (PROB-005). 2026-10-02.
+
+### Procedure
+
+1. Send `?` once. `padstate` re-sends the report it recorded at its last boot (each
+   pad read with the internal pull-up, then the pull-down, 300 µs each). No reset,
+   no flash. The boot time of that report, and whether the motor rails were powered
+   then, are unknown.
+
+### Expected
+
+From DEC-016 and the PCB design: SCK, MISO, MOSI 1/1 (the boards' pull-ups);
+RST and WAKE 1/1; INT lines driven by the sensors; each motor pin the same as the
+others (100 Ω to a gate with a 100 kΩ pulldown, against a ~45 kΩ internal pull-up:
+about 2.3 V, so the pull-up reading may come out 1).
+
+### Actual
+
+| GPIO | Function (DEC-016) | Readback | TEST-041 (bare chip) |
+|---:|---|---|---|
+| 1, 2, 4, 5, 6 | Motors 1, 2, 4, 5, 6 | 1/0 | 1/0 |
+| 42 | Motor 3 | **0/0** | 1/0 |
+| 3 | WAKE | 1/1 | 1/0 |
+| 7, 8, 9 | SCK, MISO, MOSI | 1/1 | 1/0 |
+| 39 | Foot INT | 0/0 | 1/0 |
+| 40 | Shank INT | 1/1 | 1/0 |
+| 41 | RST | 1/1 | 1/0 |
+| 43, 44 | CS (not disturbed) | level 1, pull-up on | same |
+
+eFuses unchanged: HARD_DIS_JTAG = DIS_USB_JTAG = STRAP_JTAG_SEL = 0.
+
+### Result
+
+PARTIAL — observations only.
+
+### Notes
+
+- **Confirmed:** the report was taken on the wired board (it differs from TEST-041).
+- **Consistent with DEC-016:** SPI lines, RST and WAKE held high.
+- **Foot INT held low:** most likely the powered foot sensor asserting INT with data
+  nobody read; a short to GND reads the same. TEST-043 tells them apart.
+- **Shank INT held high:** inconclusive; an unserviced BNO086 deasserts INT after a
+  timeout, so one snapshot cannot say.
+- **Motors 1, 2, 4, 5, 6 read 1/0:** consistent with the 100 kΩ pulldowns, but the
+  same as nothing attached; this test cannot tell them apart.
+- **GPIO42 held low:** see PROB-020.
