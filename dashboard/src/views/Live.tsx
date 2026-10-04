@@ -77,7 +77,7 @@ export function Live({ device }: { device: DeviceApi }) {
       <h1>Live</h1>
       <p className="page-hint">
         Anatomical axes: X forward toward the toes, Y medial, Z up. Values are the
-        mean over each 20 Hz update; every sample is stored at the full 100 Hz.
+        mean over each 20 Hz update; every frame is stored at the device's full rate.
       </p>
 
       {!units && (
@@ -209,8 +209,7 @@ export function Live({ device }: { device: DeviceApi }) {
         <h2>Frame quality</h2>
         <p className="hint">
           Flags raised anywhere in the last update. A repeated shank sample is
-          expected about once every seven seconds: the two sensors run on
-          independent clocks.
+          expected now and then: the two sensors run on independent clocks.
         </p>
         <div className="readouts">
           <div className="readout wide">

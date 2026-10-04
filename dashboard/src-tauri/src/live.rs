@@ -1,6 +1,7 @@
-//! Live view feed. The device streams 100 Hz frames; the UI renders at 20 Hz
-//! (doc 11 §3), so frames are aggregated per tick here and the full-rate data
-//! stays in the store.
+//! Live view feed. The device streams frames at its configured rate (200 Hz
+//! since device schema 6); the UI renders at 20 Hz (doc 11 §3), so frames are
+//! aggregated per tick here, whatever the rate, and the full-rate data stays in
+//! the store.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

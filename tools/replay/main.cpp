@@ -9,10 +9,10 @@
 // orientation is re-estimated rather than taken from the frame's quaternions.
 // That makes the replay a check on the whole chain, not just on gait.
 //
-// Build:
-//   g++ -std=gnu++17 -O2 -I firmware/lib/ead_core/src -I firmware/include \
-//       -o /tmp/eadreplay tools/replay/main.cpp \
-//       firmware/lib/ead_core/src/ead/{calibration,mahony,gait}.cpp
+// Build (one line):
+//   g++ -std=gnu++17 -O2 -I firmware/lib/ead_core/src -I firmware/include
+//       -o /tmp/eadreplay tools/replay/main.cpp
+//       firmware/lib/ead_core/src/ead/{calibration,mahony,gait,protocol,crc32,cobs,feed}.cpp
 // Run:
 //   /tmp/eadreplay recording.eadlog [--still-seconds 3] [--trace] [--mpu6500]
 //
@@ -32,6 +32,7 @@
 #include "ead/calibration.h"
 #include "ead/protocol.h"
 #include "ead/gait.h"
+#include "ead/feed.h"
 #include "ead/mahony.h"
 
 namespace {
@@ -42,13 +43,15 @@ struct Conversion {
   float gyroLsbPerDps;
   EadMountMap foot;
   EadMountMap shank;
+  float sampleHz;
 };
 
 // The MPU6500 build (CONFIG_GET format 1, docs/hardware.md): +-4 g, +-500 deg/s,
 // and the shank map measured on the leg in TEST-027.
 constexpr Conversion kMpu6500 = {8192.0f, 65.5f,
                                  {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}},
-                                 {{{0, 0, -1}, {0, 1, 0}, {1, 0, 0}}}};
+                                 {{{0, 0, -1}, {0, 1, 0}, {1, 0, 0}}},
+                                 100.0f};
 
 /// Reads the scales and maps from a CONFIG_GET reply payload. Formats 1 and 2
 /// put them at the same offsets (docs/protocol.md §5.5): f32 accel_lsb_per_g at
@@ -66,6 +69,11 @@ bool conversionFromConfig(const uint8_t* payload, size_t len, Conversion* out) {
     out->foot.m[i / 3][i % 3] = int8_t(section[22 + i]);
     out->shank.m[i / 3][i % 3] = int8_t(section[31 + i]);
   }
+  // u16 sample_hz: after two addresses and an I2C rate in format 1, after the
+  // sensor kind and the SPI rate in format 2.
+  uint16_t sampleHz = 0;
+  std::memcpy(&sampleHz, section + (format == 1 ? 6 : 5), 2);
+  out->sampleHz = float(sampleHz);
   return true;
 }
 
@@ -75,6 +83,9 @@ struct Frame {
   int16_t foot[6];
   int16_t shank[6];
   uint16_t status;
+  bool hasRv;          // schema 6: the sensors' own rotation vectors
+  int16_t rvFoot[4];   // real, i, j, k (Q14)
+  int16_t rvShank[4];
 };
 
 /// Reads the probe's .eadlog container: "EADLOG1\n" then (u32 length, u64 host
@@ -119,7 +130,13 @@ std::vector<Frame> readLog(const char* path, Conversion* conversion, bool* haveC
       std::memcpy(&frame.index, r + 8, 4);
       std::memcpy(frame.foot, r + 12, 12);
       std::memcpy(frame.shank, r + 24, 12);
-      std::memcpy(&frame.status, r + 52, 2);
+      // 54-byte frames before schema 6, 70 bytes with the rotation vectors.
+      std::memcpy(&frame.status, r + size - 2, 2);
+      frame.hasRv = size >= 70;
+      if (frame.hasRv) {
+        std::memcpy(frame.rvFoot, r + 52, 8);
+        std::memcpy(frame.rvShank, r + 60, 8);
+      }
       frames.push_back(frame);
     }
   }
@@ -212,8 +229,14 @@ int main(int argc, char** argv) {
   std::printf("%zu frames over %.1f s\n", frames.size(),
               float(frames.back().timeUs - frames.front().timeUs) / 1e6f);
 
-  // Calibration from the still period at the start of the recording.
-  const size_t stillFrames = size_t(stillSeconds * EAD_SAMPLE_HZ);
+  config.sampleHz = s_conversion.sampleHz;
+  // Calibration from the still period at the start of the recording, by time:
+  // recordings differ in frame rate.
+  size_t stillFrames = 0;
+  while (stillFrames < frames.size() &&
+         frames[stillFrames].timeUs - frames.front().timeUs < uint64_t(stillSeconds * 1e6f)) {
+    ++stillFrames;
+  }
   ead::CalibrationAccumulator footCalibration;
   ead::CalibrationAccumulator shankCalibration;
   footCalibration.reset();
@@ -241,7 +264,13 @@ int main(int argc, char** argv) {
     std::printf("  (the recording does not start still enough to calibrate from)\n");
   }
 
-  // Orientation and gait over the whole recording.
+  // Orientation and gait over the whole recording: the sensors' own rotation
+  // vectors where the recording has them (schema 6, DEC-021), else Mahony, as
+  // the firmware that made it did.
+  float footMount[4];
+  float shankMount[4];
+  ead::matrixToQuaternion(kEadFootMount.m, footMount);
+  ead::matrixToQuaternion(kEadShankMount.m, shankMount);
   ead::Mahony foot;
   ead::Mahony shank;
   const float identity[4] = {1.0f, 0.0f, 0.0f, 0.0f};
@@ -287,8 +316,22 @@ int main(int argc, char** argv) {
     shank.update(shankGyro, shankAccel, dt, EAD_MAHONY_KP, EAD_MAHONY_KI);
     for (int i = 0; i < 3; ++i) sample.shankGyroDps[i] = shankGyro[i];
 
-    for (int i = 0; i < 4; ++i) sample.footQuaternion[i] = foot.quaternion()[i];
-    ead::relativeOrientation(shank.quaternion(), foot.quaternion(), sample.relativeQuaternion);
+    float footQ[4];
+    float shankQ[4];
+    if (frame.hasRv) {
+      float chip[4];
+      ead::rotationVectorToQuaternion(frame.rvFoot, chip);
+      ead::segmentOrientation(chip, footMount, calibration.foot.alignment, footQ);
+      ead::rotationVectorToQuaternion(frame.rvShank, chip);
+      ead::segmentOrientation(chip, shankMount, calibration.shank.alignment, shankQ);
+    } else {
+      for (int i = 0; i < 4; ++i) {
+        footQ[i] = foot.quaternion()[i];
+        shankQ[i] = shank.quaternion()[i];
+      }
+    }
+    for (int i = 0; i < 4; ++i) sample.footQuaternion[i] = footQ[i];
+    ead::relativeOrientation(shankQ, footQ, sample.relativeQuaternion);
 
     engine.update(sample);
 

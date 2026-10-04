@@ -1,9 +1,11 @@
 #pragma once
-// 100 Hz acquisition from the two BNO086 sensors (doc 07 §2, DEC-017). Each
-// sensor reports when it has data and asserts its INT; the foot sensor's
-// gyroscope clocks the frames. A frame carries the foot sample's own time
-// (from the SH-2 timestamps) and an index that advances with the foot gyroscope
-// sequence, so a lost report is a visible gap.
+// 200 Hz acquisition from the two BNO086 sensors (doc 07 §2, DEC-017,
+// DEC-021). Each sensor reports when it has data and asserts its INT; the foot
+// sensor's gyroscope clocks the frames. A frame carries the foot sample's own
+// time (from the SH-2 timestamps), both accelerometers interpolated to that
+// time, both game rotation vectors, and an index that advances with the foot
+// gyroscope sequence, so a lost report is a visible gap. Every accelerometer
+// sample also goes out as measured, for the native-rate stream.
 
 #include <cstdint>
 
@@ -15,8 +17,8 @@
 namespace acquisition {
 
 /// Resets and checks both sensors, raises any faults, then starts the task
-/// feeding RawFrames into `frames`.
-void start(QueueHandle_t frames);
+/// feeding RawFrames into `frames` and ead::AccelSamples into `accelSamples`.
+void start(QueueHandle_t frames, QueueHandle_t accelSamples);
 
 /// The sensor (0 foot, 1 shank) answered its product ID in the latest check.
 bool sensorAnswered(uint8_t sensor);

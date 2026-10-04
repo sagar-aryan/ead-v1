@@ -18,8 +18,9 @@ namespace telemetry {
 
 namespace {
 
-// 4 MB holds about 12 minutes of raw batches (~5.6 kB/s).
-constexpr size_t kPsramBytes = 4u * 1024u * 1024u;
+// Schema 6 streams about 23 kB/s (200 Hz frames and the native accelerometer
+// of both sensors, DEC-021): 6 MB holds about 4.5 minutes of it.
+constexpr size_t kPsramBytes = 6u * 1024u * 1024u;
 constexpr size_t kPsramSlots = 16384;
 constexpr size_t kInternalBytes = 64u * 1024u;
 constexpr size_t kInternalSlots = 256;
@@ -34,13 +35,38 @@ class Guard {
   ~Guard() { xSemaphoreGive(s_lock); }
 };
 
-void processingTask(void* arg) {
-  const QueueHandle_t frames = static_cast<QueueHandle_t>(arg);
+QueueHandle_t s_frames = nullptr;
+QueueHandle_t s_accel = nullptr;
+
+// Every accelerometer sample as measured (§5.15), sent alongside the frames.
+ead::AccelSample s_accelBatch[ead::kMaxAccelPerBatch];
+size_t s_accelCount = 0;
+
+void flushAccel() {
+  if (s_accelCount == 0) return;
+  static uint8_t payload[2 + ead::kMaxAccelPerBatch * ead::kAccelRecordSize];
+  const size_t len = ead::encodeAccelBatchPayload(s_accelBatch, s_accelCount, payload,
+                                                  sizeof payload);
+  {
+    Guard guard;
+    s_ring->append(ead::MsgType::RawAccelBatch, s_accelBatch[0].timestamp_us, payload, len);
+  }
+  s_accelCount = 0;
+}
+
+void drainAccel() {
+  while (xQueueReceive(s_accel, &s_accelBatch[s_accelCount], 0) == pdTRUE) {
+    if (++s_accelCount == ead::kMaxAccelPerBatch) flushAccel();
+  }
+}
+
+void processingTask(void*) {
   static ead::RawFrame batch[EAD_SAMPLE_BATCH_FRAMES];
   static uint8_t payload[2 + EAD_SAMPLE_BATCH_FRAMES * ead::kRawFrameSize];
   size_t count = 0;
   for (;;) {
-    xQueueReceive(frames, &batch[count], portMAX_DELAY);
+    xQueueReceive(s_frames, &batch[count], portMAX_DELAY);
+    drainAccel();
     calibration::consume(batch[count]);
     // A window that just completed becomes the estimator's starting point.
     if (calibration::state() == ead::CalibrationState::Ready && !orientation::valid()) {
@@ -54,6 +80,7 @@ void processingTask(void* arg) {
       Guard guard;
       s_ring->append(ead::MsgType::RawSampleBatch, batch[0].timestamp_us, payload, len);
     }
+    flushAccel();
     // After the frames, so an event always follows the frame it refers to.
     gait::publish();
     count = 0;
@@ -80,9 +107,11 @@ bool begin() {
   return false;
 }
 
-void startProcessing(QueueHandle_t frames) {
+void startProcessing(QueueHandle_t frames, QueueHandle_t accelSamples) {
+  s_frames = frames;
+  s_accel = accelSamples;
   TaskHandle_t handle = nullptr;
-  xTaskCreatePinnedToCore(processingTask, "processing", 6144, frames, 20, &handle, 1);
+  xTaskCreatePinnedToCore(processingTask, "processing", 6144, nullptr, 20, &handle, 1);
   device::registerTask(device::TaskRole::Processing, handle);
 }
 

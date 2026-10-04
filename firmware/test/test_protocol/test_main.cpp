@@ -104,7 +104,9 @@ static void test_device_status() {
 static ead::RawFrame frame(uint64_t ts, uint32_t index, std::initializer_list<int16_t> foot,
                            std::initializer_list<int16_t> shank,
                            std::initializer_list<int16_t> qFoot,
-                           std::initializer_list<int16_t> qShank, uint16_t status) {
+                           std::initializer_list<int16_t> qShank,
+                           std::initializer_list<int16_t> rvFoot,
+                           std::initializer_list<int16_t> rvShank, uint16_t status) {
   ead::RawFrame f{};
   f.timestamp_us = ts;
   f.frame_index = index;
@@ -112,16 +114,21 @@ static ead::RawFrame frame(uint64_t ts, uint32_t index, std::initializer_list<in
   std::copy(shank.begin(), shank.end(), f.shank);
   std::copy(qFoot.begin(), qFoot.end(), f.q_foot);
   std::copy(qShank.begin(), qShank.end(), f.q_shank);
+  std::copy(rvFoot.begin(), rvFoot.end(), f.rv_foot);
+  std::copy(rvShank.begin(), rvShank.end(), f.rv_shank);
   f.status = status;
   return f;
 }
 
 static const ead::RawFrame kFrames[2] = {
     frame(1000000, 100, {8192, -8192, 32767, -32768, 1, -1}, {0, 16, -16, 655, -655, 32767},
-          {32767, 0, 0, 0}, {32767, 0, 0, 0},
-          ead::kRawFootReadFail | ead::kRawFootGyroSaturated | ead::kRawShankAccelSaturated),
-    frame(1010000, 101, {-1, -2, -3, -4, -5, -6}, {1, 2, 3, 4, 5, 6}, {32767, 0, 0, 0},
-          {0, -32767, 12345, -12345}, ead::kRawShankRepeated),
+          {32767, 0, 0, 0}, {32767, 0, 0, 0}, {16384, 0, 0, 0}, {16384, 0, 0, 0},
+          ead::kRawFootReadFail | ead::kRawFootGyroSaturated | ead::kRawShankAccelSaturated |
+              ead::kRawFootRvMissing | ead::kRawShankRvMissing),
+    frame(1005000, 101, {-1, -2, -3, -4, -5, -6}, {1, 2, 3, 4, 5, 6}, {32767, 0, 0, 0},
+          {0, -32767, 12345, -12345}, {11585, 11585, 0, 0}, {-16384, 1, -2, 3},
+          ead::kRawShankRepeated | ead::kRawFootAccelHeld | ead::kRawOrientationValid |
+              ead::kRawShankAccelHeld),
 };
 
 static void test_raw_batch_encode_and_decode() {
@@ -141,10 +148,27 @@ static void test_raw_batch_encode_and_decode() {
     TEST_ASSERT_EQUAL_INT16_ARRAY(expected.foot, got.foot, 6);
     TEST_ASSERT_EQUAL_INT16_ARRAY(expected.shank, got.shank, 6);
     TEST_ASSERT_EQUAL_INT16_ARRAY(expected.q_shank, got.q_shank, 4);
+    TEST_ASSERT_EQUAL_INT16_ARRAY(expected.rv_foot, got.rv_foot, 4);
+    TEST_ASSERT_EQUAL_INT16_ARRAY(expected.rv_shank, got.rv_shank, 4);
     TEST_ASSERT_EQUAL_UINT16(expected.status, got.status);
   }
   TEST_ASSERT_EQUAL_size_t(0u, r.remaining());
   TEST_ASSERT_EQUAL_size_t(0u, ead::encodeRawBatchPayload(kFrames, 0, payload, sizeof payload));
+}
+
+static void test_accel_batch_matches_the_vector() {
+  const ead::AccelSample samples[3] = {
+      {1000400, 0, 7, {2510, -2510, 32767}},
+      {1001100, 1, 255, {-1, 0, -32768}},
+      {1004400, 0, 8, {2511, -2509, 32766}},
+  };
+  uint8_t payload[2 + 3 * ead::kAccelRecordSize];
+  const size_t n = ead::encodeAccelBatchPayload(samples, 3, payload, sizeof payload);
+  TEST_ASSERT_EQUAL_size_t(sizeof payload, n);
+  const auto msg = message(MsgType::RawAccelBatch, 5, 1000400, payload, n);
+  assertBytes(loadVector("raw_accel_batch.hex"), msg.data(), msg.size());
+  TEST_ASSERT_TRUE(ead::isDurable(MsgType::RawAccelBatch));
+  TEST_ASSERT_EQUAL_size_t(0u, ead::encodeAccelBatchPayload(samples, 0, payload, sizeof payload));
 }
 
 static void test_error_message() {
@@ -472,6 +496,7 @@ int main() {
   RUN_TEST(test_device_hello);
   RUN_TEST(test_device_status);
   RUN_TEST(test_raw_batch_encode_and_decode);
+  RUN_TEST(test_accel_batch_matches_the_vector);
   RUN_TEST(test_error_message);
   RUN_TEST(test_backfill_request_and_data);
   RUN_TEST(test_config_section_matches_contract_json);

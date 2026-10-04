@@ -17,9 +17,10 @@ pub use config::ConfigSection;
 pub const PROTOCOL_VERSION: u16 = 1;
 use std::cmp::Ordering;
 
-pub const SCHEMA_VERSION: u16 = 5;
+pub const SCHEMA_VERSION: u16 = 6;
 pub const HEADER_SIZE: usize = 20;
-pub const RAW_FRAME_SIZE: usize = 54;
+pub const RAW_FRAME_SIZE: usize = 70;
+pub const ACCEL_RECORD_SIZE: usize = 16;
 /// Largest message the device will send (`docs/protocol.md` §7).
 pub const MAX_MESSAGE_SIZE: usize = 2800;
 
@@ -62,6 +63,7 @@ pub enum MsgType {
     BackfillRequest = 0x10,
     BackfillData = 0x11,
     ServiceTest = 0x12,
+    RawAccelBatch = 0x13,
 }
 
 impl MsgType {
@@ -86,6 +88,7 @@ impl MsgType {
             0x10 => BackfillRequest,
             0x11 => BackfillData,
             0x12 => ServiceTest,
+            0x13 => RawAccelBatch,
             _ => return None,
         })
     }
@@ -94,7 +97,11 @@ impl MsgType {
     pub fn is_durable(self) -> bool {
         matches!(
             self,
-            MsgType::RawSampleBatch | MsgType::EventBatch | MsgType::StepBatch | MsgType::HapticBatch
+            MsgType::RawSampleBatch
+                | MsgType::EventBatch
+                | MsgType::StepBatch
+                | MsgType::HapticBatch
+                | MsgType::RawAccelBatch
         )
     }
 }
@@ -667,7 +674,7 @@ pub fn fault_names(faults: u16) -> Vec<&'static str> {
 /// Frame status bits, `docs/protocol.md` §5.4.
 pub const RAW_ORIENTATION_VALID: u16 = 1 << 8;
 
-pub const RAW_STATUS_NAMES: [&str; 9] = [
+pub const RAW_STATUS_NAMES: [&str; 12] = [
     "foot_read_fail",
     "shank_read_fail",
     "shank_repeated",
@@ -675,8 +682,11 @@ pub const RAW_STATUS_NAMES: [&str; 9] = [
     "foot_gyro_saturated",
     "shank_accel_saturated",
     "shank_gyro_saturated",
-    "foot_repeated",
+    "foot_accel_held",
     "orientation_valid",
+    "shank_accel_held",
+    "foot_rv_missing",
+    "shank_rv_missing",
 ];
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -686,9 +696,14 @@ pub struct RawFrame {
     /// Chip-frame ADC counts: ax, ay, az, gx, gy, gz (DEC-007).
     pub foot: [i16; 6],
     pub shank: [i16; 6],
-    /// Q15 quaternions w, x, y, z; identity unless RAW_ORIENTATION_VALID is set.
+    /// Q15 segment orientations w, x, y, z; identity unless RAW_ORIENTATION_VALID
+    /// is set.
     pub q_foot: [i16; 4],
     pub q_shank: [i16; 4],
+    /// The BNO086 game rotation vectors as reported: real, i, j, k, Q14, chip
+    /// frame (schema 6). None for a frame stored before schema 6.
+    pub rv_foot: Option<[i16; 4]>,
+    pub rv_shank: Option<[i16; 4]>,
     pub status: u16,
 }
 
@@ -708,10 +723,51 @@ pub fn parse_raw_batch(payload: &[u8]) -> Result<Vec<RawFrame>> {
             shank: r.i16_array::<6>()?,
             q_foot: r.i16_array::<4>()?,
             q_shank: r.i16_array::<4>()?,
+            rv_foot: Some(r.i16_array::<4>()?),
+            rv_shank: Some(r.i16_array::<4>()?),
             status: r.u16()?,
         });
     }
     Ok(frames)
+}
+
+// ---- RAW_ACCEL_BATCH (`docs/protocol.md` §5.15) -----------------------------
+
+/// One accelerometer sample as measured, at the sensor's native rate.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AccelSample {
+    pub timestamp_us: u64,
+    /// 0 foot, 1 shank.
+    pub sensor: u8,
+    /// SH-2 report sequence; wraps at 256, a gap is a lost sample.
+    pub sequence: u8,
+    /// Chip-frame counts, same scale as the frames' accelerometer.
+    pub accel: [i16; 3],
+}
+
+pub fn parse_accel_batch(payload: &[u8]) -> Result<Vec<AccelSample>> {
+    let mut r = Reader::new(payload);
+    let count = r.u8()? as usize;
+    let record_size = r.u8()? as usize;
+    if record_size != ACCEL_RECORD_SIZE || payload.len() != 2 + count * ACCEL_RECORD_SIZE {
+        return Err(ProtocolError::BadPayload("RAW_ACCEL_BATCH"));
+    }
+    let mut samples = Vec::with_capacity(count);
+    for _ in 0..count {
+        let sample = AccelSample {
+            timestamp_us: r.u64()?,
+            sensor: r.u8()?,
+            sequence: r.u8()?,
+            accel: r.i16_array::<3>()?,
+        };
+        // The store refuses any other value, and a refused row fails the whole
+        // commit it is in, frames included.
+        if sample.sensor > 1 {
+            return Err(ProtocolError::BadPayload("RAW_ACCEL_BATCH"));
+        }
+        samples.push(sample);
+    }
+    Ok(samples)
 }
 
 // ---- ERROR -----------------------------------------------------------------

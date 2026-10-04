@@ -10,9 +10,9 @@
 namespace ead {
 
 constexpr uint16_t kProtocolVersion = 1;  // doc 08 header field
-constexpr uint16_t kSchemaVersion = 5;    // payload layouts, docs/protocol.md
+constexpr uint16_t kSchemaVersion = 6;    // payload layouts, docs/protocol.md
 constexpr size_t kHeaderSize = 20;
-constexpr size_t kRawFrameSize = 54;
+constexpr size_t kRawFrameSize = 70;
 constexpr size_t kMaxRawFramesPerBatch = 10;
 // lwIP reports a socket writable only when more than 2880 bytes of its 5760-byte
 // send buffer are free, so messages below that size never block a Wi-Fi send.
@@ -37,6 +37,7 @@ enum class MsgType : uint8_t {
   BackfillRequest = 0x10,
   BackfillData = 0x11,
   ServiceTest = 0x12,
+  RawAccelBatch = 0x13,
 };
 
 // Durable messages carry their own sequence number and can be backfilled.
@@ -68,9 +69,14 @@ enum RawStatus : uint16_t {
   kRawFootGyroSaturated = 1u << 4,
   kRawShankAccelSaturated = 1u << 5,
   kRawShankGyroSaturated = 1u << 6,
-  kRawFootRepeated = 1u << 7,
-  /// The frame's quaternions are an estimate; clear means they are identity.
+  /// The accelerometer is the latest sample, not interpolated to the frame time.
+  kRawFootAccelHeld = 1u << 7,
+  /// The frame's segment orientations are an estimate; clear means identity.
   kRawOrientationValid = 1u << 8,
+  kRawShankAccelHeld = 1u << 9,
+  /// No rotation vector from that sensor yet; its fields are identity.
+  kRawFootRvMissing = 1u << 10,
+  kRawShankRvMissing = 1u << 11,
 };
 
 // One synchronized frame (doc 09 §6). Accel/gyro are chip-frame ADC counts in
@@ -80,14 +86,32 @@ struct RawFrame {
   uint32_t frame_index;
   int16_t foot[6];
   int16_t shank[6];
-  int16_t q_foot[4];
+  int16_t q_foot[4];   // segment orientation, Q15 (w, x, y, z)
   int16_t q_shank[4];
+  int16_t rv_foot[4];  // game rotation vector as reported, Q14 (real, i, j, k)
+  int16_t rv_shank[4];
   uint16_t status;
 };
 
 void writeRawFrame(ByteWriter& w, const RawFrame& f);
 bool readRawFrame(ByteReader& r, RawFrame* f);
 size_t encodeRawBatchPayload(const RawFrame* frames, size_t count, uint8_t* out, size_t cap);
+
+// ---- RAW_ACCEL_BATCH (schema 6) ---------------------------------------------
+
+constexpr size_t kAccelRecordSize = 16;
+constexpr size_t kMaxAccelPerBatch = 32;
+
+/// One accelerometer sample as measured, at its native rate (DEC-021).
+struct AccelSample {
+  uint64_t timestamp_us;
+  uint8_t sensor;    // 0 foot, 1 shank
+  uint8_t sequence;  // SH-2 report sequence
+  int16_t accel[3];  // chip-frame counts
+};
+
+size_t encodeAccelBatchPayload(const AccelSample* samples, size_t count, uint8_t* out,
+                               size_t cap);
 
 // ---- HELLO -----------------------------------------------------------------
 

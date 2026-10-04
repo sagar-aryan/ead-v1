@@ -3,8 +3,8 @@
  *
  * A reader moves through a recording by frame index, not by time: frame indices
  * are what the store is keyed on, and the device's sample period is not exactly
- * 10 ms (its oscillator runs at 100.145 Hz, TEST-018), so deriving one from the
- * other would drift. These functions are pure and tested; the views hold the
+ * its nominal one (at 100 Hz the oscillator ran at 100.145 Hz, TEST-018), so
+ * deriving one from the other would drift. These functions are pure and tested; the views hold the
  * state and draw.
  */
 

@@ -8,7 +8,7 @@ Replay one with:
 ```
 g++ -std=gnu++17 -O2 -I firmware/lib/ead_core/src -I firmware/include \
     -o /tmp/eadreplay tools/replay/main.cpp \
-    firmware/lib/ead_core/src/ead/{calibration,mahony,gait,protocol,crc32,cobs}.cpp
+    firmware/lib/ead_core/src/ead/{calibration,mahony,gait,protocol,crc32,cobs,feed}.cpp
 /tmp/eadreplay recordings/walk6m-2026-09-18.eadlog --still-seconds 5 --mpu6500
 ```
 

@@ -203,7 +203,7 @@ service-test pulses only.
 
 ## How To Verify
 The whole suite, before every commit:
-- `pio test -d firmware -e native` (80), `pio run -d firmware`,
+- `pio test -d firmware -e native` (86), `pio run -d firmware`,
   `pio run -d firmware/bench/bno086 -e foot -e shank`
 - `cd dashboard/src-tauri && cargo test` (64, 4 ignored) and
   `cargo clippy --all-targets -- -D warnings`
@@ -215,6 +215,10 @@ On hardware over USB, device still: `eadprobe check` (all PASS), `eadprobe stats
 hardware tests; the second resets the board).
 
 ## Next Steps
+0. Schema 6 (DEC-021): 200 Hz frames with the BNO086's own orientation and a native
+   250 Hz accelerometer stream; store schema 8; ZUPT gyroscope limit 30 °/s (DEC-020).
+   Verified on the board over USB on the desk (TEST-055) and on the fixtures by replay
+   (TEST-056); not yet on the leg or over Wi-Fi.
 1. On the leg: mount maps measured and checked (TEST-051). First 10 m walks
    (TEST-052) found PROB-023, fixed in `gait.cpp` and flashed (0.1.0+77ae282).
    PROB-024: contacts fixed (DEC-019, TEST-053); open are slow strides reading

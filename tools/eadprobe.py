@@ -27,7 +27,7 @@ import time
 import zlib
 
 PROTOCOL_VERSION = 1
-SCHEMA = 5
+SCHEMA = 6
 HEADER = struct.Struct("<HBBIIQ")
 
 HELLO, CONFIG_GET, RAW_SAMPLE_BATCH, STATUS, ERROR = 0x01, 0x02, 0x08, 0x0C, 0x0E
@@ -35,7 +35,8 @@ SESSION_START, SESSION_STOP = 0x04, 0x05
 EVENT_BATCH, STEP_BATCH = 0x09, 0x0A
 BACKFILL_REQUEST, BACKFILL_DATA = 0x10, 0x11
 SERVICE_TEST = 0x12
-DURABLE = {0x08, 0x09, 0x0A, 0x0B}
+RAW_ACCEL_BATCH = 0x13
+DURABLE = {0x08, 0x09, 0x0A, 0x0B, RAW_ACCEL_BATCH}
 
 STATES = ["BOOT", "SELF_TEST", "CALIBRATING", "REFERENCE_CAPTURE", "READY", "RUNNING",
           "PAUSED", "FAULT", "RECOVERY"]
@@ -43,12 +44,15 @@ FAULTS = ["foot_absent", "shank_absent", "foot_config", "shank_config", "foot_no
           "shank_no_data_ready", "no_psram", "foot_frozen", "shank_frozen", "acquisition_stalled"]
 RAW_FLAGS = ["foot_read_fail", "shank_read_fail", "shank_repeated", "foot_accel_saturated",
              "foot_gyro_saturated", "shank_accel_saturated", "shank_gyro_saturated",
-             "foot_repeated"]
+             "foot_accel_held", "orientation_valid", "shank_accel_held", "foot_rv_missing",
+             "shank_rv_missing"]
 ERROR_CODES = {1: "BadFrame", 2: "SchemaMismatch", 3: "NotSupported", 4: "InvalidState",
                5: "BadPayload", 6: "BackfillUnavailable", 7: "Rejected"}
 
 USB_VID, USB_PID = 0x303A, 0x1001
-RAW_FRAME = struct.Struct("<QI6h6h4h4hH")
+# Schema 6 frame (70 bytes): ..., q_foot, q_shank, rv_foot, rv_shank, status.
+RAW_FRAME = struct.Struct("<QI6h6h4h4h4h4hH")
+ACCEL_RECORD = struct.Struct("<QBB3h")
 STATUS_PAYLOAD = struct.Struct("<BBHIIIIIIIbBIHHHHBIHBI")
 SENSOR_CHECK = struct.Struct("<HHHBBBBHII")
 CHECK_FLAGS = ["int_high_in_reset", "booted", "read_valid", "int_released", "wake",
@@ -719,6 +723,22 @@ def decode_session_start(p):
     return out
 
 
+def decode_raw_batch(p):
+    """RAW_SAMPLE_BATCH (docs/protocol.md §5.4): frames as tuples, schema 6 layout."""
+    count, size = p[0], p[1]
+    if size != RAW_FRAME.size or len(p) != 2 + count * size:
+        raise ValueError(f"{count} frames of {size} bytes in {len(p)}")
+    return [RAW_FRAME.unpack_from(p, 2 + i * size) for i in range(count)]
+
+
+def decode_accel_batch(p):
+    """RAW_ACCEL_BATCH (§5.15): (timestamp_us, sensor, sequence, ax, ay, az) tuples."""
+    count, size = p[0], p[1]
+    if size != ACCEL_RECORD.size or len(p) != 2 + count * size:
+        raise ValueError(f"{count} samples of {size} bytes in {len(p)}")
+    return [ACCEL_RECORD.unpack_from(p, 2 + i * size) for i in range(count)]
+
+
 def cmd_vectors(args):
     """Decodes every golden vector with this tool's own decoders.
 
@@ -738,6 +758,8 @@ def cmd_vectors(args):
                                  else decode_calibration(p)),
         SESSION_START: decode_session_start,
         SERVICE_TEST: decode_service_test,
+        RAW_SAMPLE_BATCH: decode_raw_batch,
+        RAW_ACCEL_BATCH: decode_accel_batch,
     }
     # Three vectors are not messages: two are payloads on their own, and the
     # long pair exists to exercise framing with an oversized body.
@@ -843,7 +865,8 @@ def cmd_reopen(args):
 
 class Stats:
     def __init__(self):
-        self.frames = {}          # frame_index -> (timestamp_us, status, foot, shank)
+        self.frames = {}          # frame_index -> (timestamp_us, status, foot, shank, rv_foot)
+        self.accel = ([], [])     # per sensor, arrival order: (timestamp_us, sequence)
         self.durable = set()
         self.duplicates = 0
         self.backfilled = 0
@@ -861,15 +884,17 @@ class Stats:
         self.durable.add(seq)
         if from_backfill:
             self.backfilled += 1
+        if t == RAW_ACCEL_BATCH:
+            for ts, sensor, seq, *_ in decode_accel_batch(p):
+                self.accel[sensor].append((ts, seq))
+            return
         if t != RAW_SAMPLE_BATCH:
             return
-        count, size = p[0], p[1]
-        for i in range(count):
-            f = RAW_FRAME.unpack_from(p, 2 + i * size)
-            ts, index, foot, shank, status = f[0], f[1], f[2:8], f[8:14], f[22]
+        for f in decode_raw_batch(p):
+            ts, index, foot, shank, rv_foot, status = f[0], f[1], f[2:8], f[8:14], f[22:26], f[30]
             if index in self.frames:
                 self.duplicates += 1
-            self.frames[index] = (ts, status, foot, shank)
+            self.frames[index] = (ts, status, foot, shank, rv_foot)
 
     def missing_sequences(self):
         if not self.durable:
@@ -995,6 +1020,14 @@ def cmd_stats(args):
     report(stats, time.monotonic() - start, s.transport.rejected)
 
 
+def rotate(q, v):
+    """Rotates v by the unit quaternion q = (w, x, y, z)."""
+    w, x, y, z = q
+    tx, ty, tz = 2 * (y * v[2] - z * v[1]), 2 * (z * v[0] - x * v[2]), 2 * (x * v[1] - y * v[0])
+    return (v[0] + w * tx + (y * tz - z * ty), v[1] + w * ty + (z * tx - x * tz),
+            v[2] + w * tz + (x * ty - y * tx))
+
+
 def report(stats, elapsed, rejected):
     print("\n==== report ====")
     print(f"duration            {elapsed:.1f} s, reconnects {stats.reconnects}, "
@@ -1021,7 +1054,10 @@ def report(stats, elapsed, rejected):
 
     flag_counts = [0] * len(RAW_FLAGS)
     foot_mag, shank_mag = [], []
-    for ts, status, foot, shank in stats.frames.values():
+    world = []  # foot accelerometer carried into the world by its own rotation vector
+    for ts, status, foot, shank, rv in stats.frames.values():
+        if not status & (1 << 10):
+            world.append(rotate(tuple(v / 16384 for v in rv), foot[:3]))
         for bit in range(len(RAW_FLAGS)):
             flag_counts[bit] += bool(status & (1 << bit))
         if not status & 1:
@@ -1029,6 +1065,22 @@ def report(stats, elapsed, rejected):
         if not status & 2:
             shank_mag.append(math.sqrt(sum(v * v for v in shank[:3])) / stats.accel_lsb_per_g)
     print("frame flags         " + ", ".join(f"{n} {c}" for n, c in zip(RAW_FLAGS, flag_counts)))
+    if world:
+        mean = [statistics.fmean(w[i] for w in world) / stats.accel_lsb_per_g for i in range(3)]
+        print(f"foot gravity, RV world frame  x {mean[0]:+.3f}  y {mean[1]:+.3f}  z {mean[2]:+.3f} g "
+              f"(still: z = +1 if the rotation vector's world is Z up)")
+    for sensor, name in ((0, "foot"), (1, "shank")):
+        samples = stats.accel[sensor]  # arrival order; backfill can reorder, so a
+        if len(samples) < 2:           # gap here is worth a look, not proof of loss
+            continue
+        span = max(t for t, _ in samples) - min(t for t, _ in samples)
+        gaps = sum((b[1] - a[1] - 1) % 256 for a, b in zip(samples, samples[1:]))
+        steps = [b[0] - a[0] for a, b in zip(samples, samples[1:])]
+        inversions = [-d for d in steps if d < 0]
+        print(f"{name:5} accelerometer {len(samples)} samples, {1e6 * (len(samples) - 1) / span:.1f} Hz, "
+              f"sequence gaps {gaps}, time inversions {len(inversions)}"
+              + (f" (largest {max(inversions)} us)" if inversions else "")
+              + f", step {min(steps)}..{max(steps)} us")
     for name, mags in (("foot", foot_mag), ("shank", shank_mag)):
         if mags:
             print(f"{name:5} |a|          mean {statistics.fmean(mags):.4f} g, "

@@ -55,9 +55,11 @@ void consume(const ead::RawFrame& frame) {
   portEXIT_CRITICAL(&s_mux);
   if (!collecting) return;
 
-  // A frame whose sensor read failed or repeated says nothing about stillness.
+  // A frame whose sensor read failed, repeated or held a stale accelerometer
+  // sample says nothing new about stillness.
   constexpr uint16_t kUnusable = ead::kRawFootReadFail | ead::kRawShankReadFail |
-                                 ead::kRawFootRepeated | ead::kRawShankRepeated;
+                                 ead::kRawFootAccelHeld | ead::kRawShankAccelHeld |
+                                 ead::kRawShankRepeated;
   if ((frame.status & kUnusable) != 0) return;
 
   float accel[3];

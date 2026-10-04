@@ -5,9 +5,9 @@
 
 use rusqlite::{Connection, Result};
 
-use crate::protocol::RawFrame;
+use crate::protocol::{AccelSample, RawFrame};
 
-pub const SCHEMA_VERSION: i32 = 7;
+pub const SCHEMA_VERSION: i32 = 8;
 
 pub fn migrate(connection: &mut Connection) -> Result<()> {
     // WAL keeps readers (UI queries) from blocking the writer thread.
@@ -42,6 +42,7 @@ pub fn migrate(connection: &mut Connection) -> Result<()> {
             4 => transaction.execute_batch(MIGRATE_4_TO_5)?,
             5 => transaction.execute_batch(MIGRATE_5_TO_6)?,
             6 => transaction.execute_batch(MIGRATE_6_TO_7)?,
+            7 => transaction.execute_batch(MIGRATE_7_TO_8)?,
             other => unreachable!("no migration from schema {other}"),
         }
         version += 1;
@@ -231,6 +232,68 @@ CREATE TABLE service_tests (
   felt        INTEGER,
   report      TEXT
 );
+
+-- Schema 8 (device schema 6, DEC-021): what a 200 Hz BNO086 frame carries
+-- beyond schema 5, and the accelerometer at its own rate.
+--
+-- The game rotation vectors each sensor reported, as sent: real, i, j, k, Q14,
+-- chip frame. NULL for a frame recorded before device schema 6, which had none.
+ALTER TABLE raw_frames ADD COLUMN rfw INTEGER;
+ALTER TABLE raw_frames ADD COLUMN rfx INTEGER;
+ALTER TABLE raw_frames ADD COLUMN rfy INTEGER;
+ALTER TABLE raw_frames ADD COLUMN rfz INTEGER;
+ALTER TABLE raw_frames ADD COLUMN rsw INTEGER;
+ALTER TABLE raw_frames ADD COLUMN rsx INTEGER;
+ALTER TABLE raw_frames ADD COLUMN rsy INTEGER;
+ALTER TABLE raw_frames ADD COLUMN rsz INTEGER;
+
+-- Every accelerometer sample as measured (RAW_ACCEL_BATCH, docs/protocol.md
+-- §5.15): chip-frame counts at the sensor's native ~250 Hz. The frames carry
+-- values interpolated to the gyroscope's clock; these are the measurements
+-- themselves, the researcher's raw data. The key is in export order (time, then
+-- foot before shank). The sequence is in it because a device time is derived, and
+-- two real samples must never merge into one row; a backfilled sample repeats all
+-- of it and is ignored.
+CREATE TABLE raw_accel (
+  session_id   TEXT NOT NULL REFERENCES sessions(session_id),
+  sensor       INTEGER NOT NULL CHECK (sensor IN (0, 1)),  -- 0 foot, 1 shank
+  timestamp_us INTEGER NOT NULL,
+  sequence     INTEGER NOT NULL,                           -- SH-2, wraps at 256
+  ax INTEGER NOT NULL, ay INTEGER NOT NULL, az INTEGER NOT NULL,
+  PRIMARY KEY (session_id, timestamp_us, sensor, sequence)
+) WITHOUT ROWID;
+"#;
+
+const MIGRATE_7_TO_8: &str = r#"
+-- Schema 8 (device schema 6, DEC-021): what a 200 Hz BNO086 frame carries
+-- beyond schema 5, and the accelerometer at its own rate.
+--
+-- The game rotation vectors each sensor reported, as sent: real, i, j, k, Q14,
+-- chip frame. NULL for a frame recorded before device schema 6, which had none.
+ALTER TABLE raw_frames ADD COLUMN rfw INTEGER;
+ALTER TABLE raw_frames ADD COLUMN rfx INTEGER;
+ALTER TABLE raw_frames ADD COLUMN rfy INTEGER;
+ALTER TABLE raw_frames ADD COLUMN rfz INTEGER;
+ALTER TABLE raw_frames ADD COLUMN rsw INTEGER;
+ALTER TABLE raw_frames ADD COLUMN rsx INTEGER;
+ALTER TABLE raw_frames ADD COLUMN rsy INTEGER;
+ALTER TABLE raw_frames ADD COLUMN rsz INTEGER;
+
+-- Every accelerometer sample as measured (RAW_ACCEL_BATCH, docs/protocol.md
+-- §5.15): chip-frame counts at the sensor's native ~250 Hz. The frames carry
+-- values interpolated to the gyroscope's clock; these are the measurements
+-- themselves, the researcher's raw data. The key is in export order (time, then
+-- foot before shank). The sequence is in it because a device time is derived, and
+-- two real samples must never merge into one row; a backfilled sample repeats all
+-- of it and is ignored.
+CREATE TABLE raw_accel (
+  session_id   TEXT NOT NULL REFERENCES sessions(session_id),
+  sensor       INTEGER NOT NULL CHECK (sensor IN (0, 1)),  -- 0 foot, 1 shank
+  timestamp_us INTEGER NOT NULL,
+  sequence     INTEGER NOT NULL,                           -- SH-2, wraps at 256
+  ax INTEGER NOT NULL, ay INTEGER NOT NULL, az INTEGER NOT NULL,
+  PRIMARY KEY (session_id, timestamp_us, sensor, sequence)
+) WITHOUT ROWID;
 "#;
 
 const MIGRATE_6_TO_7: &str = r#"
@@ -391,9 +454,11 @@ INSERT OR IGNORE INTO raw_frames
   (session_id, frame_index, timestamp_us,
    fax, fay, faz, fgx, fgy, fgz,
    sax, say, saz, sgx, sgy, sgz,
-   fqw, fqx, fqy, fqz, sqw, sqx, sqy, sqz, status)
+   fqw, fqx, fqy, fqz, sqw, sqx, sqy, sqz, status,
+   rfw, rfx, rfy, rfz, rsw, rsx, rsy, rsz)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-        ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
+        ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24,
+        ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)
 "#;
 
 /// Binds and executes one frame. Parameter order matches `INSERT_FRAME`.
@@ -413,6 +478,31 @@ pub fn insert_frame(
         frame.q_foot[0], frame.q_foot[1], frame.q_foot[2], frame.q_foot[3],
         frame.q_shank[0], frame.q_shank[1], frame.q_shank[2], frame.q_shank[3],
         frame.status,
+        frame.rv_foot.map(|q| q[0]), frame.rv_foot.map(|q| q[1]),
+        frame.rv_foot.map(|q| q[2]), frame.rv_foot.map(|q| q[3]),
+        frame.rv_shank.map(|q| q[0]), frame.rv_shank.map(|q| q[1]),
+        frame.rv_shank.map(|q| q[2]), frame.rv_shank.map(|q| q[3]),
+    ])
+}
+
+pub const INSERT_ACCEL: &str = r#"
+INSERT OR IGNORE INTO raw_accel (session_id, sensor, timestamp_us, sequence, ax, ay, az)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+"#;
+
+/// Binds and executes one accelerometer sample. Parameter order matches
+/// `INSERT_ACCEL`; OR IGNORE because a backfilled sample may already be stored.
+pub fn insert_accel(
+    statement: &mut rusqlite::CachedStatement<'_>,
+    session_id: &str,
+    sample: &AccelSample,
+) -> Result<usize> {
+    statement.execute(rusqlite::params![
+        session_id,
+        sample.sensor,
+        sample.timestamp_us as i64,
+        sample.sequence,
+        sample.accel[0], sample.accel[1], sample.accel[2],
     ])
 }
 

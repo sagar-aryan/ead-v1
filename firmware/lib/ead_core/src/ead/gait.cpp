@@ -64,7 +64,7 @@ float LowPass2::step(float x) {
 void GaitEngine::reset() {
   const GaitConfig config = config_;
   *this = GaitEngine{};
-  config_ = config;
+  configure(config);
 }
 
 void GaitEngine::emit(GaitEventType type, uint64_t timeUs, uint32_t frameIndex) {

@@ -22,6 +22,12 @@ struct Run {
   uint64_t timeUs = 1'000'000;
   uint32_t frame = 0;
 
+  Run() {
+    ead::GaitConfig config;
+    config.sampleHz = kHz;  // these samples are 100 Hz
+    engine.configure(config);
+  }
+
   void push(const float accel[3], const float footGyro[3], float shankRate,
             const float relative[4] = kIdentity) {
     ead::GaitSample s{};

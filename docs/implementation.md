@@ -479,9 +479,17 @@ sensor wire and each motor from the dashboard (`ead --check`, DEC-018).
   the next. Results go to faults and to SERVICE_TEST.
 - **Frames** (`src/acquisition.cpp`): INT edges timestamped in IRAM; packets read until
   both INTs release; each sample timed from the SH-2 base timestamp and its delay; one
-  frame per foot gyroscope sample (100 Hz) with the latest foot accelerometer (125 Hz)
-  and shank samples; the index follows the gyroscope sequence and stays monotonic across
-  a check or a sensor reset (the elapsed time sets the jump).
+  frame per foot gyroscope sample; the index follows the gyroscope sequence and stays
+  monotonic across a check or a sensor reset (the elapsed time sets the jump). Since
+  schema 6 (DEC-021, TEST-055): 200 Hz; up to four frames wait for the samples after
+  their time; each accelerometer is interpolated to the frame time (`ead::interpolateAccel`)
+  and the shank's gyroscope and both rotation vectors are the samples nearest it; a frame
+  is forced out after 15 ms, marked held. Every accelerometer sample also goes to the
+  processing task, which sends them as RAW_ACCEL_BATCH alongside each raw batch.
+- **Orientation** (`src/orientation.cpp`, `ead/feed.cpp`, schema 6): the segment
+  orientation is the chip's game rotation vector followed by the inverse of mount map then
+  alignment (`segmentOrientation`); no estimator runs on the ESP32. Mahony stays in
+  `ead_core` for the replay of older recordings.
 - **Motors** (`src/motors.cpp`, `ead/motor_guard.cpp`): LEDC 200 Hz, 8 bit on the enabled
   pins; `MotorGuard` applies the contract's limits; an `esp_timer` ends each pulse.
 - **Dashboard**: `SERVICE_TEST` codec (`protocol/mod.rs`), requests and replies counted in
@@ -513,3 +521,31 @@ sensor wire and each motor from the dashboard (`ead --check`, DEC-018).
 ### Verification
 TEST-045 (host), TEST-046 (acquisition), TEST-047 (check), TEST-048 (backend on device),
 TEST-049 (`ead --check`), TEST-050 (replay, migration).
+
+## Schema 6 on the dashboard (DEC-021)
+
+### Objective
+Read, store and export the 200 Hz frames with rotation vectors and the native
+accelerometer stream.
+
+### Implementation
+- `protocol/mod.rs`: 70-byte frames (`rv_foot`, `rv_shank`; a 54-byte frame is
+  refused); RAW_ACCEL_BATCH (0x13) as `AccelSample`; status names to bit 11.
+- `device.rs`: accelerometer batches, and since PROB-025 event and step batches,
+  go through `on_durable`, so they count in gap detection and backfill.
+- Store schema 8 (`MIGRATE_7_TO_8`): `raw_frames` gains `rfw, rfx, rfy, rfz, rsw,
+  rsx, rsy, rsz` (rotation vectors, Q14, NULL before schema 6); new table
+  `raw_accel(session_id, sensor, timestamp_us, sequence, ax, ay, az)`, key
+  `(session_id, timestamp_us, sensor, sequence)`, INSERT OR IGNORE like frames,
+  stored only while a session records.
+- Export: `raw.csv` gains `rv_real, rv_i, rv_j, rv_k` (one row per sensor, empty for
+  older frames); new `accel_native.csv` (`timestamp_us, sensor, sequence, ax, ay, az,
+  ax_g, ay_g, az_g`, chip frame); `session.mat` gains `raw.rotation_vector` (NaN for older
+  frames) and an `accel` struct; `metadata.json` notes both.
+- 100 Hz assumptions removed: the calibration view's expected frame count uses the
+  configured rate; the hardware test expects 200 Hz. Live decimation was already time
+  based.
+
+### Verification
+cargo test 69 passed (then 70 with PROB-025's test), clippy clean, npm test 28, build;
+`tools/check_mat.py` on an exported sample: 0 failures. Not yet run against the device.

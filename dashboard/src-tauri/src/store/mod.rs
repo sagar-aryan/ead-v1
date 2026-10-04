@@ -3,7 +3,7 @@
 //! derived value is computed from them.
 //!
 //! One writer thread owns the connection; readers open their own. Writes are
-//! batched into transactions so a 100 Hz stream costs a few commits per second.
+//! batched into transactions so a 200 Hz stream costs a few commits per second.
 
 pub mod raw;
 mod schema;
@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use rusqlite::{Connection, OptionalExtension};
 
-use crate::protocol::{GaitCycle, GaitEvent, RawFrame, Status};
+use crate::protocol::{AccelSample, GaitCycle, GaitEvent, RawFrame, Status};
 
 pub use raw::{RawWindow, SignalGroup};
 
@@ -283,6 +283,7 @@ pub struct StoredEvent {
 
 enum WriteCommand {
     Frames { session_id: String, frames: Vec<RawFrame> },
+    Accel { session_id: String, samples: Vec<AccelSample> },
     Status { session_id: String, frame_index: i64, device_state: u8, faults: u16 },
     Gait { session_id: String, cycles: Vec<GaitCycle>, events: Vec<GaitEvent> },
     Flush(mpsc::Sender<()>),
@@ -613,6 +614,17 @@ impl Store {
         }
     }
 
+    /// Queues accelerometer samples for the session currently recording, under
+    /// the same rule as frames: whatever arrives while it records, live or
+    /// backfilled, is its data.
+    pub fn record_accel(&self, samples: &[AccelSample]) {
+        let Some(session_id) = self.recording_session() else { return };
+        let writer = self.writer.lock().expect("writer");
+        if let Some(writer) = writer.as_ref() {
+            let _ = writer.send(WriteCommand::Accel { session_id, samples: samples.to_vec() });
+        }
+    }
+
     /// Stores gait cycles and events for the recording session, if any.
     pub fn record_gait(&self, cycles: &[GaitCycle], events: &[GaitEvent]) {
         if cycles.is_empty() && events.is_empty() {
@@ -712,7 +724,7 @@ impl Store {
     }
 
     /// Streams every stored frame of a session in frame order, handing each to
-    /// `visit`. Streamed rather than collected: an hour at 100 Hz is 360 000
+    /// `visit`. Streamed rather than collected: an hour at 200 Hz is 720 000
     /// frames, and the export writes them straight out.
     pub fn for_each_frame(
         &self,
@@ -724,7 +736,8 @@ impl Store {
             "SELECT frame_index, timestamp_us,
                     fax, fay, faz, fgx, fgy, fgz,
                     sax, say, saz, sgx, sgy, sgz,
-                    fqw, fqx, fqy, fqz, sqw, sqx, sqy, sqz, status
+                    fqw, fqx, fqy, fqz, sqw, sqx, sqy, sqz, status,
+                    rfw, rfx, rfy, rfz, rsw, rsx, rsy, rsz
              FROM raw_frames WHERE session_id = ?1 ORDER BY frame_index",
         )?;
         let mut rows = statement.query([session_id])?;
@@ -748,7 +761,46 @@ impl Store {
             for (i, value) in frame.q_shank.iter_mut().enumerate() {
                 *value = row.get::<_, i64>(18 + i)? as i16;
             }
+            // NULL in a frame recorded before device schema 6.
+            let rotation = |first: usize| -> rusqlite::Result<Option<[i16; 4]>> {
+                let mut q = [0i16; 4];
+                for (i, value) in q.iter_mut().enumerate() {
+                    match row.get::<_, Option<i64>>(first + i)? {
+                        Some(v) => *value = v as i16,
+                        None => return Ok(None),
+                    }
+                }
+                Ok(Some(q))
+            };
+            frame.rv_foot = rotation(23)?;
+            frame.rv_shank = rotation(27)?;
             visit(&frame);
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    /// Streams every stored accelerometer sample of a session, in device-time
+    /// order, foot before shank at an equal time.
+    pub fn for_each_accel(
+        &self,
+        session_id: &str,
+        mut visit: impl FnMut(&AccelSample),
+    ) -> Result<usize> {
+        let connection = self.reader()?;
+        let mut statement = connection.prepare(
+            "SELECT timestamp_us, sensor, sequence, ax, ay, az
+             FROM raw_accel WHERE session_id = ?1 ORDER BY timestamp_us, sensor, sequence",
+        )?;
+        let mut rows = statement.query([session_id])?;
+        let mut count = 0;
+        while let Some(row) = rows.next()? {
+            visit(&AccelSample {
+                timestamp_us: row.get::<_, i64>(0)? as u64,
+                sensor: row.get(1)?,
+                sequence: row.get(2)?,
+                accel: [row.get(3)?, row.get(4)?, row.get(5)?],
+            });
             count += 1;
         }
         Ok(count)
@@ -997,6 +1049,16 @@ impl Store {
     }
 
     #[cfg(test)]
+    pub fn accel_count(&self, session_id: &str) -> Result<i64> {
+        let connection = self.reader()?;
+        Ok(connection.query_row(
+            "SELECT COUNT(*) FROM raw_accel WHERE session_id = ?1",
+            [session_id],
+            |row| row.get(0),
+        )?)
+    }
+
+    #[cfg(test)]
     pub fn frame_count(&self, session_id: &str) -> Result<i64> {
         let connection = self.reader()?;
         Ok(connection.query_row(
@@ -1046,6 +1108,7 @@ fn session_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
 
 fn writer_loop(mut connection: Connection, rx: mpsc::Receiver<WriteCommand>) {
     let mut pending: Vec<(String, Vec<RawFrame>)> = Vec::new();
+    let mut pending_accel: Vec<(String, Vec<AccelSample>)> = Vec::new();
     let mut pending_gait: PendingGait = Vec::new();
     let mut pending_status: Vec<(String, i64, u8, u16)> = Vec::new();
     let mut last_commit = Instant::now();
@@ -1063,6 +1126,12 @@ fn writer_loop(mut connection: Connection, rx: mpsc::Receiver<WriteCommand>) {
                     continue;
                 }
             }
+            Ok(WriteCommand::Accel { session_id, samples }) => {
+                pending_accel.push((session_id, samples));
+                if last_commit.elapsed() < COMMIT_INTERVAL {
+                    continue;
+                }
+            }
             Ok(WriteCommand::Status { session_id, frame_index, device_state, faults }) => {
                 pending_status.push((session_id, frame_index, device_state, faults));
                 if last_commit.elapsed() < COMMIT_INTERVAL {
@@ -1070,22 +1139,22 @@ fn writer_loop(mut connection: Connection, rx: mpsc::Receiver<WriteCommand>) {
                 }
             }
             Ok(WriteCommand::Flush(done)) => {
-                commit(&mut connection, &mut pending, &mut pending_gait, &mut pending_status);
+                commit(&mut connection, &mut pending, &mut pending_accel, &mut pending_gait, &mut pending_status);
                 last_commit = Instant::now();
                 let _ = done.send(());
                 continue;
             }
             Ok(WriteCommand::Stop) => {
-                commit(&mut connection, &mut pending, &mut pending_gait, &mut pending_status);
+                commit(&mut connection, &mut pending, &mut pending_accel, &mut pending_gait, &mut pending_status);
                 return;
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
-                commit(&mut connection, &mut pending, &mut pending_gait, &mut pending_status);
+                commit(&mut connection, &mut pending, &mut pending_accel, &mut pending_gait, &mut pending_status);
                 return;
             }
         }
-        commit(&mut connection, &mut pending, &mut pending_gait, &mut pending_status);
+        commit(&mut connection, &mut pending, &mut pending_accel, &mut pending_gait, &mut pending_status);
         last_commit = Instant::now();
     }
 }
@@ -1095,10 +1164,15 @@ type PendingGait = Vec<(String, Vec<GaitCycle>, Vec<GaitEvent>)>;
 fn commit(
     connection: &mut Connection,
     pending: &mut Vec<(String, Vec<RawFrame>)>,
+    pending_accel: &mut Vec<(String, Vec<AccelSample>)>,
     pending_gait: &mut PendingGait,
     pending_status: &mut Vec<(String, i64, u8, u16)>,
 ) {
-    if pending.is_empty() && pending_gait.is_empty() && pending_status.is_empty() {
+    if pending.is_empty()
+        && pending_accel.is_empty()
+        && pending_gait.is_empty()
+        && pending_status.is_empty()
+    {
         return;
     }
     let result = (|| -> rusqlite::Result<()> {
@@ -1109,6 +1183,12 @@ fn commit(
                 for frame in frames {
                     // INSERT OR IGNORE: a backfilled frame may already be stored.
                     schema::insert_frame(&mut insert, session_id, frame)?;
+                }
+            }
+            let mut insert = transaction.prepare_cached(schema::INSERT_ACCEL)?;
+            for (session_id, samples) in pending_accel.iter() {
+                for sample in samples {
+                    schema::insert_accel(&mut insert, session_id, sample)?;
                 }
             }
         }
@@ -1155,9 +1235,14 @@ fn commit(
     })();
     if let Err(err) = result {
         // Losing raw research data silently is not acceptable; surface it.
-        eprintln!("store: commit failed, {} batches dropped: {err}", pending.len());
+        eprintln!(
+            "store: commit failed, {} frame and {} accelerometer batches dropped: {err}",
+            pending.len(),
+            pending_accel.len()
+        );
     }
     pending.clear();
+    pending_accel.clear();
     pending_gait.clear();
     pending_status.clear();
 }

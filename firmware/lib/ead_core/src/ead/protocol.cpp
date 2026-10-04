@@ -12,7 +12,8 @@ namespace ead {
 
 bool isDurable(MsgType type) {
   return type == MsgType::RawSampleBatch || type == MsgType::EventBatch ||
-         type == MsgType::StepBatch || type == MsgType::HapticBatch;
+         type == MsgType::StepBatch || type == MsgType::HapticBatch ||
+         type == MsgType::RawAccelBatch;
 }
 
 void writeHeader(ByteWriter& w, const Header& h) {
@@ -53,6 +54,8 @@ void writeRawFrame(ByteWriter& w, const RawFrame& f) {
   for (int16_t v : f.shank) w.i16(v);
   for (int16_t v : f.q_foot) w.i16(v);
   for (int16_t v : f.q_shank) w.i16(v);
+  for (int16_t v : f.rv_foot) w.i16(v);
+  for (int16_t v : f.rv_shank) w.i16(v);
   w.u16(f.status);
 }
 
@@ -63,6 +66,8 @@ bool readRawFrame(ByteReader& r, RawFrame* f) {
   for (int16_t& v : f->shank) v = r.i16();
   for (int16_t& v : f->q_foot) v = r.i16();
   for (int16_t& v : f->q_shank) v = r.i16();
+  for (int16_t& v : f->rv_foot) v = r.i16();
+  for (int16_t& v : f->rv_shank) v = r.i16();
   f->status = r.u16();
   return r.ok();
 }
@@ -73,6 +78,21 @@ size_t encodeRawBatchPayload(const RawFrame* frames, size_t count, uint8_t* out,
   w.u8(uint8_t(count));
   w.u8(uint8_t(kRawFrameSize));
   for (size_t i = 0; i < count; i++) writeRawFrame(w, frames[i]);
+  return w.ok() ? w.size() : 0;
+}
+
+size_t encodeAccelBatchPayload(const AccelSample* samples, size_t count, uint8_t* out,
+                               size_t cap) {
+  if (count == 0 || count > kMaxAccelPerBatch) return 0;
+  ByteWriter w(out, cap);
+  w.u8(uint8_t(count));
+  w.u8(uint8_t(kAccelRecordSize));
+  for (size_t i = 0; i < count; i++) {
+    w.u64(samples[i].timestamp_us);
+    w.u8(samples[i].sensor);
+    w.u8(samples[i].sequence);
+    for (int16_t v : samples[i].accel) w.i16(v);
+  }
   return w.ok() ? w.size() : 0;
 }
 

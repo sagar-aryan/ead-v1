@@ -1,4 +1,4 @@
-// EAD-V1 firmware: 100 Hz acquisition of the foot and shank BNO086 sensors,
+// EAD-V1 firmware: 200 Hz acquisition of the foot and shank BNO086 sensors,
 // streamed as binary protocol messages over Wi-Fi and USB.
 // Architecture: docs/architecture.md. Protocol: docs/protocol.md.
 #include <Arduino.h>
@@ -37,12 +37,14 @@ void setup() {
   if (!psramRing) device::raiseFault(ead::kFaultNoPsram);
 
   const QueueHandle_t frames = xQueueCreate(64, sizeof(ead::RawFrame));
-  acquisition::start(frames);
+  // 500 accelerometer samples a second from both sensors; 128 is a quarter second.
+  const QueueHandle_t accelSamples = xQueueCreate(128, sizeof(ead::AccelSample));
+  acquisition::start(frames, accelSamples);
   const bool motorTest = motors::begin();
   device::captureIdentity(acquisition::sensorAnswered(0) ? ead::kSensorAnswered : 0,
                           acquisition::sensorAnswered(1) ? ead::kSensorAnswered : 0, psramRing,
                           motorTest);
-  telemetry::startProcessing(frames);
+  telemetry::startProcessing(frames, accelSamples);
   startUsbLink();
   startWifiLink();
   device::markBooted();

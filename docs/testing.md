@@ -1884,3 +1884,93 @@ it. That library keeps only the last report of a packet carrying several, so it
 undercounts when three reports run together. Discarded; the bench file was
 restored. Its metadata read is kept as evidence: accelerometer BMA280, minimum
 period 2000 µs; gyroscope BMI055.
+
+## TEST-055 — Schema-6 feed on the board: 200 Hz frames, native accelerometer
+
+### Objective
+Check DEC-021's feed on hardware: frame rate and completeness, the native
+accelerometer stream, the frame-assembly flags, and the rotation vector's world
+frame.
+
+### Environment
+Product firmware with schema 6 (uncommitted at the time), both sensors on the
+desk, still, USB. `eadprobe stats` (schema 6 decoder), 20–40 s runs; a 30 s
+recording analysed offline.
+
+### Procedure
+1. Flash; `eadprobe stats --seconds 20`.
+2. Fix found in step 1 (below), flash, repeat; `--seconds 40`; then
+   `--record` 30 s for the timing analysis.
+
+### Actual
+- First build: frames 4010 of 4010 at 200.279 Hz, 0 missing; accelerometer streams
+  249.7 / 251.4 Hz with no sequence gaps. But 461 of 4010 frames (11.5 %)
+  repeated a shank gyroscope sample and 331 (8.3 %) held a stale shank
+  accelerometer value. Cause, from the code: a frame waiting for its
+  accelerometer samples was forced out by the next foot gyroscope sample, which
+  the task reads before the shank's packet already waiting.
+- Fix: up to four frames wait; each takes the shank's gyroscope and both rotation
+  vectors nearest its time from a short history, and the accelerometers
+  interpolated from theirs; a frame is forced out only after three periods
+  (15 ms). After: 4010 of 4010 frames, 200.273 Hz; `shank_repeated` 78 (1.9 %,
+  the beat of two independent clocks, as at 100 Hz in TEST-046); accelerometer
+  held 0 on both; rotation vector missing 0.
+- Rotation vector world frame: the foot accelerometer carried into the world by
+  the foot's own game rotation vector reads (−0.000, +0.000, +1.031) g. The
+  BNO086's world is Z up, as `segmentOrientation` assumes.
+- Accelerometer stream, in arrival order: 0 sequence gaps on both sensors over
+  40 s (an earlier counter that sorted by time reported 512 "gaps": two
+  timestamp inversions, each counted as 255).
+- Timing (30 s recording): foot gyroscope frames fit one straight line against
+  their index to a residual sd of 157 µs. The accelerometers do not: samples per
+  second of host time range 244–251 (foot) and 243–256 (shank); 4.2 % (foot) and
+  17.8 % (shank) of consecutive steps lie outside 4.0 ± 0.5 ms, from 2 µs to
+  11 ms; 2 timestamp inversions of up to 136 µs in 40 s.
+
+### Result
+PASS for completeness, rate and frame assembly. The accelerometers' timing is
+recorded as measured.
+
+### Notes
+Observed: the accelerometer's own rate varies by a few percent from second to
+second while the gyroscope's does not. Hypothesis: the BMA280 inside the BNO086
+runs from its own oscillator, not the hub's crystal (the hub reports an external
+crystal, TEST-054 transcript). The steps of a few microseconds are not explained
+by that and could be the hub's timestamping (unknown). Consequence for the design:
+frames interpolate by time, never by sample count, and the native stream keeps
+every sample's own time.
+
+## TEST-056 — The 30 °/s ZUPT limit and the schema-6 replay on the 10 m walks
+
+### Objective
+Apply DEC-020 item 1 (ZUPT gyroscope limit 30 °/s) and check the replay, now
+reading schema-6 recordings, still reproduces the older fixtures.
+
+### Environment
+Replay built from the working tree with `ead/feed.cpp`; `tools/replay/walks.py`.
+
+### Procedure
+1. Replay at 25 °/s (before the change): compare with TEST-053.
+2. Change the limit; replay again; the 6 m walk with `--mpu6500`.
+
+### Actual
+- Step 1: identical to TEST-053 on all five walks, and 6 valid cycles, 6.39 m
+  on the 6 m walk: the schema-6 reader, the time-based calibration window and
+  the per-recording frame rate change nothing for 100 Hz recordings.
+- Step 2, per leg (contacts / counted, metres):
+
+| Walk | Leg 1 | Leg 2 | Valid / no ZUPT |
+|---|---|---|---|
+| normal1 | 9/9, 8.53 | 9/9, 8.73 | 16 / 0 |
+| normal2 | 9/9, 8.92 | 11/9 (turn steps), 9.42 | 18 / 0 |
+| normal3 | 9/9, 9.54 | 8/9, 8.07 | 15 / 1 |
+| slow | 10/11, 6.26 | 10/11, 4.87 | 16 / 1 |
+| fast | 8/8, 8.68 | 8/8, 8.64 | 15 / 0 |
+
+  Contacts 91 of 92 (one slow landing fewer than at 25 °/s). 6 m walk: 6 valid
+  cycles, 6.34 m.
+
+### Result
+PASS. Every normal and fast leg reads 8.5–9.5 m (10 m less the first step from
+standing); the two 15 m legs of TEST-053 are gone. Slow strides still read short
+(PROB-024).

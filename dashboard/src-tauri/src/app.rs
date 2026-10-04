@@ -7,7 +7,7 @@ use tauri::ipc::Channel;
 use crate::device::{self, Device, Sink, Snapshot};
 use crate::link::{usb::UsbPortInfo, LinkTarget};
 use crate::live::{LiveHub, LiveTick};
-use crate::protocol::{config::DeviceConfigSection, RawFrame, Status};
+use crate::protocol::{config::DeviceConfigSection, AccelSample, RawFrame, Status};
 use crate::store::{
     DeviceIdentity, Patient, RawWindow, SegmentLimits, Session, SessionKind, SignalGroup, Store,
 };
@@ -22,6 +22,10 @@ impl Sink for Telemetry {
     fn raw_frames(&self, frames: &[RawFrame]) {
         self.store.record_frames(frames);
         self.live.push(frames);
+    }
+
+    fn raw_accel(&self, samples: &[AccelSample]) {
+        self.store.record_accel(samples);
     }
 
     fn status(&self, status: &Status) {
@@ -166,7 +170,7 @@ pub fn device_config(app: tauri::State<'_, Arc<App>>) -> Option<Arc<DeviceConfig
 pub struct Vocabulary {
     pub device_states: [&'static str; 9],
     pub fault_names: [&'static str; 10],
-    pub raw_status_names: [&'static str; 9],
+    pub raw_status_names: [&'static str; 12],
     /// Gait state names in device order (docs/protocol.md §6.6).
     pub gait_states: [&'static str; 7],
     /// Feature order doc 06 §3 weighs, and the error classes it names.

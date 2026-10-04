@@ -204,7 +204,7 @@ fn header() -> Vec<u8> {
 }
 
 /// Builds `session.mat`: `raw`, `gait`, `events`, `haptics`, `metadata`,
-/// `reference` (doc 10 §7).
+/// `reference` (doc 10 §7), and `accel`, the accelerometer at its own rate.
 pub fn session_mat(
     session: &Session,
     cycles: &[StoredCycle],
@@ -212,6 +212,7 @@ pub fn session_mat(
     status: &[StatusChange],
     reference: Option<&StoredReference>,
     frames: impl FnOnce(&mut dyn FnMut(&crate::protocol::RawFrame)) -> super::Result<usize>,
+    accel: impl FnOnce(&mut dyn FnMut(&crate::protocol::AccelSample)) -> super::Result<usize>,
 ) -> super::Result<Vec<u8>> {
     let mut out = header();
 
@@ -220,16 +221,24 @@ pub fn session_mat(
     // ax..az, gx..gz, qw..qz, status_flags. Two rows per frame.
     let mut timestamps: Vec<i64> = Vec::new();
     let mut counts: Vec<i32> = Vec::new();
+    // A separate double array, because a frame from before device schema 6 has
+    // no rotation vector and int32 has no missing value; i16 is exact in double.
+    let mut rotation: Vec<f64> = Vec::new();
     let mut visit = |frame: &crate::protocol::RawFrame| {
-        for (sensor, values, quaternion) in
-            [(0i32, &frame.foot, &frame.q_foot), (1, &frame.shank, &frame.q_shank)]
-        {
+        for (sensor, values, quaternion, rv) in [
+            (0i32, &frame.foot, &frame.q_foot, frame.rv_foot),
+            (1, &frame.shank, &frame.q_shank, frame.rv_shank),
+        ] {
             timestamps.push(frame.timestamp_us as i64);
             counts.push(frame.frame_index as i32);
             counts.push(sensor);
             counts.extend(values.iter().map(|v| i32::from(*v)));
             counts.extend(quaternion.iter().map(|v| i32::from(*v)));
             counts.push(i32::from(frame.status));
+            match rv {
+                Some(q) => rotation.extend(q.iter().map(|v| f64::from(*v))),
+                None => rotation.extend([f64::NAN; 4]),
+            }
         }
     };
     let rows = frames(&mut visit)? * 2;
@@ -255,6 +264,50 @@ pub fn session_mat(
                     "",
                     "ADC counts in the chip frame (DEC-007); quaternions are Q15. \
 Scale factors and mount maps are in metadata.json.",
+                ),
+            ),
+            ("sensor_codes", char_array("", "0 = foot, 1 = shank")),
+            ("rotation_vector", doubles("", rows, 4, &rotation)),
+            (
+                "rotation_vector_columns",
+                cell_of_strings("", &["rv_real", "rv_i", "rv_j", "rv_k"].map(String::from)),
+            ),
+            (
+                "rotation_vector_units",
+                char_array(
+                    "",
+                    "The sensor's game rotation vector as reported: Q14, chip frame; divide \
+by 16384. NaN for frames recorded before device schema 6, which carried none.",
+                ),
+            ),
+        ],
+    ));
+
+    // ---- accel: every accelerometer sample at its native rate (DEC-021) ----
+    let mut accel_timestamps: Vec<i64> = Vec::new();
+    let mut accel_values: Vec<i32> = Vec::new();
+    let accel_rows = accel(&mut |sample: &crate::protocol::AccelSample| {
+        accel_timestamps.push(sample.timestamp_us as i64);
+        accel_values.push(i32::from(sample.sensor));
+        accel_values.push(i32::from(sample.sequence));
+        accel_values.extend(sample.accel.iter().map(|v| i32::from(*v)));
+    })?;
+    out.extend_from_slice(&structure(
+        "accel",
+        &[
+            ("timestamp_us", int64s("", accel_rows, 1, &accel_timestamps)),
+            ("values", int32s("", accel_rows, 5, &accel_values)),
+            (
+                "columns",
+                cell_of_strings("", &["sensor", "sequence", "ax", "ay", "az"].map(String::from)),
+            ),
+            (
+                "units",
+                char_array(
+                    "",
+                    "ADC counts in the chip frame as measured, at the sensor's native rate \
+(RAW_ACCEL_BATCH); raw holds them interpolated to each frame. The sequence is the \
+sensor's own and wraps at 256. Scale factor and mount maps are in metadata.json.",
                 ),
             ),
             ("sensor_codes", char_array("", "0 = foot, 1 = shank")),

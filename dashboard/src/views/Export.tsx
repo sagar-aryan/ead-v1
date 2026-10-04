@@ -13,6 +13,7 @@ import { api, type ExportSummary, type Session } from "../api";
 
 const FILES: { name: string; what: string }[] = [
   { name: "raw.csv", what: "Every stored sample, two rows per frame (doc 10 §2)" },
+  { name: "accel_native.csv", what: "Every accelerometer sample at its own rate (DEC-021)" },
   { name: "gait.csv", what: "One row per cycle with its score and class (§3)" },
   { name: "events.csv", what: "Device events, cycle bounds, error transitions, faults (§4)" },
   { name: "haptics.csv", what: "Header only: no ERM drivers are fitted (§5, DEC-006)" },
@@ -112,6 +113,10 @@ export function Export() {
             <div className="readout">
               <span className="label">Raw rows</span>
               <span className="value num">{summary.raw_rows.toLocaleString()}</span>
+            </div>
+            <div className="readout">
+              <span className="label">Accelerometer rows</span>
+              <span className="value num">{summary.accel_rows.toLocaleString()}</span>
             </div>
             <div className="readout">
               <span className="label">Cycle rows</span>

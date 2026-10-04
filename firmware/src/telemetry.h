@@ -17,7 +17,7 @@ namespace telemetry {
 // internal-RAM ring is used and backfill reaches back only a few seconds.
 bool begin();
 
-void startProcessing(QueueHandle_t frames);
+void startProcessing(QueueHandle_t frames, QueueHandle_t accelSamples);
 
 // Appends a durable message built elsewhere (gait events and cycles).
 void append(ead::MsgType type, uint64_t timeUs, const uint8_t* payload, size_t len);

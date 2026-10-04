@@ -40,8 +40,11 @@
 
 // ---- Sensors: BNO086 (DEC-017; replaces CONFIG_V1.json "mpu6050") ----
 #define EAD_SPI_HZ                 1000000u  // wiring rule 5: 1 MHz until soak-tested
-#define EAD_SAMPLE_HZ              100u
-#define EAD_REPORT_INTERVAL_US     10000u
+// 200 Hz frames: the fastest setting both sensors deliver completely on the
+// 1 MHz bus (TEST-054, DEC-021). The hub gives the gyroscope and game rotation
+// vector 5000 us and the accelerometer 4000 us (250 Hz) for this request.
+#define EAD_SAMPLE_HZ              200u
+#define EAD_REPORT_INTERVAL_US     5000u
 #define EAD_ACCEL_RANGE_G          8         // BMA280 inside the BNO086 (TEST-040)
 #define EAD_GYRO_RANGE_DPS         2000      // BMI055 inside the BNO086 (TEST-040)
 // Calibrated reports: accelerometer Q8 m/s^2, gyroscope Q9 rad/s. As counts per
@@ -122,7 +125,7 @@ inline void eadMountApply(const EadMountMap& map, int32_t cx, int32_t cy,
 
 // ---- ZUPT, foot-only (doc 05, CONFIG_V1.json "zupt") ----
 #define EAD_ZUPT_ACCEL_TOL_G       0.15f
-#define EAD_ZUPT_GYRO_THRESH_DPS   25.0f
+#define EAD_ZUPT_GYRO_THRESH_DPS   30.0f  // contract 25; DEC-020
 #define EAD_ZUPT_MIN_DUR_MS        60u
 #define EAD_ZUPT_ENTRY_HYST_MS     20u
 

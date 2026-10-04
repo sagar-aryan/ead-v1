@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use crate::device::{self, Device, LinkState, Sink};
 use crate::link::LinkTarget;
-use crate::protocol::{RawFrame, Status};
+use crate::protocol::{AccelSample, RawFrame, Status};
 use crate::store::{DeviceIdentity, SessionKind, SignalGroup, Store};
 
 struct StoreSink(Arc<Store>);
@@ -17,6 +17,9 @@ struct StoreSink(Arc<Store>);
 impl Sink for StoreSink {
     fn raw_frames(&self, frames: &[RawFrame]) {
         self.0.record_frames(frames);
+    }
+    fn raw_accel(&self, samples: &[AccelSample]) {
+        self.0.record_accel(samples);
     }
     fn status(&self, _status: &Status) {}
     fn gait(&self, cycles: &[crate::protocol::GaitCycle], events: &[crate::protocol::GaitEvent]) {
@@ -108,7 +111,7 @@ fn records_a_session_from_a_real_device() {
     assert!(matches!(config.imu.bus, crate::protocol::config::SensorBus::Bno086 { .. }));
     assert_eq!(config.imu.foot_mount, [[0, -1, 0], [1, 0, 0], [0, 0, 1]]);
     assert_eq!(config.imu.shank_mount, [[0, 0, 1], [1, 0, 0], [0, 1, 0]]);
-    assert_eq!(config.imu.sample_hz, 100);
+    assert_eq!(config.imu.sample_hz, 200, "200 Hz frames (DEC-021)");
     assert!(!config.haptics.fitted);
 
     // The boot-time sensor check, decoded from the device's own bytes: every
@@ -156,8 +159,8 @@ fn records_a_session_from_a_real_device() {
     );
     assert_eq!(stopped.session_id, session.session_id);
     assert_eq!(stopped.frames_missing, 0, "frames were lost between device and store");
-    // 100 Hz, minus up to one batch (10 frames) at each end.
-    let expected = (seconds * 100) as i64;
+    // The configured rate, minus up to one batch (10 frames) at each end.
+    let expected = (seconds * u64::from(config.imu.sample_hz)) as i64;
     assert!(
         stopped.frames_stored > expected - 40 && stopped.frames_stored <= expected + 20,
         "stored {} frames, expected about {expected}",
@@ -169,6 +172,11 @@ fn records_a_session_from_a_real_device() {
         "link corrupted data while streaming (PROB-006)"
     );
     assert_eq!(identity.config_sha256, stopped.config_sha256, "session must record the configuration");
+    // Both accelerometers at their native rate (RAW_ACCEL_BATCH); the rate is
+    // printed, not asserted, until a measurement says what to expect.
+    let accel = store.accel_count(&stopped.session_id).unwrap();
+    println!("{accel} accelerometer samples, {:.0} per second", accel as f64 / seconds as f64);
+    assert!(accel > 0, "no accelerometer samples were stored");
 
     // Stored counts are the device's own, unmodified (DEC-007), and physical
     // units come from the device configuration.

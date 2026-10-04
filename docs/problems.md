@@ -1307,7 +1307,7 @@ stillness test now reads |a| through a 2nd-order Butterworth low-pass at 20 Hz
 (`LowPass2`, DEC-019). Both uncorrected cycles in `walk10m-normal3` leg 1 are
 corrected (13.00 → 9.57 m); uncorrected valid cycles 8 → 5 across the walks.
 
-#### Attempt 5: a higher gyro limit for stillness (measured, not applied)
+#### Attempt 5: a higher gyro limit for stillness (applied 2026-10-04 by the user's decision, DEC-020; TEST-056)
 The five remaining uncorrected stances dip under 25 °/s for only 50–90 ms at a
 time (minimum 14–18 °/s). `--zupt-gyro` 30: uncorrected cycles 5 → 2,
 `walk10m-normal2` 24.2 → 18.3 m, `walk10m-fast` 24.2 → 17.4 m, one slow contact
@@ -1340,3 +1340,24 @@ slow-walk shortfall: Unknown.
 The slow-walk shortfall: compare the foot's integrated velocity through one slow
 swing with the stride the count implies, and test whether the drift ramp should
 start at toe-off instead of at the end of the previous zero-velocity window.
+
+## PROB-025 — Dashboard: event and step batches bypassed gap detection; backfilled ones were dropped
+
+**Status:** Resolved (2026-10-04)
+
+### Symptoms
+None observed by the user. Found by the agent that ported the dashboard to schema 6, and
+confirmed by reading `dashboard/src-tauri/src/device.rs`.
+
+### Root cause
+Confirmed by reading the code: `Tracker::handle` matched EVENT_BATCH and STEP_BATCH before
+its catch-all for durable messages, so their sequence numbers never reached `on_durable`.
+Each looked like a gap and was requested again; the backfilled copy then reached
+`on_durable`, which decoded only raw batches, and was dropped. A real gap containing a
+step batch lost its cycles.
+
+### Resolution
+Both are decoded in `on_durable`, after the sequence bookkeeping, like raw and
+accelerometer batches. Test `gait_batches_are_durable_and_reach_the_sink`: a live event
+(51) and step batch (52) after a raw batch (3) leave exactly 4–50 missing, and a step batch
+arriving by backfill reaches the sink.

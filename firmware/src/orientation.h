@@ -1,14 +1,14 @@
 #pragma once
-// Runs a Mahony estimator per sensor and fills each frame's quaternions.
+// Fills each frame's segment orientations from the BNO086 game rotation
+// vectors it carries (DEC-021): the chip's own fusion, carried into anatomical
+// axes by the mount map and through the calibration's alignment.
 //
-// Orientation needs calibration: the estimator's input is the bias-removed
-// angular rate, and it starts from the alignment the calibration measured so it
-// does not spend the first seconds of a recording converging. Without a record
-// the quaternions stay identity and the frame's orientation-valid bit stays
+// Orientation needs calibration, for the alignment. Without a record the
+// segment quaternions stay identity and the frame's orientation-valid bit stays
 // clear, rather than shipping a number that looks like an answer.
 //
 // Called from the processing task, on the frame path only: the frame's stored
-// counts are never modified (doc 04 §7).
+// counts and rotation vectors are never modified (doc 04 §7).
 
 #include <cstdint>
 
@@ -16,14 +16,13 @@
 
 namespace orientation {
 
-/// Re-reads the calibration record and restarts both estimators from it.
-/// Called when a calibration window completes.
+/// Re-reads the calibration record. Called when a calibration window completes.
 void adopt();
 
-/// Estimates orientation for one frame and writes it into the frame.
+/// Writes the frame's segment orientations from its rotation vectors.
 void process(ead::RawFrame* frame);
 
-/// True while both estimators are running on a calibrated input.
+/// True once a calibration record is in use.
 bool valid();
 
 }  // namespace orientation

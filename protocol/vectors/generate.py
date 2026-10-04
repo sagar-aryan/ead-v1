@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate EAD-V1 protocol golden vectors (schema 5).
+"""Generate EAD-V1 protocol golden vectors (schema 6).
 
 These bytes are built independently of the firmware: Python `struct`, `zlib`
 and `hashlib`, a separate COBS implementation, and the contract JSON for the
@@ -21,11 +21,12 @@ ROOT = HERE.parent.parent
 CONFIG_JSON = ROOT / "ead_agent_docs_v2" / "CONFIG_V1.json"
 
 PROTOCOL_VERSION = 1
-SCHEMA = 5
+SCHEMA = 6
 
 # Message types (doc 08 §3).
 HELLO, CONFIG_GET, STATUS, ERROR = 0x01, 0x02, 0x0C, 0x0E
 RAW_SAMPLE_BATCH, BACKFILL_REQUEST, BACKFILL_DATA = 0x08, 0x10, 0x11
+RAW_ACCEL_BATCH = 0x13
 SESSION_START, SESSION_STOP = 0x04, 0x05
 EVENT_BATCH, STEP_BATCH = 0x09, 0x0A
 SERVICE_TEST = 0x12
@@ -38,7 +39,9 @@ CALIB_MOVED = 1 << 1
 # RAW frame status bits (docs/protocol.md).
 RAW_FOOT_READ_FAIL, RAW_SHANK_READ_FAIL, RAW_SHANK_REPEATED = 1 << 0, 1 << 1, 1 << 2
 RAW_FOOT_ACCEL_SAT, RAW_FOOT_GYRO_SAT = 1 << 3, 1 << 4
-RAW_SHANK_ACCEL_SAT, RAW_SHANK_GYRO_SAT, RAW_FOOT_REPEATED = 1 << 5, 1 << 6, 1 << 7
+RAW_SHANK_ACCEL_SAT, RAW_SHANK_GYRO_SAT, RAW_FOOT_ACCEL_HELD = 1 << 5, 1 << 6, 1 << 7
+RAW_ORIENTATION_VALID, RAW_SHANK_ACCEL_HELD = 1 << 8, 1 << 9
+RAW_FOOT_RV_MISSING, RAW_SHANK_RV_MISSING = 1 << 10, 1 << 11
 
 # STATUS fault bits (docs/protocol.md).
 FAULT_FOOT_FROZEN, FAULT_SHANK_FROZEN, FAULT_ACQUISITION_STALLED = 1 << 7, 1 << 8, 1 << 9
@@ -52,7 +55,9 @@ SENSOR_ANSWERED = 0x86
 # contract JSON's "mpu6050" and "pins" groups, so they are written out here.
 SENSOR_KIND_BNO086 = 1
 SPI_HZ = 1_000_000
-REPORT_INTERVAL_US = 10_000
+# 200 Hz frames (DEC-021, TEST-054): as built, not the contract's 100 Hz.
+SAMPLE_HZ = 200
+REPORT_INTERVAL_US = 5_000
 ACCEL_RANGE_G, GYRO_RANGE_DPS = 8, 2000
 # Calibrated SH-2 reports: accelerometer Q8 m/s^2, gyroscope Q9 rad/s.
 ACCEL_LSB_PER_G = 256 * 9.80665
@@ -105,15 +110,23 @@ def usb_frame(msg):
     return b"\x00" + cobs_encode(msg + struct.pack("<I", zlib.crc32(msg))) + b"\x00"
 
 
-def raw_frame(ts, index, foot, shank, q_foot, q_shank, status):
-    return struct.pack("<QI6h6h4h4hH", ts, index, *foot, *shank, *q_foot, *q_shank, status)
+def raw_frame(ts, index, foot, shank, q_foot, q_shank, rv_foot, rv_shank, status):
+    return struct.pack("<QI6h6h4h4h4h4hH", ts, index, *foot, *shank, *q_foot, *q_shank,
+                       *rv_foot, *rv_shank, status)
 
 
 IDENTITY_Q15 = (32767, 0, 0, 0)
+IDENTITY_Q14 = (16384, 0, 0, 0)
 
 
 def raw_batch_payload(frames):
-    return struct.pack("<BB", len(frames), 54) + b"".join(frames)
+    return struct.pack("<BB", len(frames), 70) + b"".join(frames)
+
+
+def accel_batch_payload(samples):
+    """RAW_ACCEL_BATCH (docs/protocol.md §5.15): (time, sensor, sequence, ax, ay, az)."""
+    return struct.pack("<BB", len(samples), 16) + b"".join(
+        struct.pack("<QBB3h", *s) for s in samples)
 
 
 def config_section_format1(cfg):
@@ -134,15 +147,20 @@ def config_section_format1(cfg):
                        p["shank_imu_int_gpio"], *[motors[f"M{i}"] for i in range(1, 7)])
     # Everything after the pins is the same in both formats. In format 2 it
     # starts after 22 bytes of sensor fields, 18 of mount maps and 15 of pins.
-    return bytes(out) + config_section(cfg)[22 + 18 + 15:]
+    return bytes(out) + config_section(cfg, cfg["zupt"]["gyro_threshold_dps"])[22 + 18 + 15:]
 
 
-def config_section(cfg):
+# The ZUPT gyroscope limit of the current build: 30 deg/s by the user's decision
+# (DEC-020), not the contract's 25. Format 1 keeps 25: its sessions used it.
+ZUPT_GYRO_DPS = 30.0
+
+
+def config_section(cfg, zupt_gyro_dps=ZUPT_GYRO_DPS):
     cal, gait, zupt = cfg["calibration"], cfg["gait"], cfg["zupt"]
     err, hap, net = cfg["error"], cfg["haptics"], cfg["network"]
     sto, ref = cfg["storage"], cfg["reference"]
     out = bytearray()
-    out += struct.pack("<BIHIBHff", SENSOR_KIND_BNO086, SPI_HZ, cfg["mpu6050"]["sample_hz"],
+    out += struct.pack("<BIHIBHff", SENSOR_KIND_BNO086, SPI_HZ, SAMPLE_HZ,
                        REPORT_INTERVAL_US, ACCEL_RANGE_G, GYRO_RANGE_DPS, ACCEL_LSB_PER_G,
                        GYRO_LSB_PER_DPS)
     for mount in (FOOT_MOUNT, SHANK_MOUNT):
@@ -152,7 +170,7 @@ def config_section(cfg):
     out += struct.pack("<ffffHHH", gait["gait_lowpass_hz"], gait["event_path_lowpass_hz"],
                        gait["min_cycle_s"], gait["max_cycle_s"], gait["event_contact_guard_ms"],
                        gait["toeoff_guard_ms"], gait["ic_candidate_window_ms"])
-    out += struct.pack("<ffHH", zupt["accel_tolerance_g"], zupt["gyro_threshold_dps"],
+    out += struct.pack("<ffHH", zupt["accel_tolerance_g"], zupt_gyro_dps,
                        zupt["min_duration_ms"], zupt["entry_hysteresis_ms"])
     w = err["weights"]
     out += struct.pack(
@@ -185,7 +203,7 @@ def main():
     cfg = json.loads(CONFIG_JSON.read_text())
 
     hello_request = message(HELLO, struct.pack("<H", SCHEMA), seq=7, time_us=0)
-    write("hello_request.hex", "Host HELLO, schema 5, command sequence 7.", hello_request)
+    write("hello_request.hex", "Host HELLO, schema 6, command sequence 7.", hello_request)
 
     fw = "0.1.0+test"
     sha = hashlib.sha256(b"ead").digest()
@@ -218,15 +236,31 @@ def main():
     frames = [
         raw_frame(1_000_000, 100, (8192, -8192, 32767, -32768, 1, -1),
                   (0, 16, -16, 655, -655, 32767), IDENTITY_Q15, IDENTITY_Q15,
-                  RAW_FOOT_READ_FAIL | RAW_FOOT_GYRO_SAT | RAW_SHANK_ACCEL_SAT),
-        raw_frame(1_010_000, 101, (-1, -2, -3, -4, -5, -6),
-                  (1, 2, 3, 4, 5, 6), IDENTITY_Q15, (0, -32767, 12345, -12345), RAW_SHANK_REPEATED),
+                  IDENTITY_Q14, IDENTITY_Q14,
+                  RAW_FOOT_READ_FAIL | RAW_FOOT_GYRO_SAT | RAW_SHANK_ACCEL_SAT
+                  | RAW_FOOT_RV_MISSING | RAW_SHANK_RV_MISSING),
+        raw_frame(1_005_000, 101, (-1, -2, -3, -4, -5, -6),
+                  (1, 2, 3, 4, 5, 6), IDENTITY_Q15, (0, -32767, 12345, -12345),
+                  (11585, 11585, 0, 0), (-16384, 1, -2, 3),
+                  RAW_SHANK_REPEATED | RAW_FOOT_ACCEL_HELD | RAW_ORIENTATION_VALID
+                  | RAW_SHANK_ACCEL_HELD),
     ]
     raw_batch = message(RAW_SAMPLE_BATCH, raw_batch_payload(frames), seq=3, time_us=1_000_000)
     write("raw_batch.hex",
-          "RAW_SAMPLE_BATCH with 2 frames (frame 100 at 1.000000 s, frame 101 at 1.010000 s),\n"
-          "negative and saturated counts, status 0x0031 and 0x0004. Header sequence 3.",
+          "RAW_SAMPLE_BATCH with 2 schema-6 frames (frame 100 at 1.000000 s, frame 101 at\n"
+          "1.005000 s), negative and saturated counts, rotation vectors identity then (Q14)\n"
+          "11585, 11585, 0, 0 and -16384, 1, -2, 3; status 0x0C31 and 0x0384. Header sequence 3.",
           raw_batch)
+
+    accel = message(RAW_ACCEL_BATCH, accel_batch_payload([
+        (1_000_400, 0, 7, 2510, -2510, 32767),
+        (1_001_100, 1, 255, -1, 0, -32768),
+        (1_004_400, 0, 8, 2511, -2509, 32766),
+    ]), seq=5, time_us=1_000_400)
+    write("raw_accel_batch.hex",
+          "RAW_ACCEL_BATCH with 3 samples: foot sequence 7 at 1.000400 s, shank sequence 255\n"
+          "at 1.001100 s, foot sequence 8 at 1.004400 s; extreme counts. Header sequence 5.",
+          accel)
 
     error = message(ERROR, struct.pack("<IBH", 9, 0x04, 3) + str8("SESSION_START not supported"),
                     seq=42, time_us=5)
@@ -310,7 +344,7 @@ def main():
     section = config_section(cfg)
     write("config_section.hex",
           "CONFIG_GET section format 2: BNO086 sensors and DEC-016 pins as in generate.py,\n"
-          "the measured BNO086 mount maps, haptics_fitted = 0, everything else from CONFIG_V1.json.", section)
+          "the measured BNO086 mount maps, 200 Hz (DEC-021), ZUPT gyroscope limit 30 deg/s (DEC-020),\nhaptics_fitted = 0, everything else\nfrom CONFIG_V1.json.", section)
     write("config_section_format1.hex",
           "CONFIG_GET section format 1: the MPU6500 build (I2C addresses, DLPF, 8192 LSB/g,\n"
           "65.5 LSB/(deg/s), the shank map measured in TEST-027, doc-03 pins). Kept because\n"

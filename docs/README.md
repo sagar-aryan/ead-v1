@@ -39,7 +39,7 @@ Project-level agent skills live in `.claude/skills/` (installed with the
 
 ## V1 identity (summary)
 
-- Right leg only, barefoot. Two IMUs at 100 Hz. The product firmware drives two
+- Right leg only, barefoot. Two IMUs at 200 Hz (100 Hz before schema 6, DEC-021). The product firmware drives two
   BNO086s on SPI (DEC-016, DEC-017) since schema 5; sessions recorded before it came
   from two MPU6500s on I²C (foot `0x68`, shank `0x69`).
 - Six ERM motors on a calf band (DEC-015), fitted on the DEC-016 build (user,

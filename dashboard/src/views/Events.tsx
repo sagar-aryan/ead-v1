@@ -6,8 +6,9 @@
  * overlap rather than as a number that looks slightly wrong three views away.
  *
  * Times are elapsed device time from the session's first event. The device's
- * sample period is not exactly 10 ms (TEST-018), so every time here comes from
- * the device's own timestamps and never from a frame index times 0.01.
+ * sample period is not exactly its nominal one (TEST-018), so every time here
+ * comes from the device's own timestamps and never from a frame index times a
+ * period.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 

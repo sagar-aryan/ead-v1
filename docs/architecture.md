@@ -7,8 +7,9 @@ This is the target design. What is implemented today is tracked in
 
 EAD V1 is a right-leg, barefoot, wearable error-augmentation system for gait
 monitoring and retraining after stroke (`ead_agent_docs_v2/01_SYSTEM_SPEC.md`).
-Two IMUs (foot + shank) feed a 100 Hz real-time loop on a XIAO ESP32-S3. The
-loop estimates orientation (Mahony 6-DoF), detects gait events, applies
+Two IMUs (foot + shank) feed a 200 Hz real-time loop on a XIAO ESP32-S3 (100 Hz
+before schema 6). Orientation comes from each BNO086's own fusion (game rotation
+vector, DEC-021; Mahony 6-DoF on the ESP32 before schema 6). The loop detects gait events, applies
 foot-only ZUPT correction, and scores each gait cycle against a patient-specific
 reference. A Tauri 2 desktop dashboard observes, configures, records, analyses
 and exports; it never closes a control loop.
@@ -28,9 +29,10 @@ came from it.
 - Foot: dorsum of the right foot; CS GPIO43, INT GPIO39. Shank: anterior shin,
   10–15 cm below the knee; CS GPIO44, INT GPIO40.
 - One SPI bus (SCK 7, MISO 8, MOSI 9, 1 MHz, mode 3); RST (41) and WAKE (3) shared.
-- Calibrated accelerometer (±8 g, 125 Hz) and gyroscope (±2000 °/s, 100 Hz) reports,
-  read on INT by our own SH-2 code (`src/bno086.cpp`, `lib/ead_core/src/ead/sh2.cpp`).
-- Mount maps: identity until measured on the leg (DEC-009: per sensor).
+- Calibrated accelerometer (±8 g, 250 Hz), gyroscope (±2000 °/s, 200 Hz) and game
+  rotation vector (200 Hz) reports, read on INT by our own SH-2 code
+  (`src/bno086.cpp`, `lib/ead_core/src/ead/sh2.cpp`); rates from TEST-054.
+- Mount maps: measured on the leg (TEST-051; DEC-009: per sensor).
 
 ### Haptic band (no haptic code)
 Contract: six ERMs around the lower shank (moved to the calf by DEC-015), low-side
@@ -89,7 +91,8 @@ Its sessions store configuration format 1; the replay tool reads them with `--mp
 foot DRDY ISR ──► acquisition: read foot + shank, µs timestamp, frame index
                      │  raw chip-frame counts (DEC-007)
                      ▼
-processing: mount map → calibration → Mahony (foot, shank) → relative orientation
+processing: mount map → calibration → segment orientation from each game rotation
+            vector (`ead/feed`, DEC-021) → relative orientation
             → gait state machine + events → ZUPT (foot) → cycle features
             → reference comparison → error score, class, confidence
                      │

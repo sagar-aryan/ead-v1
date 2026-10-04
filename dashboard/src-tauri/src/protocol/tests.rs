@@ -119,17 +119,61 @@ fn raw_batch_decodes_signed_counts() {
     // Doc 09 declares these fields u16; they are signed (DEC-007).
     assert_eq!(frames[0].foot, [8192, -8192, 32767, -32768, 1, -1]);
     assert_eq!(frames[0].shank, [0, 16, -16, 655, -655, 32767]);
+    assert_eq!(frames[0].rv_foot, Some([16384, 0, 0, 0]));
+    assert_eq!(frames[0].rv_shank, Some([16384, 0, 0, 0]));
     assert_eq!(
         names_for(frames[0].status, &RAW_STATUS_NAMES),
-        vec!["foot_read_fail", "foot_gyro_saturated", "shank_accel_saturated"]
+        vec![
+            "foot_read_fail",
+            "foot_gyro_saturated",
+            "shank_accel_saturated",
+            "foot_rv_missing",
+            "shank_rv_missing"
+        ]
     );
 
+    // Five milliseconds apart: 200 Hz frames (DEC-021).
+    assert_eq!(frames[1].timestamp_us, 1_005_000);
     assert_eq!(frames[1].frame_index, 101);
     assert_eq!(frames[1].foot, [-1, -2, -3, -4, -5, -6]);
     assert_eq!(frames[1].q_shank, [0, -32767, 12345, -12345]);
-    assert_eq!(names_for(frames[1].status, &RAW_STATUS_NAMES), vec!["shank_repeated"]);
+    // The rotation vectors follow the segment orientations, before the status.
+    assert_eq!(frames[1].rv_foot, Some([11585, 11585, 0, 0]));
+    assert_eq!(frames[1].rv_shank, Some([-16384, 1, -2, 3]));
+    assert_eq!(
+        names_for(frames[1].status, &RAW_STATUS_NAMES),
+        vec!["shank_repeated", "foot_accel_held", "orientation_valid", "shank_accel_held"]
+    );
 
     assert!(parse_raw_batch(&payload[..payload.len() - 1]).is_err());
+    // A schema-5 frame (54 bytes) is not read as a schema-6 one.
+    let mut old = payload.to_vec();
+    old[1] = 54;
+    assert_eq!(parse_raw_batch(&old), Err(ProtocolError::BadPayload("RAW_SAMPLE_BATCH")));
+}
+
+#[test]
+fn raw_accel_batch_decodes() {
+    let msg = vector("raw_accel_batch.hex");
+    let (header, payload) = parse(&msg).unwrap();
+    assert_eq!(header.msg_type, MsgType::RawAccelBatch as u8);
+    assert!(MsgType::from_u8(header.msg_type).unwrap().is_durable());
+    assert_eq!(header.sequence, 5);
+    let samples = parse_accel_batch(payload).unwrap();
+    assert_eq!(
+        samples,
+        vec![
+            AccelSample { timestamp_us: 1_000_400, sensor: 0, sequence: 7, accel: [2510, -2510, 32767] },
+            AccelSample { timestamp_us: 1_001_100, sensor: 1, sequence: 255, accel: [-1, 0, -32768] },
+            AccelSample { timestamp_us: 1_004_400, sensor: 0, sequence: 8, accel: [2511, -2509, 32766] },
+        ]
+    );
+
+    assert!(parse_accel_batch(&payload[..payload.len() - 1]).is_err());
+    // A sensor that is neither foot nor shank is refused, not stored.
+    let mut unknown = payload.to_vec();
+    unknown[2 + 8] = 2;
+    assert_eq!(parse_accel_batch(&unknown), Err(ProtocolError::BadPayload("RAW_ACCEL_BATCH")));
 }
 
 #[test]
@@ -163,9 +207,10 @@ fn config_section_decodes_every_documented_field() {
     // The BNO086 build (DEC-016, DEC-017).
     assert_eq!(
         config.imu.bus,
-        config::SensorBus::Bno086 { spi_hz: 1_000_000, report_interval_us: 10_000 }
+        config::SensorBus::Bno086 { spi_hz: 1_000_000, report_interval_us: 5_000 }
     );
-    assert_eq!(config.imu.sample_hz, 100);
+    // 200 Hz frames (DEC-021, TEST-054).
+    assert_eq!(config.imu.sample_hz, 200);
     assert_eq!((config.imu.accel_range_g, config.imu.gyro_range_dps), (8, 2000));
     // Q8 m/s^2 and Q9 rad/s as counts per g and per deg/s.
     assert!((config.imu.accel_lsb_per_g - 256.0 * 9.80665).abs() < 1e-3);
@@ -189,7 +234,8 @@ fn config_section_decodes_every_documented_field() {
     // Contract values (CONFIG_V1.json).
     assert_eq!(config.mahony_kp, 2.0);
     assert_eq!(config.gait.min_cycle_s, 0.45);
-    assert_eq!(config.zupt.gyro_threshold_dps, 25.0);
+    // The build's limit, 30 deg/s by the user's decision (DEC-020); the contract says 25.
+    assert_eq!(config.zupt.gyro_threshold_dps, 30.0);
     assert_eq!(config.error.weights[0], 0.25);
     assert_eq!(config.ap_ip, [192, 168, 4, 1]);
     assert_eq!(config.ws_port, 8080);
@@ -302,6 +348,8 @@ fn backfill_round_trip() {
     let sequences: Vec<u32> =
         chunk.messages.iter().map(|m| parse(m).unwrap().0.sequence).collect();
     assert_eq!(sequences, vec![3, 4]);
+    let (_, inner) = parse(&chunk.messages[1]).unwrap();
+    assert_eq!(parse_raw_batch(inner).unwrap()[0].frame_index, 101);
 }
 
 #[test]

@@ -202,6 +202,8 @@ export interface ExportSummary {
   directory: string;
   files: string[];
   raw_rows: number;
+  /** Rows of accel_native.csv: one per accelerometer sample at its own rate. */
+  accel_rows: number;
   gait_rows: number;
   event_rows: number;
 }

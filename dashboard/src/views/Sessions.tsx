@@ -1,7 +1,7 @@
 /**
  * PATIENTS and SESSIONS: create a patient, record a raw dataset, and review
- * what was stored. Recording keeps every 100 Hz frame; the count and any gap
- * are shown so a dataset is never silently incomplete.
+ * what was stored. Recording keeps every frame at the device's rate; the count
+ * and any gap are shown so a dataset is never silently incomplete.
  */
 import { useCallback, useEffect, useState } from "react";
 

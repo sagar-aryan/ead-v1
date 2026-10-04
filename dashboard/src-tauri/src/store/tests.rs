@@ -1,5 +1,5 @@
 use super::*;
-use crate::protocol::{ConfigSection, MotorPulse, RawFrame};
+use crate::protocol::{AccelSample, ConfigSection, MotorPulse, RawFrame};
 
 fn temp_store() -> (Arc<Store>, tempdir::TempDir) {
     let dir = tempdir::TempDir::new();
@@ -7,16 +7,23 @@ fn temp_store() -> (Arc<Store>, tempdir::TempDir) {
     (store, dir)
 }
 
+/// A 200 Hz frame (device schema 6): 5 ms apart.
 fn frame(index: u32) -> RawFrame {
     RawFrame {
-        timestamp_us: 10_000 * index as u64,
+        timestamp_us: 5_000 * index as u64,
         frame_index: index,
         foot: [1, -2, 8192, 4, -5, 6],
         shank: [-7, 8, -9, 10, -11, 32767],
         q_foot: [32767, 0, 0, 0],
         q_shank: [32767, 0, 0, -32768],
+        rv_foot: Some([16384, 0, 0, 0]),
+        rv_shank: Some([11585, -11585, 0, -32768]),
         status: 0,
     }
+}
+
+fn accel(timestamp_us: u64, sensor: u8, sequence: u8) -> AccelSample {
+    AccelSample { timestamp_us, sensor, sequence, accel: [2510, -1, -32768] }
 }
 
 #[test]
@@ -59,7 +66,39 @@ fn frames_round_trip_with_exact_values() {
         )
         .unwrap();
     // Signed counts survive the round trip, including the i16 extremes.
-    assert_eq!((fax, saz, sqz, ts), (1, -9, -32768, 70_000));
+    assert_eq!((fax, saz, sqz, ts), (1, -9, -32768, 35_000));
+
+    // The rotation vectors come back as they went in.
+    let mut read = Vec::new();
+    store.for_each_frame(&session.session_id, |f| read.push(*f)).unwrap();
+    assert_eq!(read[7], frames[7]);
+}
+
+#[test]
+fn accel_samples_round_trip_once_and_only_while_recording() {
+    let (store, _dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    // Before any session: nowhere to store them.
+    store.record_accel(&[accel(1, 0, 1)]);
+    let session =
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
+
+    // Foot and shank at the same device time, and a sequence that wraps.
+    let samples = [accel(4_000, 0, 255), accel(4_000, 1, 9), accel(8_000, 0, 0)];
+    store.record_accel(&samples);
+    // A backfill can deliver samples the live stream already stored.
+    store.record_accel(&samples);
+    store.flush();
+    store.stop_session().unwrap();
+    store.record_accel(&[accel(12_000, 0, 1)]);
+    store.flush();
+
+    assert_eq!(store.accel_count(&session.session_id).unwrap(), 3);
+    let mut read = Vec::new();
+    let count = store.for_each_accel(&session.session_id, |a| read.push(*a)).unwrap();
+    assert_eq!(count, 3);
+    // Time order, foot before shank at an equal time; counts exact.
+    assert_eq!(read, samples.to_vec());
 }
 
 #[test]
@@ -218,9 +257,9 @@ fn raw_window_returns_every_frame_when_the_range_is_small() {
         .unwrap();
     assert_eq!(window.bucket, 1);
     assert_eq!(window.points, 300);
-    // Time is relative to the session's first frame; frames are 10 ms apart.
+    // Time is relative to the session's first frame; frames are 5 ms apart.
     assert_eq!(window.time_s[0], 0.0);
-    assert!((window.time_s[299] - 2.99).abs() < 1e-9);
+    assert!((window.time_s[299] - 1.495).abs() < 1e-9);
     assert_eq!(window.signals[0].axes.len(), 3);
     // No stored configuration: raw counts in the sensor's own axes.
     assert!(!window.anatomical);
@@ -283,9 +322,9 @@ fn raw_window_query_time_on_an_hour_of_data() {
     let session =
         store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
 
-    // One hour at 100 Hz, with values that vary like real signals rather than
+    // One hour at 200 Hz, with values that vary like real signals rather than
     // compressing to a constant.
-    let total = 360_000u32;
+    let total = 720_000u32;
     let mut lcg: u32 = 99;
     for chunk in 0..(total / 1000) {
         let frames: Vec<RawFrame> = (0..1000)
@@ -308,9 +347,9 @@ fn raw_window_query_time_on_an_hour_of_data() {
 
     for (label, first, last) in [
         ("whole session", 0i64, total as i64 - 1),
-        ("10 minutes", 0, 60_000),
-        ("1 minute", 100_000, 106_000),
-        ("10 seconds", 200_000, 201_000),
+        ("10 minutes", 0, 120_000),
+        ("1 minute", 200_000, 212_000),
+        ("10 seconds", 400_000, 402_000),
     ] {
         let window =
             store.raw_window(&session.session_id, &[SignalGroup::FootAccel], first, last, 1400).unwrap();
@@ -333,7 +372,7 @@ fn raw_window_query_time_on_an_hour_of_data() {
         SignalGroup::ShankGyro,
     ];
     for (label, first, last) in
-        [("whole session", 0i64, total as i64 - 1), ("1 minute", 100_000, 106_000)]
+        [("whole session", 0i64, total as i64 - 1), ("1 minute", 200_000, 212_000)]
     {
         let started = std::time::Instant::now();
         let window = store.raw_window(&session.session_id, &groups, first, last, 1400).unwrap();
@@ -538,10 +577,19 @@ fn schema_upgrades_from_version_2_keeping_frames() {
         store.flush();
         let connection = store.reader().unwrap();
         // Pretend this store predates the gait tables: undo everything schemas
-        // 3 to 7 added, so it really looks like a v2 store.
+        // 3 to 8 added, so it really looks like a v2 store.
         connection
             .execute_batch(
-                "DROP TABLE service_tests;
+                "DROP TABLE raw_accel;
+                 ALTER TABLE raw_frames DROP COLUMN rfw;
+                 ALTER TABLE raw_frames DROP COLUMN rfx;
+                 ALTER TABLE raw_frames DROP COLUMN rfy;
+                 ALTER TABLE raw_frames DROP COLUMN rfz;
+                 ALTER TABLE raw_frames DROP COLUMN rsw;
+                 ALTER TABLE raw_frames DROP COLUMN rsx;
+                 ALTER TABLE raw_frames DROP COLUMN rsy;
+                 ALTER TABLE raw_frames DROP COLUMN rsz;
+                 DROP TABLE service_tests;
                  ALTER TABLE sessions DROP COLUMN config_format;
                  DROP TABLE status_changes;
                  ALTER TABLE sessions DROP COLUMN calibration;
@@ -567,6 +615,70 @@ fn schema_upgrades_from_version_2_keeping_frames() {
     assert_eq!(sessions.len(), 1);
     assert_eq!(store.frame_count(&sessions[0].session_id).unwrap(), 2, "frames survive");
     assert!(store.cycles(&sessions[0].session_id).unwrap().is_empty());
+}
+
+/// Schema 8 adds the rotation vectors to a store full of frames that never had
+/// them: the old frames read back without one, not with a zero rotation.
+#[test]
+fn schema_upgrades_from_version_7_keeping_frames_without_rotation_vectors() {
+    let dir = tempdir::TempDir::new();
+    let path = dir.path().join("ead.sqlite3");
+    let session_id = {
+        let store = Store::open(&path).expect("create");
+        store.create_patient("P-OLD", "Earlier study").unwrap();
+        let session = store
+            .start_session("P-OLD", SessionKind::Recording, &DeviceIdentity::default(), None, None)
+            .unwrap();
+        store.record_frames(&[frame(0), frame(1)]);
+        store.flush();
+        store.stop_session().unwrap();
+        // Undo schema 8, so it really looks like a v7 store.
+        store
+            .reader()
+            .unwrap()
+            .execute_batch(
+                "DROP TABLE raw_accel;
+                 ALTER TABLE raw_frames DROP COLUMN rfw;
+                 ALTER TABLE raw_frames DROP COLUMN rfx;
+                 ALTER TABLE raw_frames DROP COLUMN rfy;
+                 ALTER TABLE raw_frames DROP COLUMN rfz;
+                 ALTER TABLE raw_frames DROP COLUMN rsw;
+                 ALTER TABLE raw_frames DROP COLUMN rsx;
+                 ALTER TABLE raw_frames DROP COLUMN rsy;
+                 ALTER TABLE raw_frames DROP COLUMN rsz;
+                 PRAGMA user_version = 7;",
+            )
+            .unwrap();
+        session.session_id
+    };
+    let store = Store::open(&path).expect("migrate");
+    let version: i32 =
+        store.reader().unwrap().query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+    assert_eq!(version, schema::SCHEMA_VERSION);
+
+    let mut read = Vec::new();
+    store.for_each_frame(&session_id, |f| read.push(*f)).unwrap();
+    assert_eq!(read.len(), 2, "frames survive");
+    assert_eq!((read[0].rv_foot, read[0].rv_shank), (None, None));
+    // Exported as empty cells, never as a zero rotation.
+    let mut csv = String::new();
+    crate::export::csv::raw_rows(&mut csv, &read[0]);
+    assert!(csv.lines().all(|row| row.ends_with(",0,,,,")), "{csv}");
+    assert_eq!(read[1].foot, frame(1).foot);
+    assert_eq!(store.accel_count(&session_id).unwrap(), 0);
+
+    // And the upgraded store takes schema-6 data.
+    store.create_patient("P-NEW", "New study").unwrap();
+    let session = store
+        .start_session("P-NEW", SessionKind::Recording, &DeviceIdentity::default(), None, None)
+        .unwrap();
+    store.record_frames(&[frame(5)]);
+    store.record_accel(&[accel(25_000, 1, 3)]);
+    store.flush();
+    let mut read = Vec::new();
+    store.for_each_frame(&session.session_id, |f| read.push(*f)).unwrap();
+    assert_eq!(read, vec![frame(5)]);
+    assert_eq!(store.accel_count(&session.session_id).unwrap(), 1);
 }
 
 fn sample_profile(cycles: u16) -> crate::protocol::ReferenceProfile {
@@ -747,6 +859,7 @@ fn exportable_session() -> (Arc<Store>, tempdir::TempDir, String) {
         )
         .unwrap();
     store.record_frames(&[frame(0), frame(1), frame(2)]);
+    store.record_accel(&[accel(1_000, 0, 7), accel(2_000, 1, 200), accel(5_000, 0, 8)]);
     let mut cycles = Vec::new();
     for i in 0..3u32 {
         let mut c = scored_cycle(i, true, if i == 1 { 1 } else { 0 }, 0.9);
@@ -789,6 +902,20 @@ fn the_export_package_matches_the_database() {
     let raw = std::fs::read_to_string(target.join("raw.csv")).unwrap();
     assert_eq!(raw.lines().count(), summary.raw_rows + 1, "one header row");
     assert!(raw.lines().next().unwrap().starts_with("timestamp_us,frame_index,sensor,"));
+    assert!(raw.lines().next().unwrap().ends_with(",status_flags,rv_real,rv_i,rv_j,rv_k"));
+    // Each row carries its own sensor's rotation vector.
+    let rows: Vec<&str> = raw.lines().skip(1).collect();
+    assert!(rows[0].starts_with("0,0,foot,") && rows[0].ends_with(",16384,0,0,0"), "{}", rows[0]);
+    assert!(rows[1].starts_with("0,0,shank,") && rows[1].ends_with(",11585,-11585,0,-32768"));
+
+    // Every accelerometer sample, one row each, in counts; no configuration was
+    // stored, so the g columns are empty rather than scaled by a guess.
+    let accel = std::fs::read_to_string(target.join("accel_native.csv")).unwrap();
+    assert_eq!(summary.accel_rows, 3);
+    assert_eq!(accel.lines().count(), summary.accel_rows + 1, "one header row");
+    assert_eq!(accel.lines().nth(1), Some("1000,foot,7,2510,-1,-32768,,,"));
+    assert_eq!(accel.lines().nth(2), Some("2000,shank,200,2510,-1,-32768,,,"));
+    assert!(summary.files.contains(&"accel_native.csv".to_string()));
 
     let gait = std::fs::read_to_string(target.join("gait.csv")).unwrap();
     assert_eq!(gait.lines().count(), store.cycles(&session_id).unwrap().len() + 1);
@@ -821,6 +948,8 @@ fn the_export_package_matches_the_database() {
     assert_eq!(metadata["haptics"]["fitted"], serde_json::json!(false));
     assert_eq!(metadata["device"]["firmware_version"], serde_json::json!("0.1.0+test"));
     assert_eq!(metadata["segmentation"]["max_valid_cycles_per_segment"], serde_json::json!(2));
+    assert_eq!(metadata["session"]["accel_samples_stored"], serde_json::json!(3));
+    assert_eq!(metadata["device"]["payload_schema"], serde_json::json!(6));
 
     assert!(target.join("session.mat").metadata().unwrap().len() > 256);
 
@@ -886,8 +1015,8 @@ fn a_session_left_open_by_a_crash_is_closed_at_the_next_start() {
         let session = store
             .start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None)
             .unwrap();
-        // Frames 0 and 100 are 1.000 s apart in device time (10 ms each).
-        store.record_frames(&[frame(0), frame(100)]);
+        // Frames 0 and 200 are 1.000 s apart in device time (5 ms each).
+        store.record_frames(&[frame(0), frame(200)]);
         store.flush();
         session.session_id
         // Dropped without stop_session: the app exited mid-recording.
@@ -955,4 +1084,25 @@ fn a_device_restart_ends_the_recording() {
     assert_eq!(store.ended_by_restart(), Some(session.session_id));
     store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
     assert_eq!(store.ended_by_restart(), None);
+}
+
+#[test]
+fn native_accel_export_scales_by_the_session_configuration() {
+    let (store, dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let section = crate::protocol::tests::vector("config_section.hex");
+    let identity = DeviceIdentity {
+        config_section: Some(ConfigSection { format: 2, bytes: section }),
+        ..Default::default()
+    };
+    let session = store.start_session("P-001", SessionKind::Recording, &identity, None, None).unwrap();
+    store.record_accel(&[accel(4_000, 1, 3)]);
+    store.flush();
+    let target = dir.path().join("package");
+    crate::export::export_session(&store, &session.session_id, &target).unwrap();
+
+    // Counts over the stored 2510.5 counts per g (an f32), chip frame, no mount
+    // map; expected values from numpy with the same f32 scale.
+    let accel = std::fs::read_to_string(target.join("accel_native.csv")).unwrap();
+    assert_eq!(accel.lines().nth(1), Some("4000,shank,3,2510,-1,-32768,0.999800,-0.000398,-13.052367"));
 }

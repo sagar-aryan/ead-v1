@@ -82,9 +82,11 @@ struct GaitCycle {
 };
 
 // ---- thresholds ------------------------------------------------------------
-// Given by doc 05 §6:
+// Given by doc 05 §6, except the gyroscope limit: 30 deg/s, not 25, by the
+// user's decision (DEC-020; PROB-024 attempt 5: at 25 the foot of a fast step
+// often never slows enough for long enough).
 constexpr float kZuptAccelToleranceG = 0.15f;
-constexpr float kZuptGyroDps = 25.0f;
+constexpr float kZuptGyroDps = 30.0f;
 constexpr float kZuptHoldMs = 60.0f;
 constexpr float kZuptEntryHysteresisMs = 20.0f;
 // Given by doc 05 §3–4:
@@ -135,7 +137,8 @@ constexpr float kContactRateFallRatio = 1.0f;
 /// Doc 04 §7's event path: a 2nd-order Butterworth low-pass at 20 Hz
 /// (CONFIG_V1.json event_path_lowpass_hz) for the stillness test (PROB-024).
 constexpr float kEventPathLowPassHz = 20.0f;
-constexpr float kFrameRateHz = 100.0f;
+/// The device's frame rate (DEC-021); a replay of an older recording sets its own.
+constexpr float kFrameRateHz = 200.0f;
 
 /// 2nd-order Butterworth low-pass, bilinear transform, transposed direct form II.
 class LowPass2 {
@@ -160,13 +163,18 @@ struct GaitConfig {
   float contactRefractoryS = kContactRefractoryS;
   float zuptAccelToleranceG = kZuptAccelToleranceG;
   float zuptGyroDps = kZuptGyroDps;
+  /// Frames per second, for the event-path filter.
+  float sampleHz = kFrameRateHz;
 };
 
 class GaitEngine {
  public:
   void reset();
   /// Replaces the thresholds. Takes effect on the next sample.
-  void configure(const GaitConfig& config) { config_ = config; }
+  void configure(const GaitConfig& config) {
+    config_ = config;
+    stillAccel_ = LowPass2(kEventPathLowPassHz, config.sampleHz);
+  }
   const GaitConfig& config() const { return config_; }
 
   /// Consumes one frame. Events and completed cycles are queued; drain them

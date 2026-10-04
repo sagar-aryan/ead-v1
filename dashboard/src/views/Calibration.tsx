@@ -43,7 +43,9 @@ export function Calibration({ device }: { device: DeviceApi }) {
   const rejections = device.snapshot?.calibration_rejections ?? [];
   const state = status?.calibration_state ?? 0;
   const collecting = state === 1;
-  const wanted = Math.round((DURATION_MS / 1000) * 100);
+  // Frames the window should collect, at the rate the device reports.
+  const rate = device.config?.imu.sample_hz;
+  const wanted = rate ? Math.round((DURATION_MS / 1000) * rate) : null;
 
   const run = async (start: boolean) => {
     try {
@@ -77,7 +79,8 @@ export function Calibration({ device }: { device: DeviceApi }) {
               <label>State</label>
               <span className="num">
                 {STATES[state] ?? "unknown"}
-                {collecting && ` — ${status?.calibration_samples ?? 0} of ${wanted} frames`}
+                {collecting &&
+                  ` — ${status?.calibration_samples ?? 0}${wanted ? ` of ${wanted}` : ""} frames`}
               </span>
             </div>
           </div>

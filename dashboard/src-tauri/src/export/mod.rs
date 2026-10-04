@@ -1,5 +1,6 @@
 //! The export package (doc 10): `raw.csv`, `gait.csv`, `events.csv`,
-//! `haptics.csv`, `metadata.json`, `session.mat` and the PDF report.
+//! `haptics.csv`, `metadata.json`, `session.mat` and the PDF report, plus
+//! `accel_native.csv`, the accelerometer at its own rate (DEC-021).
 //!
 //! Everything here is derived from the store, never from a live device, so a
 //! session recorded last month exports the same bytes today. Where the device
@@ -42,6 +43,8 @@ pub struct ExportSummary {
     pub directory: String,
     pub files: Vec<String>,
     pub raw_rows: usize,
+    /// Rows of `accel_native.csv`: one per accelerometer sample.
+    pub accel_rows: usize,
     pub gait_rows: usize,
     pub event_rows: usize,
 }
@@ -64,21 +67,26 @@ pub fn export_session(store: &Store, session_id: &str, directory: &Path) -> Resu
     // raw.csv is built by streaming, so an hour-long session never lands in
     // memory twice.
     let mut raw = String::from(csv::raw_header());
-    let frames = store.for_each_frame(session_id, |frame| {
-        let status = i64::from(frame.status);
-        let timestamp = frame.timestamp_us as i64;
-        let index = i64::from(frame.frame_index);
-        csv::raw_row(&mut raw, timestamp, index, "foot", &frame.foot, &frame.q_foot, status);
-        csv::raw_row(&mut raw, timestamp, index, "shank", &frame.shank, &frame.q_shank, status);
+    let frames = store.for_each_frame(session_id, |frame| csv::raw_rows(&mut raw, frame))?;
+
+    let lsb_per_g = store
+        .session_config(session_id)?
+        .and_then(|section| section.parse().ok())
+        .map(|config| config.imu.accel_lsb_per_g);
+    let mut accel = String::from(csv::accel_header());
+    let accel_rows = store.for_each_accel(session_id, |sample| {
+        csv::accel_row(&mut accel, sample, lsb_per_g);
     })?;
 
     let gait = csv::gait(&session, &cycles, &crate::protocol::ERROR_CLASSES);
     let event_csv = csv::events(&session, &cycles, &events, &status);
-    let metadata = metadata_json(store, &session, &reference, &segments, frames, &cycles)?;
+    let metadata =
+        metadata_json(store, &session, &reference, &segments, frames, accel_rows, &cycles)?;
 
     let mut files = Vec::new();
     for (name, contents) in [
         ("raw.csv", raw.as_str()),
+        ("accel_native.csv", accel.as_str()),
         ("gait.csv", gait.as_str()),
         ("events.csv", event_csv.as_str()),
         ("haptics.csv", csv::haptics()),
@@ -88,9 +96,15 @@ pub fn export_session(store: &Store, session_id: &str, directory: &Path) -> Resu
         files.push(name.to_string());
     }
 
-    let mat = mat::session_mat(&session, &cycles, &events, &status, reference.as_ref(), |visit| {
-        store.for_each_frame(session_id, visit).map_err(ExportError::Store)
-    })?;
+    let mat = mat::session_mat(
+        &session,
+        &cycles,
+        &events,
+        &status,
+        reference.as_ref(),
+        |visit| store.for_each_frame(session_id, visit).map_err(ExportError::Store),
+        |visit| store.for_each_accel(session_id, visit).map_err(ExportError::Store),
+    )?;
     write(directory, "session.mat", mat)?;
     files.push("session.mat".into());
 
@@ -109,6 +123,7 @@ pub fn export_session(store: &Store, session_id: &str, directory: &Path) -> Resu
         directory: directory.display().to_string(),
         files,
         raw_rows: frames * 2,
+        accel_rows,
         gait_rows: cycles.len(),
         event_rows: event_csv.lines().count().saturating_sub(1),
     })
@@ -126,6 +141,7 @@ fn metadata_json(
     reference: &Option<StoredReference>,
     segments: &[crate::store::StoredSegment],
     frames: usize,
+    accel_samples: usize,
     cycles: &[crate::store::StoredCycle],
 ) -> Result<String> {
     let config = store
@@ -148,6 +164,7 @@ fn metadata_json(
             "started_at": session.started_at,
             "stopped_at": session.stopped_at,
             "frames_stored": session.frames_stored,
+            "accel_samples_stored": accel_samples,
             "frames_missing": session.frames_missing,
             "first_frame_index": session.first_frame_index,
             "last_frame_index": session.last_frame_index,
@@ -171,6 +188,11 @@ fn metadata_json(
             "conversion": "divide by accel_lsb_per_g / gyro_lsb_per_dps, then apply the \
 sensor's mount map; both are under device.configuration",
             "quaternions": "Q15 signed 16-bit, w x y z; divide by 32767",
+            "rotation_vectors": "raw.csv rv_real..rv_k: the sensor's game rotation vector as \
+reported, Q14 signed 16-bit, real i j k, chip frame; divide by 16384. Empty for frames \
+recorded before device schema 6",
+            "accel_native_csv": "chip-frame ADC counts as measured; the _g columns divide by \
+accel_lsb_per_g and apply no mount map",
         },
         "calibration": calibration.unwrap_or(serde_json::json!(
             "none recorded: the session started with no usable calibration record"
@@ -216,6 +238,11 @@ while the link is up; frames_missing above is what never arrived",
         },
         "export_notes": {
             "raw_csv": format!("{frames} frames, two rows each (foot, shank)"),
+            "accel_native_csv": format!("{accel_samples} accelerometer samples at the \
+sensors' native rate (RAW_ACCEL_BATCH, DEC-021); raw.csv's accelerometer columns are \
+these interpolated to each frame's time. Empty (header only) for a session recorded \
+before device schema 6. A gap in a sensor's sequence column (it wraps at 256) is a \
+lost sample"),
             "events_csv": "ZUPT_END is written in addition to doc 10 §4's list: the device \
 reports zero-velocity windows, not instants, and dropping the end would lose the \
 window length. SERVICE_TEST never appears, because there are no haptics to test. \

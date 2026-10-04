@@ -1,4 +1,4 @@
-# Device Protocol (schema 5)
+# Device Protocol (schema 6)
 
 Wire protocol between the EAD-V1 device and host software (dashboard, `tools/eadprobe.py`).
 The frame header and message type numbers are fixed by
@@ -19,7 +19,7 @@ byte count followed by that many UTF-8 bytes (no terminator).
 | Field | Where | Value | Changes when |
 |---|---|---|---|
 | `protocol_version` | Every header | 1 | The header layout changes (doc 08) |
-| `schema` | HELLO payload | 5 | Any payload layout or enumeration changes |
+| `schema` | HELLO payload | 6 | Any payload layout or enumeration changes |
 | `config_format` | CONFIG_GET payload | 2 | The configuration section layout changes (1 = MPU6500 build, 2 = BNO086 build) |
 
 A host must compare `schema` in the device HELLO and refuse to interpret payloads of an
@@ -72,9 +72,9 @@ unknown schema.
 the timestamp of the batch's first frame; for other device messages, the time the message
 was built; host messages send 0. Host time is never substituted for device time (doc 08 §6).
 
-## 4. Message catalogue (schema 5)
+## 4. Message catalogue (schema 6)
 
-| Type | Name | Direction | Schema 5 behaviour |
+| Type | Name | Direction | Schema 6 behaviour |
 |---:|---|---|---|
 | 0x01 | HELLO | both | Host identifies; device replies with identity and starts streaming |
 | 0x02 | CONFIG_GET | both | Host request (empty); device reply with configuration |
@@ -94,13 +94,16 @@ was built; host messages send 0. Host time is never substituted for device time 
 | 0x10 | BACKFILL_REQUEST | host → device | Request stored durable messages |
 | 0x11 | BACKFILL_DATA | device → host | Chunks of stored durable messages |
 | 0x12 | SERVICE_TEST | both | Sensor wiring check and motor pulses (§5.14, DEC-018) |
+| 0x13 | RAW_ACCEL_BATCH | device → host | Durable; every accelerometer sample at its native rate (§5.15, DEC-021) |
 
 Schema 2 added the calibration window (SESSION_START / SESSION_STOP, §5.9–5.10) and the
 calibration fields in STATUS. Schema 3 added gait events and cycles (§5.11–5.12). Schema 4
 adds the remaining session kinds, the reference profile they carry (§5.13) and the error
 fields in STEP_BATCH. Schema 5 is the BNO086 build (DEC-016, DEC-017): HELLO's sensor bytes
 (§5.2), configuration format 2 (§5.5), new frame semantics (§5.4), SERVICE_TEST (§5.14)
-and capability bit 3. Payload layouts are otherwise unchanged.
+and capability bit 3. Payload layouts are otherwise unchanged. Schema 6 (DEC-021): 200 Hz
+frames of 70 bytes carrying the BNO086's game rotation vectors (§5.4), and RAW_ACCEL_BATCH
+(§5.15).
 
 ## 5. Payloads
 
@@ -114,7 +117,7 @@ and capability bit 3. Payload layouts are otherwise unchanged.
 
 | Offset | Type | Field |
 |---:|---|---|
-| 0 | u16 | `schema` = 5 |
+| 0 | u16 | `schema` = 6 |
 | 2 | u8 | `device_state` (§6.1) |
 | 3 | u8 | `reset_reason` (ESP-IDF `esp_reset_reason_t`) |
 | 4 | u32 | `boot_id`, random per boot. A change means sequence numbers restarted |
@@ -170,10 +173,10 @@ RAM; it is lost on reset, and `calibration_state` returns to 0.
 | Offset | Type | Field |
 |---:|---|---|
 | 0 | u8 | `count` (1–10) |
-| 1 | u8 | `record_size` = 54 |
+| 1 | u8 | `record_size` = 70 (54 before schema 6) |
 | 2 | frame × count | Frames in acquisition order |
 
-Frame (54 bytes, doc 09 §6):
+Frame (70 bytes, doc 09 §6 extended by DEC-021):
 
 | Offset | Type | Field |
 |---:|---|---|
@@ -181,52 +184,58 @@ Frame (54 bytes, doc 09 §6):
 | 8 | u32 | `frame_index`: advances with the foot gyroscope report sequence (a gap = lost reports) |
 | 12 | i16 × 6 | Foot `ax, ay, az, gx, gy, gz`, sensor-frame counts |
 | 24 | i16 × 6 | Shank `ax, ay, az, gx, gy, gz`, sensor-frame counts |
-| 36 | i16 × 4 | Foot quaternion `w, x, y, z`, Q15 |
-| 44 | i16 × 4 | Shank quaternion `w, x, y, z`, Q15 |
-| 52 | u16 | `status_flags` |
+| 36 | i16 × 4 | Foot segment orientation `w, x, y, z`, Q15 |
+| 44 | i16 × 4 | Shank segment orientation `w, x, y, z`, Q15 |
+| 52 | i16 × 4 | Foot game rotation vector as reported, `real, i, j, k`, Q14, chip frame |
+| 60 | i16 × 4 | Shank game rotation vector as reported, `real, i, j, k`, Q14, chip frame |
+| 68 | u16 | `status_flags` |
 
-Notes on the frame (schema 5, BNO086):
+Notes on the frame (schema 6, BNO086):
 - Counts are the BNO086's calibrated reports: accelerometer Q8 m/s², gyroscope Q9 rad/s.
-  CONFIG_GET gives them as counts per g (2510.5) and per °/s (8.9361), so the conversion
-  below is the same for both builds.
-- The foot gyroscope clocks the frames, at the requested 100 Hz. The accelerometer runs at
-  the nearest rate the part has, 125 Hz (measured), so each frame carries the latest
-  accelerometer sample, at most 8 ms older than the gyroscope one.
+  CONFIG_GET gives them as counts per g (2510.5) and per °/s (8.9361).
+- The foot gyroscope clocks the frames at 200 Hz (requested 5000 µs, TEST-054). The
+  gyroscope and game rotation vector of a sensor share a sample time. The accelerometer
+  runs at 250 Hz, so each frame's accelerometer values are interpolated linearly between
+  the two samples either side of the frame time (rounded to counts). When no later
+  sample arrives in time the latest is held and the `*_accel_held` bit is set. Every
+  accelerometer sample as measured is in RAW_ACCEL_BATCH (§5.15).
+- The shank's values are its latest gyroscope and rotation vector (at most one 5 ms
+  period older than the frame) and its accelerometer interpolated to the frame time.
 - A sample's time is the host time of the INT that delivered it, minus the SH-2 base
   timestamp, plus the report's own delay (100 µs units).
 - After a sensor reset the first gyroscope report is followed by one pause of about
-  150 ms with the sequence advancing by one (measured 2026-10-02): the timestamps show it,
-  `frame_index` does not.
-
-
+  150 ms with the sequence advancing by one (measured 2026-10-02 at 100 Hz): the
+  timestamps show it, `frame_index` does not.
 - Doc 09 declares the sensor fields `u16`; they carry the int16 two's-complement pattern
   and are signed everywhere (DEC-007).
 - Physical units use the CONFIG_GET values: `accel_g = counts / accel_lsb_per_g`,
   `gyro_dps = counts / gyro_lsb_per_dps`, then the sensor's mount map for anatomical axes.
-- Quaternions are the device's Mahony estimate when `orientation_valid` is set, and
-  identity (`32767, 0, 0, 0`) when it is clear. Orientation needs calibration, so the bit
-  stays clear until a record exists; it also clears for a frame whose interval is outside
-  half to twice the nominal period, where integrating across the gap would inject a false
-  rotation and the estimator restarts from the calibrated alignment.
+- Segment orientations are the game rotation vectors carried into anatomical axes (mount
+  map), with the calibration's alignment and the heading at calibration taken out, when
+  `orientation_valid` is set; identity (`32767, 0, 0, 0`) when it is clear (no calibration
+  record yet). The rotation vectors at 52 and 60 are the sensors' own output, unchanged.
 
 `status_flags`:
 
 | Bit | Name | Meaning |
 |---:|---|---|
-| 0 | `foot_read_fail` | Foot read failed; foot values are 0 (not emitted in schema 5: frames come from foot data) |
-| 1 | `shank_read_fail` | No shank sample yet (schema 4: read failed); shank values are 0 |
+| 0 | `foot_read_fail` | Not emitted (frames come from foot data) |
+| 1 | `shank_read_fail` | No shank sample yet; shank values are 0 |
 | 2 | `shank_repeated` | No new shank gyroscope sample since the previous frame: same sample repeated |
 | 3 | `foot_accel_saturated` | A foot accel axis at ±full scale |
 | 4 | `foot_gyro_saturated` | A foot gyro axis at ±full scale |
 | 5 | `shank_accel_saturated` | A shank accel axis at ±full scale |
 | 6 | `shank_gyro_saturated` | A shank gyro axis at ±full scale |
-| 7 | `foot_repeated` | No new foot accelerometer sample since the previous frame |
-| 8 | `orientation_valid` | The frame's quaternions are the device's estimate, not identity |
-| 9–15 | reserved | 0 |
+| 7 | `foot_accel_held` | The foot accelerometer is the latest sample, not interpolated (schema 5: no new sample) |
+| 8 | `orientation_valid` | The frame's segment orientations are the device's estimate, not identity |
+| 9 | `shank_accel_held` | The shank accelerometer is the latest sample, not interpolated |
+| 10 | `foot_rv_missing` | No foot rotation vector yet; its fields are `16384, 0, 0, 0` |
+| 11 | `shank_rv_missing` | No shank rotation vector yet; its fields are `16384, 0, 0, 0` |
+| 12–15 | reserved | 0 |
 
-The two sensors run on independent clocks. On the MPU6500 build they were 0.14 % apart
-(TEST-015); on the BNO086 build 1.9 % of frames repeat a shank sample, in clusters about
-every 2.4 s where the two sample phases cross (TEST-046). Bit 2 marks each.
+The two sensors run on independent clocks. On the BNO086 build at 100 Hz, 1.9 % of frames
+repeated a shank sample, in clusters about every 2.4 s where the two sample phases cross
+(TEST-046). Bit 2 marks each.
 
 ### 5.5 CONFIG_GET
 Host → device: empty. Device → host:
@@ -484,6 +493,26 @@ A refusal is ERROR BadPayload (out of range), InvalidState (another pulse runnin
 Rejected (rolling limit, or a motor switched off in this build's enable mask),
 with the reason in `detail`.
 
+### 5.15 RAW_ACCEL_BATCH (device → host, durable, schema 6)
+
+Every accelerometer sample of both sensors as measured, in arrival order (DEC-021): the
+researcher's raw export at the native 250 Hz.
+
+| Offset | Type | Field |
+|---:|---|---|
+| 0 | u8 | `count` (1–32) |
+| 1 | u8 | `record_size` = 16 |
+| 2 | record × count | Samples |
+
+Record (16 bytes):
+
+| Offset | Type | Field |
+|---:|---|---|
+| 0 | u64 | `timestamp_us`: the sample's time on the device clock, as for frames |
+| 8 | u8 | `sensor`: 0 foot, 1 shank |
+| 9 | u8 | `sequence`: the SH-2 report sequence (wraps at 256; a gap = a lost sample) |
+| 10 | i16 × 3 | `ax, ay, az`, sensor-frame counts, same scale as frames |
+
 ## 6. Enumerations
 
 ### 6.1 Device state (doc 07 §6)
@@ -518,7 +547,7 @@ bit 2 `psram_ring`, bit 3 `motor_service_test` (SERVICE_TEST motor pulses availa
 
 | Bit | Name | Meaning |
 |---:|---|---|
-| 0 | TOO_FEW_SAMPLES | fewer than 200 frames collected (2 s at 100 Hz) |
+| 0 | TOO_FEW_SAMPLES | fewer than 200 frames collected (1 s at 200 Hz; 2 s before schema 6) |
 | 1 | MOVED | a gyro axis varied by more than 2 °/s: the sensor was not still |
 | 2 | NOT_GRAVITY | mean \|a\| differed from 1 g by more than 0.05 g |
 | 3 | UPSIDE_DOWN | gravity was less than half way up the anatomical +Z axis |
@@ -542,7 +571,9 @@ say which. Any bit set means the record must not be used.
    messages, then backfill chunks.
 
 Retention and flow control:
-- **Ring size.** The ring is 4 MB of PSRAM, about 12 minutes of raw batches (5.6 kB/s).
+- **Ring size.** The ring is 4 MB of PSRAM. Schema 6 streams about 23 kB/s (200 Hz frames
+  and the 250 Hz accelerometer of two sensors), so it holds about 3 minutes (schema 5:
+  12 minutes at 5.6 kB/s).
   Messages evicted before a link sends them are skipped; the host sees the gap.
 - **Wi-Fi.** A link writes only when the socket reports writable. lwIP does that only
   with more than 2880 bytes of its 5760-byte send buffer free, and no message exceeds

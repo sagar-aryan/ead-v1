@@ -10,7 +10,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use crate::link::{self, LinkEvent, LinkTarget};
-use crate::protocol::{self, config::DeviceConfigSection, Hello, MsgType, RawFrame, Status};
+use crate::protocol::{
+    self, config::DeviceConfigSection, AccelSample, Hello, MsgType, RawFrame, Status,
+};
 
 const KEEPALIVE: Duration = Duration::from_millis(500);
 /// No STATUS for this long means the device or link is unhealthy.
@@ -24,6 +26,8 @@ const MAX_BACKFILL_SPAN: u32 = 2000;
 /// tests.
 pub trait Sink: Send + Sync + 'static {
     fn raw_frames(&self, frames: &[RawFrame]);
+    /// Every accelerometer sample at its native rate (schema 6).
+    fn raw_accel(&self, samples: &[AccelSample]);
     fn status(&self, status: &Status);
     /// Gait cycles and events, whichever the device sent (schema 3).
     fn gait(&self, cycles: &[protocol::GaitCycle], events: &[protocol::GaitEvent]);
@@ -460,23 +464,6 @@ impl Tracker {
         match msg_type {
             MsgType::Hello => self.on_hello(payload),
             MsgType::Status => self.on_status(payload),
-            MsgType::EventBatch => match protocol::parse_event_batch(payload) {
-                Ok(events) => self.sink.gait(&[], &events),
-                Err(e) => self.note_error(format!("EVENT_BATCH: {e}")),
-            },
-            MsgType::StepBatch => match protocol::parse_step_batch(payload) {
-                Ok(cycles) => {
-                    let valid = cycles.iter().filter(|c| c.valid).count() as u32;
-                    if valid > 0 {
-                        let mut state = self.state.lock().expect("device state");
-                        if state.session_kind.is_some() {
-                            state.session_valid_cycles += valid;
-                        }
-                    }
-                    self.sink.gait(&cycles, &[]);
-                }
-                Err(e) => self.note_error(format!("STEP_BATCH: {e}")),
-            },
             MsgType::ConfigGet => self.on_config(payload),
             MsgType::SessionStop => {
                 // Two things arrive here, told apart by length: a calibration
@@ -635,12 +622,39 @@ impl Tracker {
                 drop(state);
                 self.sink.raw_frames(&frames);
             }
+        } else if msg_type == MsgType::RawAccelBatch as u8 {
+            match protocol::parse_accel_batch(payload) {
+                Ok(samples) => self.sink.raw_accel(&samples),
+                Err(e) => self.note_error(format!("RAW_ACCEL_BATCH: {e}")),
+            }
+        } else if msg_type == MsgType::EventBatch as u8 {
+            // Events and cycles are durable too. Handled ahead of this, they
+            // never counted toward gap detection, so each one was requested again,
+            // and a backfilled copy was dropped: gait data inside a real gap was lost.
+            match protocol::parse_event_batch(payload) {
+                Ok(events) => self.sink.gait(&[], &events),
+                Err(e) => self.note_error(format!("EVENT_BATCH: {e}")),
+            }
+        } else if msg_type == MsgType::StepBatch as u8 {
+            match protocol::parse_step_batch(payload) {
+                Ok(cycles) => {
+                    let valid = cycles.iter().filter(|c| c.valid).count() as u32;
+                    if valid > 0 {
+                        let mut state = self.state.lock().expect("device state");
+                        if state.session_kind.is_some() {
+                            state.session_valid_cycles += valid;
+                        }
+                    }
+                    self.sink.gait(&cycles, &[]);
+                }
+                Err(e) => self.note_error(format!("STEP_BATCH: {e}")),
+            }
         }
     }
 
     fn note_missing_range(&mut self, first: u32, last: u32) {
-        // The device ring holds ~12 minutes; a gap larger than this cap is
-        // unrecoverable anyway, and the bound keeps the set small.
+        // The device ring holds about 3 minutes (schema 6); a gap larger than
+        // this cap is unrecoverable anyway, and the bound keeps the set small.
         const MAX_TRACKED: usize = 200_000;
         for sequence in first..=last {
             if self.missing.len() >= MAX_TRACKED {
@@ -690,6 +704,7 @@ mod tests {
     struct NoSink;
     impl Sink for NoSink {
         fn raw_frames(&self, _: &[RawFrame]) {}
+        fn raw_accel(&self, _: &[AccelSample]) {}
         fn status(&self, _: &Status) {}
         fn gait(&self, _: &[protocol::GaitCycle], _: &[protocol::GaitEvent]) {}
     }
@@ -730,6 +745,7 @@ mod tests {
     struct RestartSink(std::sync::atomic::AtomicUsize);
     impl Sink for RestartSink {
         fn raw_frames(&self, _: &[RawFrame]) {}
+        fn raw_accel(&self, _: &[AccelSample]) {}
         fn status(&self, _: &Status) {}
         fn gait(&self, _: &[protocol::GaitCycle], _: &[protocol::GaitEvent]) {}
         fn device_restarted(&self) -> Option<String> {
@@ -759,6 +775,72 @@ mod tests {
         let snapshot = device.snapshot();
         assert_eq!(snapshot.session_kind, None);
         assert_eq!(snapshot.last_error.as_deref(), Some("session ended at the restart"));
+    }
+
+    /// Keeps what the tracker hands on.
+    #[derive(Default)]
+    struct Collect(Mutex<(Vec<RawFrame>, Vec<AccelSample>, usize)>);
+    impl Sink for Collect {
+        fn raw_frames(&self, frames: &[RawFrame]) {
+            self.0.lock().unwrap().0.extend_from_slice(frames);
+        }
+        fn raw_accel(&self, samples: &[AccelSample]) {
+            self.0.lock().unwrap().1.extend_from_slice(samples);
+        }
+        fn status(&self, _: &Status) {}
+        fn gait(&self, cycles: &[protocol::GaitCycle], _: &[protocol::GaitEvent]) {
+            self.0.lock().unwrap().2 += cycles.len();
+        }
+    }
+
+    // RAW_ACCEL_BATCH is durable: its sequence counts toward gap detection, and
+    // a gap it reveals is repaired by backfill like any other.
+    #[test]
+    fn accel_batches_are_durable_and_reach_the_sink() {
+        let sink = Arc::new(Collect::default());
+        let device = Device::new(sink.clone());
+        let mut tracker = connect(&device);
+        tracker.handle(&hello(0xA1B2_C3D4));
+        tracker.handle(&vector("raw_batch.hex")); // sequence 3
+        tracker.handle(&vector("raw_accel_batch.hex")); // sequence 5
+        assert_eq!(tracker.missing.iter().copied().collect::<Vec<_>>(), vec![4]);
+        assert_eq!(tracker.take_backfill_requests(), vec![(4, 4)]);
+
+        tracker.handle(&vector("backfill_data.hex")); // sequences 3 and 4
+        assert!(tracker.missing.is_empty());
+        let (frames, samples, _) = &*sink.0.lock().unwrap();
+        // Sequence 3 live, then 3 again and 4 from the backfill: repeats are
+        // handed on, and the store ignores them.
+        let indices: Vec<u32> = frames.iter().map(|f| f.frame_index).collect();
+        assert_eq!(indices, vec![100, 101, 100, 101, 101]);
+        assert_eq!(samples.len(), 3);
+        assert_eq!((samples[1].sensor, samples[1].sequence), (1, 255));
+    }
+
+    // Event and step batches count toward gap detection like any durable
+    // message, and a backfilled cycle reaches the sink.
+    #[test]
+    fn gait_batches_are_durable_and_reach_the_sink() {
+        let sink = Arc::new(Collect::default());
+        let device = Device::new(sink.clone());
+        let mut tracker = connect(&device);
+        tracker.handle(&hello(0xA1B2_C3D4));
+        tracker.handle(&vector("raw_batch.hex")); // sequence 3
+        tracker.handle(&vector("event_batch.hex")); // sequence 51
+        tracker.handle(&vector("step_batch.hex")); // sequence 52
+        assert_eq!(tracker.highest_seq, Some(52));
+        assert_eq!(tracker.missing.iter().copied().collect::<Vec<_>>(), (4..=50).collect::<Vec<_>>());
+        assert_eq!(sink.0.lock().unwrap().2, 1);
+
+        // The same cycle delivered by backfill is handed on as well.
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&11u32.to_le_bytes());
+        payload.extend_from_slice(&52u32.to_le_bytes());
+        payload.extend_from_slice(&52u32.to_le_bytes());
+        payload.push(0);
+        payload.extend_from_slice(&vector("step_batch.hex"));
+        tracker.handle(&protocol::encode(MsgType::BackfillData, 9, 0, &payload));
+        assert_eq!(sink.0.lock().unwrap().2, 2);
     }
 
     #[test]

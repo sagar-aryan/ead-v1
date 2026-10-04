@@ -26,33 +26,70 @@ fn field(value: &str) -> String {
 /// (DEC-007). `metadata.json` carries the scale factors and both mount maps, so
 /// the conversion is one multiplication away and nothing in the chain has been
 /// rounded on the way out.
+///
+/// `rv_*` is the sensor's game rotation vector as it reported it (Q14, chip
+/// frame, device schema 6); the cells are empty for a frame recorded before
+/// then, which carried none.
 pub fn raw_header() -> &'static str {
-    "timestamp_us,frame_index,sensor,ax,ay,az,gx,gy,gz,qw,qx,qy,qz,status_flags\n"
+    "timestamp_us,frame_index,sensor,ax,ay,az,gx,gy,gz,qw,qx,qy,qz,status_flags,\
+rv_real,rv_i,rv_j,rv_k\n"
 }
 
-pub fn raw_row(
-    out: &mut String,
-    timestamp_us: i64,
-    frame_index: i64,
-    sensor: &str,
-    accel_gyro: &[i16; 6],
-    quaternion: &[i16; 4],
-    status: i64,
-) {
-    let _ = writeln!(
-        out,
-        "{timestamp_us},{frame_index},{sensor},{},{},{},{},{},{},{},{},{},{},{status}",
-        accel_gyro[0],
-        accel_gyro[1],
-        accel_gyro[2],
-        accel_gyro[3],
-        accel_gyro[4],
-        accel_gyro[5],
-        quaternion[0],
-        quaternion[1],
-        quaternion[2],
-        quaternion[3],
-    );
+/// The two `raw.csv` rows of one frame, foot then shank.
+pub fn raw_rows(out: &mut String, frame: &crate::protocol::RawFrame) {
+    for (sensor, values, quaternion, rotation_vector) in [
+        ("foot", &frame.foot, &frame.q_foot, frame.rv_foot),
+        ("shank", &frame.shank, &frame.q_shank, frame.rv_shank),
+    ] {
+        let _ = write!(
+            out,
+            "{},{},{sensor},{},{},{},{},{},{},{},{},{},{},{},",
+            frame.timestamp_us,
+            frame.frame_index,
+            values[0],
+            values[1],
+            values[2],
+            values[3],
+            values[4],
+            values[5],
+            quaternion[0],
+            quaternion[1],
+            quaternion[2],
+            quaternion[3],
+            frame.status,
+        );
+        match rotation_vector {
+            Some(q) => {
+                let _ = writeln!(out, "{},{},{},{}", q[0], q[1], q[2], q[3]);
+            }
+            None => out.push_str(",,,\n"),
+        }
+    }
+}
+
+/// `accel_native.csv`: every accelerometer sample as measured, at the sensor's
+/// own rate (RAW_ACCEL_BATCH, DEC-021). `raw.csv` carries the accelerometer
+/// interpolated to each frame's time; this is what it was interpolated from.
+///
+/// Counts are the stored chip-frame values (DEC-007). The `_g` columns are the
+/// same counts divided by the session's `accel_lsb_per_g`, still in the chip
+/// frame: no mount map is applied. They are empty when the session stored no
+/// configuration, rather than scaled by a guess.
+pub fn accel_header() -> &'static str {
+    "timestamp_us,sensor,sequence,ax,ay,az,ax_g,ay_g,az_g\n"
+}
+
+pub fn accel_row(out: &mut String, sample: &crate::protocol::AccelSample, lsb_per_g: Option<f32>) {
+    let [ax, ay, az] = sample.accel;
+    let sensor = if sample.sensor == 0 { "foot" } else { "shank" };
+    let _ = write!(out, "{},{sensor},{},{ax},{ay},{az},", sample.timestamp_us, sample.sequence);
+    match lsb_per_g {
+        Some(lsb) => {
+            let g = |v: i16| f64::from(v) / f64::from(lsb);
+            let _ = writeln!(out, "{:.6},{:.6},{:.6}", g(ax), g(ay), g(az));
+        }
+        None => out.push_str(",,\n"),
+    }
 }
 
 /// `gait.csv`, doc 10 §3.
