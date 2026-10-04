@@ -113,7 +113,7 @@ fn records_a_session_from_a_real_device() {
     assert_eq!(config.imu.foot_mount, [[0, -1, 0], [1, 0, 0], [0, 0, 1]]);
     assert_eq!(config.imu.shank_mount, [[0, 0, 1], [1, 0, 0], [0, 1, 0]]);
     assert_eq!(config.imu.sample_hz, 200, "200 Hz frames (DEC-021)");
-    assert!(!config.haptics.fitted);
+    assert!(config.haptics.fitted, "the configuration agrees with HELLO (DEC-023)");
 
     // The boot-time sensor check, decoded from the device's own bytes: every
     // step passes on both sensors (TEST-043 wiring).

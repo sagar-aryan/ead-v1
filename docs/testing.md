@@ -2174,3 +2174,30 @@ The functional calibration is deferred until a reference shows inversion spreads
 enough for that to raise false INVERSION or EVERSION classes; no trustworthy reference
 exists yet. Part of the tilt toward Z may be anatomical (knee axis, tibial rotation),
 not mounting.
+
+## TEST-062 — Schema 7 on the board (USB)
+
+### Objective
+The DEC-022/DEC-023 firmware on the device, before any walking or felt vibration.
+
+### Environment
+Firmware 0.1.0+ec73cec flashed over USB, sensors on the desk, battery switch not used.
+Release dashboard rebuilt; the user's database backed up first as
+`ead.sqlite3.schema9-backup-2026-10-04` (it migrates to schema 10 on the next open).
+
+### Procedure
+1. `eadprobe hello`; `eadprobe stats --seconds 10`; `eadprobe haptics on`, then `off`.
+2. `cargo test records_a_session_from_a_real_device -- --ignored --nocapture`.
+
+### Actual
+1. Schema 7, both sensors answered (0x86), capabilities haptics_fitted, psram_ring,
+   motor_service_test. 10 s: 2010 of 2010 frames, 200.256 Hz, 0 missing, 0 dropped, no
+   faults; accelerometers 247.5 and 249.4 Hz, no sequence gaps. STATUS `haptics` empty
+   (switch off at boot). CONFIG_SET echoed 1, then 0.
+2. First run failed on a stale assertion that the configuration's `haptics.fitted` is
+   false (missed earlier because the test needs the board); corrected, then: 1000
+   frames stored, 0 missing, 502 accelerometer samples/s, haptics fitted in HELLO and
+   in the configuration, switch off.
+
+### Result
+PASS. No cue has run: cues need scored steps in an evaluation.
