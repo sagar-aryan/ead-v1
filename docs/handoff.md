@@ -118,8 +118,8 @@ Nothing in flight.
   error-state Kalman filter.
 - **The device never reports REFERENCE_CAPTURE or RUNNING** in STATUS
   (`device.cpp` `currentState`), unlike DEC-008's description.
-- `EAD_GAIT_LOWPASS_HZ` and `EAD_EVENT_PATH_LOWPASS_HZ` are reported in
-  CONFIG_GET but no such filter is applied.
+- `EAD_GAIT_LOWPASS_HZ` (6 Hz) is reported in CONFIG_GET but not applied. The
+  20 Hz event path is applied only to the ZUPT stillness test (DEC-019).
 - **PROB-022 (open):** still on the desk, both gyroscopes show simultaneous episodes of
   a few °/s; a 2 s calibration was once rejected as "moved". Calibrate again.
 - On the BNO086 build: shank repeats 1.9 % of frames and the frame period sd is

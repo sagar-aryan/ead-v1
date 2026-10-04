@@ -1837,4 +1837,4 @@ change removed. Rejected sweeps (confirm level, swing rate) and the measured
 
 ### Result
 PASS for contact detection on these walks. Distance: PARTIAL (PROB-024: slow
-strides short, five uncorrected cycles). Not yet flashed.
+strides short, five uncorrected cycles). Flashed as 0.1.0+156b186 on 2026-10-04.
