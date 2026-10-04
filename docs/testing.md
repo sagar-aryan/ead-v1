@@ -1974,3 +1974,28 @@ Replay built from the working tree with `ead/feed.cpp`; `tools/replay/walks.py`.
 PASS. Every normal and fast leg reads 8.5–9.5 m (10 m less the first step from
 standing); the two 15 m legs of TEST-053 are gone. Slow strides still read short
 (PROB-024).
+
+## TEST-057 — Schema-6 dashboard against the board (USB)
+
+### Objective
+The dashboard's own hardware test on the committed schema-6 firmware.
+
+### Environment
+Firmware 0.1.0+523b49d, sensors on the desk, USB. Release dashboard rebuilt
+(`npx tauri build --no-bundle`); the user's database backed up first as
+`ead.sqlite3.schema7-backup-2026-10-04` (schema 7, 24 sessions): opening the new
+dashboard migrates it to schema 8.
+
+### Procedure
+1. `cargo test records_a_session_from_a_real_device -- --ignored --nocapture`.
+
+### Actual
+Connected over USB (firmware 0.1.0+523b49d); a 5 s session stored 1000 frames, 0
+missing, 0 rejected byte runs; 2528 accelerometer samples (506 per second, both
+sensors); first foot sample |a| = 1.031 g.
+
+### Result
+PASS. `a_device_reset_ends_the_session_and_its_calibration` was not run: it needs an
+accepted calibration, and with the measured mount maps the shank board lying on the
+desk reads upside down (calibration needs the sensors worn). Wi-Fi at the schema-6 rate
+(about 23 kB/s) is not yet tested.
