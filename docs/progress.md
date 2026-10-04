@@ -1654,3 +1654,36 @@ In progress: contacts done; distance partial (PROB-024).
 
 ### Next Steps
 Flash; the user decides on the 25 °/s limit; the slow-stride shortfall.
+
+## 2026-10-04 — Barefoot walks over Wi-Fi at 200 Hz, with video (TEST-058)
+
+### Objective
+Ground truth for the schema-6 feed on the leg: seven walks, each with a video.
+
+### Investigation
+Sessions read from the dashboard database; each exported with `tools/session2eadlog.py`
+and replayed. Videos synced by motion energy, then by the heel stamps.
+
+### Problems
+- The replay calibrates from the first seconds, but these recordings start with the
+  walker on the way to the start line; stands of 2–3 s fail the 2 °/s stillness test.
+  Added `--still-from S` to `tools/replay/main.cpp`; the end stand (≥ 5 s) calibrates
+  where the start does not.
+- Audio sync failed: the stamps are not audible above the carpet's noise (peak/median
+  ≤ 3). Motion-energy correlation over a whole recording locked onto the repeating
+  out-and-back pattern (offsets of 20–90 s); restricted to the first 25 s it agreed
+  with the stamps on six of seven; fast 1 was synced by eye from the stamps.
+
+### Changes
+- `tools/replay/main.cpp`: `--still-from`.
+- `recordings/`: seven 2026-10-04 fixtures, README rows with sync offsets.
+- `.gitignore`: `recrdings/` (the videos stay local).
+
+### Verification
+TEST-058: 0 frames lost over Wi-Fi at 200 Hz; detector findings in PROB-024.
+
+### Current Status
+Completed. Contact detection open (PROB-024).
+
+### Next Steps
+Shank-based step detection, scored against the 2026-10-04 fixtures.

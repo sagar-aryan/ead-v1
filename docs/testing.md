@@ -1999,3 +1999,60 @@ PASS. `a_device_reset_ends_the_session_and_its_calibration` was not run: it need
 accepted calibration, and with the measured mount maps the shank board lying on the
 desk reads upside down (calibration needs the sensors worn). Wi-Fi at the schema-6 rate
 (about 23 kB/s) is not yet tested.
+
+## TEST-058 — Barefoot 10 m walks over Wi-Fi at 200 Hz, with video
+
+### Objective
+The first walks on the schema-6 feed (DEC-021) over Wi-Fi, barefoot, each with a video
+for ground truth (DEC-020: video only, no second person): does the link carry 200 Hz,
+and how do the detector's contacts and distances compare with the video and the count?
+
+### Environment
+Firmware 0.1.0+523b49d, measured mount maps, worn by the developer (`DEV-1`): foot
+sensor on the dorsum with a heel loop, right foot bare, on carpet. Dashboard over the
+device's Wi-Fi. Device calibration (Part A, over USB) accepted: foot tilt 35.4°, shank
+12.9°. Phone at the start line, knee height, portrait, 1080p 60 fps, facing along the
+course (from behind going out, from the front coming back).
+
+### Procedure
+1. Mounting check, calibration over USB; then battery on, USB out, Wi-Fi.
+2. Per recording: Start recording, start the video, walk to the tape, stand ≥ 3 s,
+   three right-heel stamps, stand ≥ 2 s, 10 m out, turn at the marker, 10 m back,
+   stand ≥ 5 s, stop the video and the recording.
+3. Recordings: normal ×3, slow ×2, fast ×1, a continuous walk of about 3 min
+   (`recordings/*-2026-10-04.eadlog`; three retakes without a video were not kept).
+4. Sync: video motion energy cross-correlated with gyro magnitude over the first 25 s,
+   then checked against the heel stamps on contact sheets (fast 1, normal 1).
+5. Replay each with `--still-from` (README); count shank swings (|gyro| peaks
+   ≥ 150 °/s, 9-sample mean) and match each to the first contact within 0.8 s.
+
+### Actual
+- **Link:** 10 sessions, 128,630 frames, 0 missing (frame count equals the index span
+  in every session). Accelerometer: no sequence gaps; 230–238 samples/s per sensor,
+  median interval 4.0 ms, 99th percentile 10–12 ms, longest 16 ms.
+- **Sync:** video = data − 2.6 to −3.1 s for six recordings, + 9.1 s for normal 1
+  (camera started first). Fast 1 by the stamps: landings at 9.10, 9.81, 10.45 s in the
+  video, 11.86, 12.53, 13.16 s in the data (−2.73 s). Motion correlation alone gave
+  +11.3 s for fast 1: wrong, and not used.
+- **Counts:** the walker's count per leg (normal 8, slow 9–10, fast 7) equals the shank
+  swing count on every leg checked (normal 2 and 3: 8 and 8; slow 1: 10 and 9).
+- **Detector** (current `gait.cpp`): 272 contacts against 254 swings over all seven;
+  40 contacts with no swing in the 0.8 s before them, mostly a second contact about
+  1.0 s after a swing, splitting a stride in two (normal 1: 20.30, 45.93, 48.60 s).
+  The matching is a heuristic: in fast 1 contacts fall before the swing peak and
+  count as unmatched.
+- **Distance per 10 m leg** (sum of valid cycles, so 10 m less the first step):
+  normal 8.66/9.61, 8.55/9.10, 9.34/9.18; slow 9.53/10.25, slow 2 back 9.43.
+  Slow 2 out and fast 1 have no stand between legs, so their legs merge.
+- **Fast 1 return leg:** contacts every 0.5–0.6 s and one 5.04 m cycle (34.32 s). The
+  video (26.5–36 s) shows a normal walk with both sensors and the heel loop in place,
+  and the stop on the tape.
+
+### Result
+PASS for the link at 200 Hz over Wi-Fi. FAIL for contact detection: split strides
+and a broken fast return leg, with the recordings themselves sound (PROB-024).
+
+### Notes
+Slow legs no longer read 30 % short (TEST-052: 0.65–0.73 m median cycle; here
+1.03–1.18 m). Observed, not explained: schema 6 changed the rate, the orientation
+source and the footwear at once.

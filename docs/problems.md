@@ -1336,10 +1336,20 @@ slow-walk shortfall: Unknown.
 5. Legs without an uncorrected cycle read 8.0–9.6 m at normal and fast pace, for
    10 m less the first step from standing.
 
+### Barefoot walks at 200 Hz (2026-10-04, TEST-058)
+Seven video-synced walks on schema 6, firmware 0.1.0+523b49d:
+1. Slow legs read 9.4–10.3 m per 10 m: symptom 2 is not reproduced. Not explained:
+   the rate, the orientation source and the footwear all changed together.
+2. New: a second contact about 1.0 s after a swing, with no swing of its own, splits a
+   stride (40 such contacts in 272). In fast 1's return leg contacts come every
+   0.5–0.6 s and one cycle reads 5.04 m; the video shows a normal walk with the
+   sensors in place, so the detector, not the recording, is at fault.
+3. Root cause of 2: Unknown. Not yet examined trace by trace.
+
 ### Next
-The slow-walk shortfall: compare the foot's integrated velocity through one slow
-swing with the stride the count implies, and test whether the drift ramp should
-start at toe-off instead of at the end of the previous zero-velocity window.
+Shank-based step detection (DEC-020 (a)): every stride in TEST-058 has one shank swing
+of ≥ 150 °/s and the walker's counts equal the swing counts. Score it against these
+fixtures before replacing the foot-impact contact.
 
 ## PROB-025 — Dashboard: event and step batches bypassed gap detection; backfilled ones were dropped
 

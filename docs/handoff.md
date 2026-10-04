@@ -218,7 +218,10 @@ hardware tests; the second resets the board).
 0. Schema 6 (DEC-021): 200 Hz frames with the BNO086's own orientation and a native
    250 Hz accelerometer stream; store schema 8; ZUPT gyroscope limit 30 °/s (DEC-020).
    Verified on the board over USB on the desk (TEST-055) and on the fixtures by replay
-   (TEST-056); not yet on the leg or over Wi-Fi.
+   (TEST-056); on the leg over Wi-Fi, barefoot, with video (TEST-058): 0 frames lost.
+   Seven video-synced fixtures in `recordings/*-2026-10-04.eadlog`; the replay needs
+   `--still-from` for them (README). Contact detection splits strides there
+   (PROB-024); next is shank-based step detection (DEC-020 (a)) scored on them.
 1. On the leg: mount maps measured and checked (TEST-051). First 10 m walks
    (TEST-052) found PROB-023, fixed in `gait.cpp` and flashed (0.1.0+77ae282).
    PROB-024: contacts fixed (DEC-019, TEST-053); open are slow strides reading

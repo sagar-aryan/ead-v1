@@ -14,7 +14,9 @@
 //       -o /tmp/eadreplay tools/replay/main.cpp
 //       firmware/lib/ead_core/src/ead/{calibration,mahony,gait,protocol,crc32,cobs,feed}.cpp
 // Run:
-//   /tmp/eadreplay recording.eadlog [--still-seconds 3] [--trace] [--mpu6500]
+//   /tmp/eadreplay recording.eadlog [--still-seconds 3] [--still-from 0] [--trace] [--mpu6500]
+// --still-from moves the calibration window to N s into the recording, for one
+// that starts with the walker still on their way to the start line.
 //
 // Counts mean nothing without the scale and mount maps of the build that
 // recorded them. A recording made by eadprobe since schema 5 carries the
@@ -185,6 +187,7 @@ int main(int argc, char** argv) {
     return 2;
   }
   float stillSeconds = 3.0f;
+  float stillFrom = 0.0f;
   bool trace = false;
   bool events = false;
   bool mpu6500 = false;
@@ -193,6 +196,7 @@ int main(int argc, char** argv) {
     const std::string flag = argv[i];
     const bool hasValue = i + 1 < argc;
     if (flag == "--still-seconds" && hasValue) stillSeconds = std::stof(argv[++i]);
+    else if (flag == "--still-from" && hasValue) stillFrom = std::stof(argv[++i]);
     else if (flag == "--trace") trace = true;
     else if (flag == "--events") events = true;
     else if (flag == "--mpu6500") mpu6500 = true;
@@ -232,17 +236,22 @@ int main(int argc, char** argv) {
   config.sampleHz = s_conversion.sampleHz;
   // Calibration from the still period at the start of the recording, by time:
   // recordings differ in frame rate.
-  size_t stillFrames = 0;
-  while (stillFrames < frames.size() &&
-         frames[stillFrames].timeUs - frames.front().timeUs < uint64_t(stillSeconds * 1e6f)) {
-    ++stillFrames;
+  size_t stillStart = 0;
+  while (stillStart < frames.size() &&
+         frames[stillStart].timeUs - frames.front().timeUs < uint64_t(stillFrom * 1e6f)) {
+    ++stillStart;
+  }
+  size_t stillEnd = stillStart;
+  while (stillEnd < frames.size() && frames[stillEnd].timeUs - frames[stillStart].timeUs <
+                                         uint64_t(stillSeconds * 1e6f)) {
+    ++stillEnd;
   }
   ead::CalibrationAccumulator footCalibration;
   ead::CalibrationAccumulator shankCalibration;
   footCalibration.reset();
   shankCalibration.reset();
   const float noBias[3] = {0.0f, 0.0f, 0.0f};
-  for (size_t i = 0; i < stillFrames && i < frames.size(); ++i) {
+  for (size_t i = stillStart; i < stillEnd; ++i) {
     float accel[3];
     float gyro[3];
     accelOf(kEadFootMount, frames[i].foot, accel);
@@ -253,15 +262,15 @@ int main(int argc, char** argv) {
     shankCalibration.add(accel, gyro);
   }
   ead::CalibrationRecord calibration{};
-  calibration.samples = uint32_t(stillFrames);
+  calibration.samples = uint32_t(stillEnd - stillStart);
   calibration.reject = uint16_t(footCalibration.finish(&calibration.foot) |
                                 shankCalibration.finish(&calibration.shank));
-  std::printf("calibration from the first %.1f s: reject 0x%04X, foot tilt %.1f deg, "
+  std::printf("calibration from %.1f s for %.1f s: reject 0x%04X, foot tilt %.1f deg, "
               "shank tilt %.1f deg\n",
-              stillSeconds, calibration.reject, calibration.foot.tiltDeg,
+              stillFrom, stillSeconds, calibration.reject, calibration.foot.tiltDeg,
               calibration.shank.tiltDeg);
   if (calibration.reject != 0) {
-    std::printf("  (the recording does not start still enough to calibrate from)\n");
+    std::printf("  (the recording is not still enough there to calibrate from)\n");
   }
 
   // Orientation and gait over the whole recording: the sensors' own rotation
