@@ -93,7 +93,8 @@ foot DRDY ISR ──► acquisition: read foot + shank, µs timestamp, frame ind
                      ▼
 processing: mount map → calibration → segment orientation from each game rotation
             vector (`ead/feed`, DEC-021) → relative orientation
-            → gait state machine + events → ZUPT (foot) → cycle features
+            → gait state machine + events (shank swing, DEC-022) → ZUPT (foot)
+            → cycle features
             → reference comparison → error score, class, confidence
                      │
                      ▼

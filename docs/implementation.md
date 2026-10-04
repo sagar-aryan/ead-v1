@@ -11,17 +11,17 @@ Milestone plan: `docs/handoff.md`.
 | M1 | Data-ready acquisition, protocol, Wi-Fi + USB links, backfill ring | Complete |
 | M2 | Dashboard foundation: backend, shell, LIVE, RAW, recording, SESSIONS | Complete |
 | M3 | Calibration, Mahony orientation, mounting check, datasets | Complete; verified on the leg (TEST-027–029) |
-| M4 | Gait events + ZUPT, EVENTS/CYCLES/TRENDS | Complete; 6.39 m on a 6.00 m course (TEST-030). Trends live inside CYCLES, not as doc 11's seven panels |
+| M4 | Gait events + ZUPT, EVENTS/CYCLES/TRENDS | Complete; 6.39 m on a 6.00 m course (TEST-030), 5.83 m since contacts come from the shank (DEC-022, TEST-059). Trends live inside CYCLES, not as doc 11's seven panels |
 | M5 | Reference, error engine, session workflow | Complete in code (TEST-031, TEST-032). Used with patient 67 on 2026-09-18; those references carry the PROB-016 fault |
 | M6 | CSV, `.mat`, PDF exports | Complete; checked against synthetic sessions only (TEST-035–037) |
 | M7 | On-device flash storage and recovery | Not planned in detail (needs a DEC) |
 
-| BNO086 build | DEC-016 pins, own SH-2 driver, sensor check, motor service test, `ead --check` | Complete on hardware (TEST-045–050), except an accepted motor pulse felt by a person; mount maps and gait thresholds not yet re-measured on the leg |
+| BNO086 build | DEC-016 pins, own SH-2 driver, sensor check, motor service test, `ead --check` | Complete on hardware (TEST-045–050), except an accepted motor pulse felt by a person; mount maps measured on the leg (TEST-051); step detection rebuilt on its walks (DEC-022) |
 
 M0–M6 were built and verified on the MPU6500/I²C build. Since schema 5 (2026-10-02)
 the product firmware runs on the DEC-016 build instead; the processing chain is
-unchanged, but its mount maps and gait thresholds have not been re-measured with the
-BNO086 sensors.
+unchanged except for the measured mount maps (TEST-051) and, since DEC-022, step
+detection from the shank's swing, set on BNO086 walks.
 
 ## Firmware: acquisition and links (M1)
 
@@ -323,6 +323,47 @@ Three store tests: a round trip including a repeated (backfilled) batch, the
 rule that gait is only stored while recording, and a migration from schema 2
 that keeps existing frames.
 
+## Gait event detection (DEC-022)
+
+### Objective
+One initial contact and one toe-off per right-leg stride, timed well enough for
+cycle features and for the zero-velocity integrator's cycle boundaries.
+
+### Design
+The shank's forward swing rate, `-shankGyroDps[1]` in the right shank's anatomical
+frame, through the 20 Hz event-path filter. A stride is one swing of at least
+`kMidSwingDps` (100 °/s). Toe-off is the deepest backward rate in the run below zero
+that led into the swing; the contact is the strongest foot impact from the
+swing's descent (below half its peak) to `kContactSearchS` (0.15 s) after the rate
+crosses zero.
+
+### Implementation
+`GaitEngine::update` in `firmware/lib/ead_core/src/ead/gait.cpp`: the stance states
+track the toe-off candidate and start `Swing` at the threshold, emitting `ToeOff`
+with the candidate's time; `Swing` tracks the peak, the descent, the zero crossing
+and the best impact, and calls `claimContact` with the impact's time. ZUPT,
+integration and cycle features are unchanged.
+
+### Important Files
+- `firmware/lib/ead_core/src/ead/gait.{h,cpp}`
+- `firmware/test/test_gait/test_main.cpp`
+- `tools/replay/main.cpp` (`--mid-swing`, `--contact-search`), `tools/replay/walks.py`
+
+### Edge Cases
+- A swing that ends in stillness before the search closes: the contact is the best
+  impact so far, then `Stance` (PROB-023).
+- A swing with no downward zero crossing within `kMaxSwingS` (1 s): dropped.
+- The first stride from standing has no contact before it, so it opens no cycle.
+- Events are emitted up to 0.15 s after the time they carry.
+
+### Limitations
+Right leg only (the sign). Thresholds from one healthy wearer (TEST-059). A swing
+below 100 °/s, such as a very short first step or a shuffle, is not a stride.
+
+### Verification
+TEST-059: 3 counting errors over 176 counted landings (21 before); 13 gait tests,
+of which 3 fail on the previous engine.
+
 ## Host-side segmentation (M5)
 
 ### Objective
@@ -512,8 +553,8 @@ sensor wire and each motor from the dashboard (`ead --check`, DEC-018).
   driven, not even LOW. Motor 3 was, until PROB-020 was measured; all six are on now.
 
 ### Limitations
-- Mount maps are identity until measured on the leg; gait thresholds were fitted to
-  MPU6500 data.
+- Mount maps were measured on the leg (TEST-051); step detection was set on BNO086
+  walks of one wearer (DEC-022).
 - The device cannot sense a motor turning: "felt" is the operator's answer.
 - Shank repeats 1.9 % (phase crossings) and frame-period sd 200 µs (TEST-046).
 - SPI stays at 1 MHz until a soak test on the harness.

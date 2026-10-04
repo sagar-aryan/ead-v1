@@ -200,9 +200,12 @@ void GaitEngine::update(const GaitSample& sample) {
       zuptActive_ = false;
       emit(GaitEventType::ZuptEnd, sample.timeUs, sample.frameIndex);
     }
-    stillMs_ = movingMs_ = contactMs_ = toeOffMs_ = 0.0f;
+    stillMs_ = 0.0f;
+    belowZero_ = false;
+    toeOffCandidateUs_ = 0;
     cycleOpen_ = false;
     stillAccel_.reset(magnitude(sample.footAccelG));
+    swingRate_.reset(-sample.shankGyroDps[1]);
     return;
   }
   const float ms = dt * 1000.0f;
@@ -217,9 +220,9 @@ void GaitEngine::update(const GaitSample& sample) {
   const float stillAccel = stillAccel_.step(accelMagnitude);
   const bool stillNow = std::fabs(stillAccel - 1.0f) <= config_.zuptAccelToleranceG &&
                         footRate <= config_.zuptGyroDps;
+  const float swingRate = swingRate_.step(-sample.shankGyroDps[1]);
 
   stillMs_ = stillNow ? stillMs_ + ms : 0.0f;
-  movingMs_ = stillNow ? 0.0f : movingMs_ + ms;
 
   integrate(sample, dt);
 
@@ -266,7 +269,8 @@ void GaitEngine::update(const GaitSample& sample) {
     }
   }
 
-  // ---- state machine -------------------------------------------------------
+  // ---- state machine (DEC-022) ---------------------------------------------
+  const uint64_t now = sample.timeUs;
   switch (state_) {
     case GaitState::Init:
       // Wait for the foot to be still before claiming to know anything.
@@ -276,107 +280,71 @@ void GaitEngine::update(const GaitSample& sample) {
     case GaitState::Stance:
     case GaitState::FootFlatZv:
     case GaitState::PreSwing: {
-      // The foot slapping flat just after a heel strike rotates as fast as a
-      // lift-off. Without a floor on stance it was read as toe-off, the next
-      // push-off then passed as a contact, and strides split in two (PROB-016).
-      const bool stanceLongEnough =
-          lastContactUs_ == 0 ||
-          float(sample.timeUs - lastContactUs_) / 1e6f >= config_.minStanceS;
-      const bool leaving = stanceLongEnough && (footRate > config_.swingGyroDps || !stillNow);
-      toeOffMs_ = leaving ? toeOffMs_ + ms : 0.0f;
-      if (leaving && state_ != GaitState::PreSwing) state_ = GaitState::PreSwing;
-      if (toeOffMs_ >= kToeOffSustainMs && footRate > config_.swingGyroDps) {
+      if (state_ == GaitState::FootFlatZv && !zuptActive_) state_ = GaitState::PreSwing;
+      // Toe-off is the deepest backward rate of the run below zero that leads
+      // into the swing. The contact's own transient is not one.
+      const bool settled =
+          lastContactUs_ == 0 || float(now - lastContactUs_) / 1e6f >= kContactSettleS;
+      if (swingRate < 0.0f && settled) {
+        if (!belowZero_ || swingRate < toeOffRate_) {
+          toeOffRate_ = swingRate;
+          toeOffCandidateUs_ = now;
+          toeOffCandidateFrame_ = sample.frameIndex;
+        }
+        belowZero_ = true;
+      } else if (swingRate >= 0.0f) {
+        belowZero_ = false;
+      }
+      if (swingRate >= config_.midSwingDps) {
         state_ = GaitState::Swing;
-        toeOffMs_ = 0.0f;
-        toeOffUs_ = sample.timeUs;
-        swingPeakRateDps_ = 0.0f;
-        lateImpact_ = 0.0f;
-        emit(GaitEventType::ToeOff, sample.timeUs, sample.frameIndex);
+        const bool candidate = toeOffCandidateUs_ != 0;
+        toeOffUs_ = candidate ? toeOffCandidateUs_ : now;
+        emit(GaitEventType::ToeOff, toeOffUs_, candidate ? toeOffCandidateFrame_ : sample.frameIndex);
+        toeOffCandidateUs_ = 0;
+        belowZero_ = false;
+        midSwingUs_ = now;
+        swingPeakDps_ = swingRate;
+        descending_ = false;
+        zeroCrossUs_ = 0;
+        bestImpact_ = 0.0f;
       }
       break;
     }
 
     case GaitState::Swing: {
-      if (footRate > swingPeakRateDps_) swingPeakRateDps_ = footRate;
-      const float sinceToeOff =
-          toeOffUs_ == 0 ? 1e9f : float(sample.timeUs - toeOffUs_) / 1e6f;
-      // Doc 05 §3: the candidate needs the angular speed to be decreasing toward
-      // contact. Both tests below reject the push-off spike, which arrives early
-      // in swing while the foot is still speeding up.
-      const bool swinging = sinceToeOff >= config_.minSwingS;
-      const bool slowing = config_.contactRateFallRatio >= 1.0f ||
-                           footRate < swingPeakRateDps_ * config_.contactRateFallRatio;
-
-      // A contact candidate is an impact feature; the event is timestamped at
-      // the strongest one inside the window, not at the first (doc 05 §3).
-      const float impact = (swinging && slowing) ? std::fabs(accelMagnitude - 1.0f) : 0.0f;
-      if (impact > lateImpact_) {
-        lateImpact_ = impact;
-        lateImpactUs_ = sample.timeUs;
-        lateImpactFrame_ = sample.frameIndex;
-      }
-      if (impact >= config_.impactG) {
-        if (contactMs_ == 0.0f) {
-          contactWindowUs_ = sample.timeUs;
-          bestImpact_ = 0.0f;
-        }
-        contactMs_ += ms;
+      if (swingRate > swingPeakDps_) swingPeakDps_ = swingRate;
+      if (!descending_ && swingRate < 0.5f * swingPeakDps_) descending_ = true;
+      if (descending_) {
+        // The heel strike is the strongest impact from late swing until the
+        // search window after the zero crossing closes: one per swing, so the
+        // forefoot slap and the impact's ringing cannot open a second cycle.
+        const float impact = std::fabs(accelMagnitude - 1.0f);
         if (impact > bestImpact_) {
           bestImpact_ = impact;
-          bestImpactUs_ = sample.timeUs;
+          bestImpactUs_ = now;
           bestImpactFrame_ = sample.frameIndex;
         }
-      } else if (contactMs_ > 0.0f && contactMs_ < kContactSustainMs &&
-                 bestImpact_ < config_.contactConfirmG) {
-        contactMs_ = 0.0f;  // a brief, weak blip: not a footfall
+        if (zeroCrossUs_ == 0 && swingRate < 0.0f) zeroCrossUs_ = now;
       }
-
-      // Doc 05 §3 asks for 30 ms of sustained candidate. A heel strike can be
-      // sharper than that: measured on the leg, one real contact spanned three
-      // samples, and at the device's 100.147 Hz that is 29.96 ms — rejected for
-      // being 0.04 ms short (TEST-030). An impact at the confirm level is taken
-      // as decisive on its own.
-      const bool qualified =
-          contactMs_ >= kContactSustainMs || bestImpact_ >= config_.contactConfirmG;
-      const bool windowClosed =
-          qualified &&
-          (float(sample.timeUs - contactWindowUs_) / 1000.0f >= kContactWindowMs || stillNow);
-      const bool tooWeak = bestImpact_ < config_.contactConfirmG;
-      const bool tooSoon =
-          lastContactUs_ != 0 &&
-          float(bestImpactUs_ - lastContactUs_) / 1e6f < config_.contactRefractoryS;
-      if (windowClosed && (tooSoon || tooWeak)) {
-        // Either the same footfall seen again — heel and forefoot are two
-        // impacts — or a push-off, which is softer than a heel strike.
-        contactMs_ = 0.0f;
-        bestImpact_ = 0.0f;
-      } else if (windowClosed) {
+      const bool searched =
+          zeroCrossUs_ != 0 && float(now - zeroCrossUs_) / 1e6f >= config_.contactSearchS;
+      if (searched) {
         state_ = GaitState::ContactTransition;
-        contactMs_ = 0.0f;
         claimContact(bestImpactUs_, bestImpactFrame_, sagittal);
       } else if (stillMs_ >= kZuptHoldMs + kZuptEntryHysteresisMs) {
         // A foot still for as long as a zero-velocity window needs is on the
-        // ground even when no contact was seen: a soft last step into a stop has
-        // no impact. Staying in swing locked the zero-velocity update out while
-        // the integrator ran on, and 17 s of standing became 29 m (PROB-023).
+        // ground. Staying in swing locked the zero-velocity update out while the
+        // integrator ran on, and 17 s of standing became 29 m (PROB-023).
         state_ = GaitState::Stance;
-        // A swing that ends in stillness ended in a footfall, too soft for the
-        // confirm level, which push-off can match (PROB-024). The footfall is
-        // the strongest impact once the swing was long enough to end.
-        const bool soonAfterContact =
-            lastContactUs_ != 0 &&
-            float(lateImpactUs_ - lastContactUs_) / 1e6f < config_.contactRefractoryS;
-        if (lateImpact_ >= config_.impactG && !soonAfterContact) {
-          claimContact(lateImpactUs_, lateImpactFrame_, sagittal);
-        }
+        if (descending_) claimContact(bestImpactUs_, bestImpactFrame_, sagittal);
+      } else if (float(now - midSwingUs_) / 1e6f >= kMaxSwingS) {
+        state_ = GaitState::Stance;  // no landing seen: not a stride
       }
       break;
     }
 
     case GaitState::ContactTransition:
-      if (zuptActive_ || stillMs_ >= kZuptHoldMs) state_ = GaitState::FootFlatZv;
-      else if (footRate > config_.swingGyroDps && movingMs_ > kToeOffSustainMs) state_ = GaitState::Stance;
-      else state_ = GaitState::Stance;
+      state_ = (zuptActive_ || stillMs_ >= kZuptHoldMs) ? GaitState::FootFlatZv : GaitState::Stance;
       break;
 
     case GaitState::Fault:

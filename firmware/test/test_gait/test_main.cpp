@@ -28,7 +28,9 @@ struct Run {
     engine.configure(config);
   }
 
-  void push(const float accel[3], const float footGyro[3], float shankRate,
+  /// `swingRate` is the shank's forward swing rate, -shankGyroDps[1] in the
+  /// right shank's anatomical frame (DEC-022).
+  void push(const float accel[3], const float footGyro[3], float swingRate,
             const float relative[4] = kIdentity) {
     ead::GaitSample s{};
     s.timeUs = timeUs;
@@ -38,7 +40,7 @@ struct Run {
       s.footGyroDps[i] = footGyro[i];
       s.shankGyroDps[i] = 0.0f;
     }
-    s.shankGyroDps[1] = shankRate;
+    s.shankGyroDps[1] = -swingRate;
     for (int i = 0; i < 4; ++i) {
       s.footQuaternion[i] = kIdentity[i];
       s.relativeQuaternion[i] = relative[i];
@@ -56,6 +58,15 @@ struct Run {
     const float accel[3] = {0.0f, 0.0f, 1.0f};
     const float gyro[3] = {0.0f, 0.0f, 0.0f};
     for (int i = 0; i < int(seconds * kHz); ++i) push(accel, gyro, 0.0f);
+  }
+
+  /// Stance: the foot flat and still while the shank rolls forward over it,
+  /// backward swing rate deepening to push-off, as measured (TEST-059).
+  void stance(float seconds) {
+    const int steps = int(seconds * kHz);
+    const float accel[3] = {0.0f, 0.0f, 1.0f};
+    const float gyro[3] = {0.0f, 0.0f, 0.0f};
+    for (int i = 0; i < steps; ++i) push(accel, gyro, -40.0f - 80.0f * float(i) / float(steps));
   }
 
   /// Swing: the foot turns fast and the acceleration wanders, but never enough
@@ -81,12 +92,13 @@ struct Run {
     }
   }
 
-  /// The impact feature at initial contact: three frames of a hard spike.
+  /// The impact feature at initial contact: three frames of a hard spike, as
+  /// the shank's forward swing reverses.
   void contact() {
     const float gyro[3] = {0.0f, 60.0f, 0.0f};
     for (int i = 0; i < 3; ++i) {
       const float accel[3] = {0.0f, 0.0f, 1.0f + (i == 1 ? 1.4f : 0.7f)};
-      push(accel, gyro, 80.0f);
+      push(accel, gyro, -80.0f);
     }
   }
 
@@ -110,7 +122,7 @@ struct Run {
 void walk(Run* run, int cycles) {
   for (int i = 0; i < cycles; ++i) {
     run->contact();
-    run->still(0.57f);
+    run->stance(0.57f);
     run->swing(0.40f);
   }
 }
@@ -139,48 +151,49 @@ static void test_a_walk_produces_one_cycle_per_stride() {
   TEST_ASSERT_TRUE(run.cycles.size() >= 3);
 }
 
-static void test_a_step_into_a_stop_without_an_impact_still_gets_zero_velocity() {
-  // The last step into a stop can land too softly to be seen as a contact. The
-  // foot standing still must leave swing all the same, or the zero-velocity
-  // update is locked out for the whole stand (PROB-023).
-  Run run;
-  run.still(1.0f);
-  walk(&run, 3);
-  const int contacts = run.count(ead::GaitEventType::InitialContact);
-  run.still(3.0f);
-  TEST_ASSERT_TRUE(run.engine.inZupt());
-  TEST_ASSERT_EQUAL_INT(contacts, run.count(ead::GaitEventType::InitialContact));
-}
-
-static void test_a_soft_landing_ending_a_swing_is_a_contact() {
-  // Slow footfalls land below the confirm level, which push-off can reach too
-  // (PROB-024). Late in a swing that then ends in stillness, the strongest
-  // impact is the footfall; an impact before the swing could end is not.
+static void test_a_step_into_a_stop_is_a_contact_and_gets_zero_velocity() {
+  // The last step into a stop can land with no impact to speak of. It is still
+  // a footfall, and the foot standing still must leave swing all the same, or
+  // the zero-velocity update is locked out for the whole stand (PROB-023).
   Run run;
   run.still(1.0f);
   walk(&run, 3);
   const int before = run.count(ead::GaitEventType::InitialContact);
-  run.contact();
-  run.still(0.57f);
-  run.swing(0.40f);
-  const float soft[3] = {0.0f, 0.0f, 1.7f};
-  const float turning[3] = {0.0f, 60.0f, 0.0f};
   const uint64_t landedUs = run.timeUs;
-  run.push(soft, turning, 80.0f);
-  run.still(1.0f);
-  TEST_ASSERT_EQUAL_INT(before + 2, run.count(ead::GaitEventType::InitialContact));
+  const float soft[3] = {0.0f, 0.0f, 1.3f};
+  const float turning[3] = {0.0f, 20.0f, 0.0f};
+  run.push(soft, turning, -20.0f);
+  run.still(3.0f);
+  TEST_ASSERT_TRUE(run.engine.inZupt());
+  TEST_ASSERT_EQUAL_INT(before + 1, run.count(ead::GaitEventType::InitialContact));
   TEST_ASSERT_EQUAL_UINT64(landedUs, run.lastTimeOf(ead::GaitEventType::InitialContact));
+}
 
-  Run early;
-  early.still(1.0f);
-  walk(&early, 3);
-  const int earlyBefore = early.count(ead::GaitEventType::InitialContact);
-  early.contact();
-  early.still(0.57f);
-  early.swing(0.10f);  // shorter than the minimum swing
-  early.push(soft, turning, 80.0f);
-  early.still(1.0f);
-  TEST_ASSERT_EQUAL_INT(earlyBefore + 1, early.count(ead::GaitEventType::InitialContact));
+static void test_an_impact_without_a_swing_is_not_a_contact() {
+  // TEST-058: the foot-impact detector put a second contact about 1 s after a
+  // real one, splitting the stride. The foot turned fast in stance, which it
+  // took for toe-off, and the next impact for a footfall. The shank did not
+  // swing, so neither is a stride event.
+  Run run;
+  run.still(1.0f);
+  walk(&run, 2);
+  run.contact();
+  run.stance(0.25f);
+  const float turning[3] = {0.0f, 150.0f, 0.0f};
+  for (int i = 0; i < 25; ++i) {
+    const float accel[3] = {0.0f, 0.0f, 1.0f};
+    run.push(accel, turning, -100.0f);
+  }
+  for (int i = 0; i < 3; ++i) {
+    const float accel[3] = {0.0f, 0.0f, 2.5f};
+    run.push(accel, turning, -100.0f);
+  }
+  run.stance(0.30f);
+  run.swing(0.40f);
+  run.contact();
+  run.still(0.30f);
+  // Contacts: two from the walk's swings, then the one closing this swing.
+  TEST_ASSERT_EQUAL_INT(3, run.count(ead::GaitEventType::InitialContact));
 }
 
 static void test_accel_jitter_in_foot_flat_does_not_block_zero_velocity() {
@@ -207,11 +220,10 @@ static void test_cycle_timing_stance_ratio_and_cadence() {
   for (const auto& c : run.cycles) {
     TEST_ASSERT_TRUE_MESSAGE(c.valid, "a one-second cycle must pass the temporal guards");
     TEST_ASSERT_FLOAT_WITHIN(0.03f, 1.0f, c.cycleTimeS);
-    // Stance runs from contact to toe-off. Toe-off needs 40 ms of sustained
-    // rotation before it is accepted, so stance measures a little long and
-    // swing a little short against the 0.60/0.40 the generator produces.
-    TEST_ASSERT_FLOAT_WITHIN(0.06f, 0.63f, c.stanceRatio);
-    TEST_ASSERT_FLOAT_WITHIN(0.06f, 0.37f, c.swingRatio);
+    // Stance runs from contact to toe-off, the deepest backward shank rate
+    // before swing: the generator's 0.60/0.40, give or take the 20 Hz filter.
+    TEST_ASSERT_FLOAT_WITHIN(0.03f, 0.60f, c.stanceRatio);
+    TEST_ASSERT_FLOAT_WITHIN(0.03f, 0.40f, c.swingRatio);
     TEST_ASSERT_FLOAT_WITHIN(0.02f, c.cycleTimeS, c.stanceTimeS + c.swingTimeS);
     // Doc 05 §9: 120 / cycle time.
     TEST_ASSERT_FLOAT_WITHIN(4.0f, 120.0f, c.cadenceStepsPerMin);
@@ -372,8 +384,8 @@ int main() {
   UNITY_BEGIN();
   RUN_TEST(test_a_still_foot_produces_a_zupt_and_no_cycles);
   RUN_TEST(test_a_walk_produces_one_cycle_per_stride);
-  RUN_TEST(test_a_step_into_a_stop_without_an_impact_still_gets_zero_velocity);
-  RUN_TEST(test_a_soft_landing_ending_a_swing_is_a_contact);
+  RUN_TEST(test_a_step_into_a_stop_is_a_contact_and_gets_zero_velocity);
+  RUN_TEST(test_an_impact_without_a_swing_is_not_a_contact);
   RUN_TEST(test_accel_jitter_in_foot_flat_does_not_block_zero_velocity);
   RUN_TEST(test_cycle_timing_stance_ratio_and_cadence);
   RUN_TEST(test_a_second_impact_soon_after_is_the_same_footfall);

@@ -1346,10 +1346,17 @@ Seven video-synced walks on schema 6, firmware 0.1.0+523b49d:
    sensors in place, so the detector, not the recording, is at fault.
 3. Root cause of 2: Unknown. Not yet examined trace by trace.
 
+### Shank-swing detection (2026-10-04, DEC-022, TEST-059)
+Symptoms 1 and 4 and the split strides of TEST-058 are resolved on the fixtures:
+contacts are one per shank swing, timed at the foot's impact. Counting error over
+176 landings: 21 → 3. Not yet flashed or tried on the leg.
+
+Still open: symptom 2 on the 2026-10-02 slow walk (6.19 and 7.02 m per 10 m leg);
+the 2026-10-04 barefoot slow walks read 9.4–9.6 m. That recording differs in rate
+(100 Hz), orientation (Mahony), footwear and day. Root cause: Unknown.
+
 ### Next
-Shank-based step detection (DEC-020 (a)): every stride in TEST-058 has one shank swing
-of ≥ 150 °/s and the walker's counts equal the swing counts. Score it against these
-fixtures before replacing the foot-impact contact.
+Flash and walk with the shank detector; then the distance work (DEC-020 6c).
 
 ## PROB-025 — Dashboard: event and step batches bypassed gap detection; backfilled ones were dropped
 

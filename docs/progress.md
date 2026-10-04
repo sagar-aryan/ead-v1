@@ -1687,3 +1687,50 @@ Completed. Contact detection open (PROB-024).
 
 ### Next Steps
 Shank-based step detection, scored against the 2026-10-04 fixtures.
+
+## 2026-10-04 — Step detection from the shank's swing (DEC-022, TEST-059)
+
+### Objective
+DEC-020 6a: replace the foot-impact contact detector, which split strides on the
+barefoot walks (TEST-058).
+
+### Investigation
+The aligned shank gyro added to the replay's TRACE line. Forward swing rate
+(−gy, right leg) per stride: one peak of 140–290 °/s at mid-swing, a sharp dip at
+heel strike, a broad backward dip at push-off. Timing survey on 14 recordings:
+the foot's impact peak follows the downward zero crossing by 35–60 ms (median);
+the shank minimum is later and wider-spread (to 190 ms), so it was not used as
+the contact's clock.
+
+### Approach
+Count from the shank, time from the foot (DEC-022). Kept: ZUPT, integration,
+cycle features, the stillness fallback of PROB-023.
+
+### Changes
+- `gait.{h,cpp}`: new contact and toe-off logic; `GaitConfig` reduced to
+  `midSwingDps`, `contactSearchS`, the ZUPT limits and the rate.
+- `test_gait`: the synthetic gait gains a realistic shank (stance roll, push-off
+  dip); two tests replaced by one for a step into a stop; a new split-stride test.
+- `tools/replay/main.cpp`: shank gyro in TRACE, `--mid-swing`, `--contact-search`;
+  the old detector's flags removed.
+- `tools/replay/walks.py`: all eleven 10 m fixtures, the 2026-10-04 ones by leg
+  windows.
+
+### Problems
+- The first split-stride test passed on the old engine too: a lone impact in
+  stance was never the failure. Rebuilt from the real mechanism (the foot turning
+  fast in stance, then an impact); it now fails on the old engine.
+- The scorer dropped each recording's last contact (it paired contacts with
+  cycles); fixed by counting contacts directly.
+- The 6 m course read 5 cycles, not 6: TEST-030's first "heel strike" was a
+  push-off (correction recorded under TEST-030).
+
+### Verification
+TEST-059: counting error 21 → 3 over 176 landings; 13 gait tests pass (3 fail on
+the old engine); firmware builds.
+
+### Current Status
+Completed on the host. Not flashed; not tried on the leg.
+
+### Next Steps
+Flash and walk; then the distance filter (DEC-020 6c).

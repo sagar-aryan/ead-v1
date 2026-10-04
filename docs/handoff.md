@@ -221,7 +221,9 @@ hardware tests; the second resets the board).
    (TEST-056); on the leg over Wi-Fi, barefoot, with video (TEST-058): 0 frames lost.
    Seven video-synced fixtures in `recordings/*-2026-10-04.eadlog`; the replay needs
    `--still-from` for them (README). Contact detection splits strides there
-   (PROB-024); next is shank-based step detection (DEC-020 (a)) scored on them.
+   (PROB-024). Step detection now comes from the shank's swing (DEC-022, TEST-059):
+   counting error 21 → 3 over 176 landings on the fixtures; not yet flashed or
+   walked. Score any change with `python3 tools/replay/walks.py /tmp/eadreplay`.
 1. On the leg: mount maps measured and checked (TEST-051). First 10 m walks
    (TEST-052) found PROB-023, fixed in `gait.cpp` and flashed (0.1.0+77ae282).
    PROB-024: contacts fixed (DEC-019, TEST-053); open are slow strides reading

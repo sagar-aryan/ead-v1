@@ -16,7 +16,8 @@ A recording made by `eadprobe stats --record` since schema 5 carries the device'
 configuration, and the replay converts its counts with it. Older recordings carry
 none: `--mpu6500` supplies the MPU6500 build's scales and measured mount maps,
 and without it the replay refuses rather than guess. Expected for the walk below:
-6 valid cycles, 6.39 m.
+5 valid cycles, 5.83 m (DEC-022; it read 6 and 6.39 m when the first step's
+push-off was taken for a contact).
 
 | File | Ground truth | Notes |
 |---|---|---|
@@ -32,14 +33,14 @@ and without it the replay refuses rather than guess. Expected for the walk below
 | `walk10m-slow2-2026-10-04.eadlog` | as above, 9–10 per leg; shank swings 9 and 8 | `--still-from 33`. Video = data − 2.8 s. No stand between the stamps and the walk, or at the far end. |
 | `walk10m-fast1-2026-10-04.eadlog` | as above, 7 per leg | `--still-from 37`. Video = data − 2.7 s. No stand at the far end. |
 | `walk3min-2026-10-04.eadlog` | back and forth over the 10 m course for about 3 min; no per-leg count | `--still-from 187`. Video = data − 2.6 s. |
-| `walk6m-2026-09-18.eadlog` (MPU6500 build: `--mpu6500`) | 6.00 m course, 11–12 alternating steps, 6 right-foot strides | 40 s over Wi-Fi: 5 s standing, the walk, then standing. 4,010 frames, no gaps. Heel strikes verified at 6.95, 7.51, 9.17, 10.94, 12.74, 14.33 and 15.92 s by finding the acceleration peaks independently of the detector (TEST-030). |
+| `walk6m-2026-09-18.eadlog` (MPU6500 build: `--mpu6500`) | 6.00 m course, 11–12 alternating steps, 6 right-foot strides | 40 s over Wi-Fi: 5 s standing, the walk, then standing. 4,010 frames, no gaps. Heel strikes at 7.51, 9.17, 10.94, 12.74, 14.33 and 15.92 s; the acceleration peak at 6.95 s that TEST-030 also listed is the first step's push-off (TEST-059). |
 
 The `walk10m-*` files are dashboard sessions written out by
 `tools/session2eadlog.py` (TEST-052): the session's configuration, then its raw
 frames, so the replay needs no flag. Worn by the developer (ID `DEV-1`), firmware
 0.1.0+9c91b7d with the measured BNO086 maps; each starts and ends with about 5 s
 standing, and has a stand, a turn and a stand between the legs. Replay with
-`--still-seconds 5`, or all five against their counts with
+`--still-seconds 5`, or all of them, with the 2026-10-04 walks, against their counts with
 `tools/replay/walks.py /path/to/eadreplay`. Results per engine version are in
 docs/testing.md (TEST-052 onward).
 

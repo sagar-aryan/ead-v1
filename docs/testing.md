@@ -848,6 +848,12 @@ Saturation appeared for the first time: 2 frames of accelerometer and 1 of
 gyroscope clipping (±4 g, ±500 °/s) in 4,010. Impacts reached 5.3 g, so the
 accelerometer range is marginal for heel strike (PROB-011).
 
+**Correction (2026-10-04, TEST-059):** the first "heel strike", 6.95 s, was the
+first step's push-off: it falls in the shank's backward dip before that step's
+swing (peak at 7.27 s), and a right-foot landing cannot precede the right foot's
+swing. The course has six landings and five cycles; the 0.36 m first cycle was
+not a stride.
+
 ## TEST-031 — Reference profile and error engine
 
 ### Objective
@@ -2056,3 +2062,49 @@ and a broken fast return leg, with the recordings themselves sound (PROB-024).
 Slow legs no longer read 30 % short (TEST-052: 0.65–0.73 m median cycle; here
 1.03–1.18 m). Observed, not explained: schema 6 changed the rate, the orientation
 source and the footwear at once.
+
+## TEST-059 — Shank-swing step detection on the recorded walks
+
+### Objective
+DEC-022 against every fixture with ground truth, beside the foot-impact engine
+it replaces.
+
+### Environment
+Host replay (`tools/replay/main.cpp`), the eleven 10 m fixtures (2026-10-02 and
+2026-10-04), the 3-minute walk and the 6 m MPU6500 course.
+
+### Procedure
+1. Survey the shank's forward swing rate: per-peak height and the time from its
+   downward zero crossing to the shank minimum and to the foot's impact peak.
+2. `python3 tools/replay/walks.py /tmp/eadreplay`, before (e3d4c01) and after.
+3. Sweep `--mid-swing` 50–100.
+4. The new gait tests against both engines.
+
+### Actual
+- Peaks: strides 140–290 °/s; walk-in, turn shuffles and a few first steps 40–100.
+  Zero crossing to impact 35–60 ms median (p90 54–122 ms); to the shank minimum
+  40–149 ms median, p90 up to 190 ms.
+- Contacts against the counts, sum of |found − counted| over 176 landings:
+  foot-impact engine 21, shank engine 3 (2026-10-02 slow 10/11 twice; 10-04 slow 2
+  back 9 against a swing count of 8, the walker said 9–10). Every 2026-10-04 normal
+  and slow leg matches. Fast 1 (out, turn, back): 15 contacts (was 22), 18.98 m
+  (was 23.27 with a 5.04 m cycle); no valid cycle over 3 m.
+- `--mid-swing`: 100 → 3, 90/80/70 → 5, 60 → 7, 50 → 8 (lower thresholds count the
+  shuffles the walker did not count).
+- Per leg, 10 m less the first step: 8.47–9.66 m on all normal, fast and
+  2026-10-04 slow legs; 2026-10-02 slow 6.19 and 7.02 m (unchanged, PROB-024).
+- 3-minute walk: every leg 8–9 contacts, 8.8–10.0 m; 92 contacts (was 108).
+- Stance ratio median 0.54–0.59 (was 0.48–0.50).
+- 6 m course: contacts at 7.51, 9.17, 10.94, 12.74, 14.33, 15.92 s, 5 cycles,
+  5.83 m. The old engine's extra contact at 6.95 s sits in the backward shank dip
+  before the first swing (peak 7.27 s): push-off, not a heel strike.
+- Gait tests: 13 pass on the new engine; on the old one 3 fail, among them the
+  split-stride case from TEST-058.
+
+### Result
+PASS. Step counting and timing on the fixtures; on the device it is unflashed
+and untested.
+
+### Notes
+All ground truth is one healthy wearer. Distance still comes from the same ZUPT
+integrator; the 2026-10-02 slow shortfall is a distance problem, not detection.

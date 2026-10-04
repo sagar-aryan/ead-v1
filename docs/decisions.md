@@ -865,3 +865,52 @@ About twice the data per session, a frame up to one accelerometer interval
 Protocol schema 6, store schema 8, export gains the native accelerometer file.
 Everything that assumed 100 Hz is rechecked. Old recordings keep replaying
 through Mahony.
+
+## DEC-022 — Gait events from the shank's swing
+
+**Date:** 2026-10-04
+
+**Status:** Accepted
+
+### Context
+DEC-020 item 6a. The foot-impact detector (contacts at a foot acceleration peak
+after a foot-rate toe-off) split strides on the barefoot walks: 40 contacts in 272
+had no shank swing before them, and fast 1's return leg read a contact every
+0.5 s (TEST-058). Each earlier fix tuned it against one failure and opened another
+(PROB-016, PROB-024 attempts 1–5).
+
+### Options Considered
+1. Keep tuning the foot-impact detector's thresholds.
+2. Shank sagittal rate alone: mid-swing peak, contact at the minimum after it,
+   toe-off at the minimum before it (Aminian 2002, Salarian 2004).
+3. The shank's swing for counting, the foot's impact for the contact's time.
+
+### Decision
+Option 3. The shank's forward swing rate (−shankGyroDps[1], right leg) through the
+20 Hz event-path filter:
+- a swing starts when it reaches 100 °/s; toe-off is the deepest backward rate in
+  the run below zero that led into it (not within 0.15 s of the last contact);
+- the contact is the strongest foot impact |a − 1 g| from when the rate falls
+  below half its peak until 0.15 s after it crosses zero; or, when the foot is
+  still for a zero-velocity window first, the strongest one so far;
+- a swing with no downward zero crossing within 1 s is dropped.
+
+### Reason
+Every stride has exactly one shank swing of 140–290 °/s; turn shuffles and the
+walk to the start line peak at 40–100 (TEST-059). The shank's own minimum after the
+swing is a poor clock: its 90th percentile lands 145–190 ms after the zero crossing,
+on the stance slope. The foot's impact came 35–60 ms after it (median) on all 14
+recordings.
+
+### Trade-offs
+One contact per swing by construction, so no split strides and no refractory or
+confirm levels. A swing below 100 °/s (a very short first step, a shuffle) is not
+a stride. The device is right-leg only; a left leg would flip the sign. Contacts
+are timestamped up to 0.15 s after they happen, as before.
+
+### Consequences
+`GaitConfig` keeps `midSwingDps` and `contactSearchS` only; the impact, confirm,
+foot swing-rate, minimum swing and stance, refractory and rate-fall settings are
+gone, with their replay flags. Toe-off moves later (stance 54–59 % of the cycle,
+was 48–50 %). TEST-030's 6 m course reads 5 cycles and 5.83 m (was 6 and 6.39): its
+first "heel strike" was the first step's push-off.

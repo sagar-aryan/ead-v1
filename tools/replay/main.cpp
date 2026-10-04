@@ -200,13 +200,8 @@ int main(int argc, char** argv) {
     else if (flag == "--trace") trace = true;
     else if (flag == "--events") events = true;
     else if (flag == "--mpu6500") mpu6500 = true;
-    else if (flag == "--impact" && hasValue) config.impactG = std::stof(argv[++i]);
-    else if (flag == "--confirm" && hasValue) config.contactConfirmG = std::stof(argv[++i]);
-    else if (flag == "--swing-rate" && hasValue) config.swingGyroDps = std::stof(argv[++i]);
-    else if (flag == "--min-swing" && hasValue) config.minSwingS = std::stof(argv[++i]);
-    else if (flag == "--min-stance" && hasValue) config.minStanceS = std::stof(argv[++i]);
-    else if (flag == "--rate-fall" && hasValue) config.contactRateFallRatio = std::stof(argv[++i]);
-    else if (flag == "--refractory" && hasValue) config.contactRefractoryS = std::stof(argv[++i]);
+    else if (flag == "--mid-swing" && hasValue) config.midSwingDps = std::stof(argv[++i]);
+    else if (flag == "--contact-search" && hasValue) config.contactSearchS = std::stof(argv[++i]);
     else if (flag == "--zupt-accel" && hasValue) config.zuptAccelToleranceG = std::stof(argv[++i]);
     else if (flag == "--zupt-gyro" && hasValue) config.zuptGyroDps = std::stof(argv[++i]);
   }
@@ -351,9 +346,10 @@ int main(int argc, char** argv) {
       const float magnitude = std::sqrt(sample.footAccelG[0] * sample.footAccelG[0] +
                                         sample.footAccelG[1] * sample.footAccelG[1] +
                                         sample.footAccelG[2] * sample.footAccelG[2]);
-      std::printf("TRACE %.3f %6.3f %8.1f %d %d\n",
+      std::printf("TRACE %.3f %6.3f %8.1f %d %d %8.1f %8.1f %8.1f\n",
                   float(frame.timeUs - frames.front().timeUs) / 1e6f, magnitude, rate,
-                  int(engine.state()), engine.inZupt() ? 1 : 0);
+                  int(engine.state()), engine.inZupt() ? 1 : 0, sample.shankGyroDps[0],
+                  sample.shankGyroDps[1], sample.shankGyroDps[2]);
     }
 
     ead::GaitEvent event;
