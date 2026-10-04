@@ -250,8 +250,9 @@ hardware tests; the second resets the board).
   LOW first (a doubtful channel stays out of the enable mask), never asserts both chip
   selects, never starts UART0, and never puts a motor on GPIO39
   (`docs/wiring_reference.md` firmware rules).
-- The master switch output feeds the XIAO's 5V pin (PROB-021, closed by the user's own
-  provision); ask before any test that needs the switch ON with USB plugged in.
+- The master switch output feeds the XIAO's 5V pin (PROB-021). **The battery switch is
+  never ON while USB is plugged in** (user, 2026-10-05). A motor test that needs battery
+  power runs over Wi-Fi with USB unplugged.
 - `firmware/bench/padstate` briefly pulls each motor gate up at boot (0.3 ms).
 - **The repository is public.** Never commit `firmware/include/ead_secrets.h`;
   never put the patient's name in docs (use the ID, `67`).

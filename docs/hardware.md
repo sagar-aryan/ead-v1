@@ -300,3 +300,25 @@ Practical points for the build, none of them yet verified on a leg:
   enough not to bounce; its mass sits on the same strap as the IMU.
 - Leave slack in the strap-to-strap wiring: calf circumference changes as the
   muscle contracts.
+
+## Power budget (estimate, 2026-10-05; not measured)
+
+The battery switch is never ON while USB is plugged in (user, 2026-10-05), so the
+battery current can only be measured in series with the cell, or as a runtime test.
+
+| Load | Current at the battery | Source |
+|---|---|---|
+| XIAO ESP32-S3, Wi-Fi AP streaming ~23 kB/s, CPU 240 MHz (firmware sets neither clock nor TX power) | 100–150 mA average; TX bursts to ~340 mA | Seeed wiki: ~100 mA Wi-Fi active; Espressif ESP32-S3 datasheet ranges for TX/RX |
+| BNO086 ×2, accelerometer + gyroscope + game rotation vector at 200 Hz | 10–15 mA each | ~12.3 mA awake measured by a third party (wolles-elektronikkiste.de); our report set not measured |
+| ERM ×6 via HT7833 (LDO, so battery current ≈ motor current) | 90 mA rated per motor at 3 V, 120 mA start; × PWM duty × on-time | `docs/hardware.md` ERM driver row |
+| Cues (DEC-023): 250 ms per ~1.2 s cycle | typical ~3 mA (one motor, ~50 % duty, 30 % of steps); worst ~30 mA (two motors, 80 %, every step) | arithmetic |
+
+Totals: ~125–190 mA streaming without cues, ~155–220 mA at worst-case feedback; peak
+~610 mA. With 1.6–1.8 Ah usable from a ~2 Ah cell: **about 8–14 h** without cues,
+**7–12 h** at worst-case feedback.
+
+Unverified and able to move this a lot: the usable capacity (the XIAO's 3.3 V regulator
+is fed from the 5V pin at cell voltage; where the rail drops out as the cell falls toward
+3.4 V, and whether TX bursts brown it out earlier, are unknown), the cell's real capacity,
+and the AP-mode average. A runtime test settles it: full charge, stream over Wi-Fi with
+the dashboard recording until the device stops; the session's last frame is the runtime.
