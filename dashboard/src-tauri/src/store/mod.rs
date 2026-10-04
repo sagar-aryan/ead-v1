@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use rusqlite::{Connection, OptionalExtension};
 
-use crate::protocol::{AccelSample, GaitCycle, GaitEvent, RawFrame, Status};
+use crate::protocol::{AccelSample, GaitCycle, GaitEvent, HapticRecord, RawFrame, Status};
 
 pub use raw::{RawWindow, SignalGroup};
 
@@ -283,8 +283,27 @@ pub struct StoredEvent {
     pub kind: String,
 }
 
+/// A feedback cue or episode end as stored (doc 06 §13, DEC-023). Motor 0 is
+/// none; duty 0 means the cue did not run.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct StoredHaptic {
+    pub device_time_us: i64,
+    pub event: String,
+    pub cycle_start_frame: i64,
+    pub reason: String,
+    pub motor_a: i64,
+    pub duty_a: i64,
+    pub motor_b: i64,
+    pub duty_b: i64,
+    pub duration_ms: i64,
+    pub error_class: String,
+    pub error_score: f32,
+    pub confidence: f32,
+}
+
 enum WriteCommand {
     Frames { session_id: String, frames: Vec<RawFrame> },
+    Haptics { session_id: String, records: Vec<HapticRecord> },
     Accel { session_id: String, samples: Vec<AccelSample> },
     Status { session_id: String, frame_index: i64, device_state: u8, faults: u16 },
     Gait { session_id: String, cycles: Vec<GaitCycle>, events: Vec<GaitEvent> },
@@ -656,6 +675,45 @@ impl Store {
                 events: events.to_vec(),
             });
         }
+    }
+
+    /// Stores feedback records for the recording session, if any.
+    pub fn record_haptics(&self, records: &[HapticRecord]) {
+        if records.is_empty() {
+            return;
+        }
+        let Some(session_id) = self.recording_session() else { return };
+        let writer = self.writer.lock().expect("writer");
+        if let Some(writer) = writer.as_ref() {
+            let _ = writer.send(WriteCommand::Haptics { session_id, records: records.to_vec() });
+        }
+    }
+
+    /// Every feedback record stored for a session, in time order.
+    pub fn haptics(&self, session_id: &str) -> Result<Vec<StoredHaptic>> {
+        let connection = self.reader()?;
+        let mut statement = connection.prepare(
+            "SELECT device_time_us, event, cycle_start_frame, reason, motor_a, duty_a, motor_b,
+                    duty_b, duration_ms, error_class, error_score, confidence
+             FROM haptics WHERE session_id = ?1 ORDER BY device_time_us, event",
+        )?;
+        let rows = statement.query_map([session_id], |row| {
+            Ok(StoredHaptic {
+                device_time_us: row.get(0)?,
+                event: row.get(1)?,
+                cycle_start_frame: row.get(2)?,
+                reason: row.get(3)?,
+                motor_a: row.get(4)?,
+                duty_a: row.get(5)?,
+                motor_b: row.get(6)?,
+                duty_b: row.get(7)?,
+                duration_ms: row.get(8)?,
+                error_class: row.get(9)?,
+                error_score: row.get(10)?,
+                confidence: row.get(11)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     /// Every cycle stored for a session, in time order.
@@ -1129,9 +1187,16 @@ fn writer_loop(mut connection: Connection, rx: mpsc::Receiver<WriteCommand>) {
     let mut pending_accel: Vec<(String, Vec<AccelSample>)> = Vec::new();
     let mut pending_gait: PendingGait = Vec::new();
     let mut pending_status: Vec<(String, i64, u8, u16)> = Vec::new();
+    let mut pending_haptics: Vec<(String, Vec<HapticRecord>)> = Vec::new();
     let mut last_commit = Instant::now();
     loop {
         match rx.recv_timeout(COMMIT_INTERVAL) {
+            Ok(WriteCommand::Haptics { session_id, records }) => {
+                pending_haptics.push((session_id, records));
+                if last_commit.elapsed() < COMMIT_INTERVAL {
+                    continue;
+                }
+            }
             Ok(WriteCommand::Gait { session_id, cycles, events }) => {
                 pending_gait.push((session_id, cycles, events));
                 if last_commit.elapsed() < COMMIT_INTERVAL {
@@ -1157,22 +1222,22 @@ fn writer_loop(mut connection: Connection, rx: mpsc::Receiver<WriteCommand>) {
                 }
             }
             Ok(WriteCommand::Flush(done)) => {
-                commit(&mut connection, &mut pending, &mut pending_accel, &mut pending_gait, &mut pending_status);
+                commit(&mut connection, &mut pending, &mut pending_accel, &mut pending_gait, &mut pending_status, &mut pending_haptics);
                 last_commit = Instant::now();
                 let _ = done.send(());
                 continue;
             }
             Ok(WriteCommand::Stop) => {
-                commit(&mut connection, &mut pending, &mut pending_accel, &mut pending_gait, &mut pending_status);
+                commit(&mut connection, &mut pending, &mut pending_accel, &mut pending_gait, &mut pending_status, &mut pending_haptics);
                 return;
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
-                commit(&mut connection, &mut pending, &mut pending_accel, &mut pending_gait, &mut pending_status);
+                commit(&mut connection, &mut pending, &mut pending_accel, &mut pending_gait, &mut pending_status, &mut pending_haptics);
                 return;
             }
         }
-        commit(&mut connection, &mut pending, &mut pending_accel, &mut pending_gait, &mut pending_status);
+        commit(&mut connection, &mut pending, &mut pending_accel, &mut pending_gait, &mut pending_status, &mut pending_haptics);
         last_commit = Instant::now();
     }
 }
@@ -1185,11 +1250,13 @@ fn commit(
     pending_accel: &mut Vec<(String, Vec<AccelSample>)>,
     pending_gait: &mut PendingGait,
     pending_status: &mut Vec<(String, i64, u8, u16)>,
+    pending_haptics: &mut Vec<(String, Vec<HapticRecord>)>,
 ) {
     if pending.is_empty()
         && pending_accel.is_empty()
         && pending_gait.is_empty()
         && pending_status.is_empty()
+        && pending_haptics.is_empty()
     {
         return;
     }
@@ -1238,6 +1305,21 @@ fn commit(
             }
         }
         {
+            let mut insert = transaction.prepare_cached(schema::INSERT_HAPTIC)?;
+            for (session_id, records) in pending_haptics.iter() {
+                for h in records {
+                    let motor = |i: usize| h.motors.get(i).copied().unwrap_or((0, 0));
+                    let (motor_a, duty_a) = motor(0);
+                    let (motor_b, duty_b) = motor(1);
+                    insert.execute(rusqlite::params![
+                        session_id, h.device_time_us as i64, h.event, h.cycle_start_frame,
+                        h.reason, motor_a, duty_a, motor_b, duty_b, h.duration_ms,
+                        h.error_class, h.error_score, h.confidence,
+                    ])?;
+                }
+            }
+        }
+        {
             let mut status = transaction.prepare_cached(schema::INSERT_STATUS_CHANGE)?;
             for (session_id, frame_index, device_state, faults) in pending_status.iter() {
                 status.execute(rusqlite::params![
@@ -1263,6 +1345,7 @@ fn commit(
     pending_accel.clear();
     pending_gait.clear();
     pending_status.clear();
+    pending_haptics.clear();
 }
 
 /// Closes sessions left open when the app last exited mid-recording.

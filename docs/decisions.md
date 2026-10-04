@@ -178,7 +178,8 @@ The dashboard needs a link selector. Supersedes DEC-002.
 
 **Date:** 2026-09-17
 
-**Status:** Accepted (user-selected)
+**Status:** Superseded by DEC-023 (2026-10-04): the drivers are fitted and the user
+asked for feedback during walking (DEC-020 item 2)
 
 ### Context
 Docs 06 and 14 (Phase 6) define a haptic engine, but no MOSFET driver channels
@@ -914,3 +915,54 @@ foot swing-rate, minimum swing and stance, refractory and rate-fall settings are
 gone, with their replay flags. Toe-off moves later (stance 54–59 % of the cycle,
 was 48–50 %). TEST-030's 6 m course reads 5 cycles and 5.83 m (was 6 and 6.39): its
 first "heel strike" was the first step's push-off.
+
+## DEC-023 — Haptic feedback during walking
+
+**Date:** 2026-10-04
+
+**Status:** Accepted
+
+### Context
+DEC-020 item 2: vibrate during walking, with a master switch on the dashboard; the
+buzz is the step's error, after the step lands; motor layout as doc 06 §7 (the user's
+reference image matches it). Drivers fitted and all six motors verified (DEC-018,
+PROB-020). Doc 06 §5–§13 gives gating, direction, intensity, hysteresis, limits and
+logging, but no cue length.
+
+### Options Considered
+1. On the host: the dashboard decides and sends motor commands.
+2. On the device: the device decides from the score it already computes.
+3. Continuous vibration through an episode (doc 06 §11 read literally).
+4. One cue per scored cycle, when it closes.
+
+### Decision
+Options 2 and 4. `ead::HapticEngine` (`lib/ead_core`) takes each scored cycle of an
+EVALUATION session and returns a cue or an episode end:
+- gating: a new episode at score ≥ 0.35 and confidence ≥ 0.75; it continues while the
+  score stays ≥ 0.25 and confidence ≥ 0.50; an invalid cycle ends it, as does a score
+  with no class (no direction);
+- direction: doc 06 §8 as a table, the two nearest motors weighted linearly (§9),
+  the farther dropped below the 51 minimum duty; OVERALL is the deviation-weighted sum
+  of the active classes' cues; TIMING alternates M1 and M4, one per cue;
+- intensity: 51 + 153 × score^1.5 × confidence (§10);
+- one cue of 250 ms per scored cycle (provisional: doc 06 gives no length).
+The master switch is CONFIG_SET `haptic_feedback`, off at every boot, reported in
+STATUS. Every cue and episode end is a HAPTIC_BATCH record, stored and exported. The
+motor guard's limits (5 s on, 50 % in 10 s, per motor) hold for every cue, two motors at
+once allowed for a cue only. A read failure, a lost frame, no orientation, the switch or
+the end of the session ends an episode and stops the motors.
+
+### Reason
+On the device the cue does not wait for the link, and a lost link cannot leave a motor
+running: every cue ends itself. One cue per cycle is what the user asked for ("after the
+step lands"), keeps on-time far under the rolling limit, and keeps each cue tied to the
+step that caused it in the log.
+
+### Trade-offs
+Doc 06 §11's "remain ON" is read as "keep cueing every step" rather than a continuous
+vibration. The cue length, the TIMING alternation and the dropped weak second motor are
+choices doc 06 leaves open. Nothing here has been felt yet.
+
+### Consequences
+Protocol schema 7, store schema 10, `haptics.csv` filled. The service test is still
+refused during a session (doc 06 §12). A left-leg device would need the map mirrored.

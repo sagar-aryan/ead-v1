@@ -3,6 +3,7 @@
 #include "ead/calibration.h"
 #include "ead/error_engine.h"
 #include "ead/gait.h"
+#include "ead/haptics.h"
 #include "ead/reference.h"
 
 #include "ead/cobs.h"
@@ -144,6 +145,7 @@ size_t encodeStatusPayload(const StatusInfo& s, uint8_t* out, size_t cap) {
   w.u16(s.calibration_reject);
   w.u8(s.gait_state);
   w.u32(s.cycles_completed);
+  w.u8(s.haptics);
   return w.ok() ? w.size() : 0;
 }
 
@@ -282,6 +284,46 @@ size_t encodeMotorPulsePayload(const MotorPulse& pulse, uint8_t* out, size_t cap
   w.u8(pulse.duty);
   w.u8(0);
   w.u16(pulse.durationMs);
+  return w.ok() ? w.size() : 0;
+}
+
+bool decodeConfigSet(const uint8_t* payload, size_t len, ConfigKey* key, uint8_t* value) {
+  if (len != kConfigSetPayloadSize) return false;
+  ByteReader r(payload, len);
+  *key = ConfigKey(r.u8());
+  *value = r.u8();
+  return r.ok() && *key == ConfigKey::HapticFeedback && *value <= 1;
+}
+
+size_t encodeConfigSet(ConfigKey key, uint8_t value, uint8_t* out, size_t cap) {
+  ByteWriter w(out, cap);
+  w.u8(uint8_t(key));
+  w.u8(value);
+  return w.ok() ? w.size() : 0;
+}
+
+size_t encodeHapticBatchPayload(const HapticCue* cues, size_t count, uint8_t* out, size_t cap) {
+  if (count == 0 || count > kMaxHapticsPerBatch) return 0;
+  ByteWriter w(out, cap);
+  w.u8(uint8_t(count));
+  w.u8(uint8_t(kHapticRecordSize));
+  for (size_t i = 0; i < count; ++i) {
+    const HapticCue& c = cues[i];
+    w.u64(c.timeUs);
+    w.u32(c.cycleStartFrame);
+    w.u8(uint8_t(c.event));
+    w.u8(uint8_t(c.reason));
+    w.u8(c.motor[0]);
+    w.u8(c.duty[0]);
+    w.u8(c.motor[1]);
+    w.u8(c.duty[1]);
+    w.u16(c.durationMs);
+    w.u8(uint8_t(c.errorClass));
+    w.u8(0);
+    w.u16(0);
+    w.f32(c.score);
+    w.f32(c.confidence);
+  }
   return w.ok() ? w.size() : 0;
 }
 

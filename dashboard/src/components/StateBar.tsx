@@ -2,7 +2,47 @@
  * The one loud element: device state, link, and sensor health, readable at a
  * glance from across a bench. Everything here is measured, never inferred.
  */
-import type { DeviceConfig, Snapshot, Vocabulary } from "../api";
+import { useState } from "react";
+
+import { api, type DeviceConfig, type Snapshot, type Vocabulary } from "../api";
+
+/**
+ * The haptic master switch (DEC-023), here so it can be turned off from any
+ * page. It shows what the device reports, not what was last clicked: the
+ * device starts with it off after every boot.
+ */
+function HapticSwitch({ snapshot }: { snapshot: Snapshot | null }) {
+  const [error, setError] = useState<string | null>(null);
+  if (!snapshot?.haptics_fitted) {
+    return (
+      <span className="value absent" title="This firmware runs no error-driven feedback">
+        not fitted
+      </span>
+    );
+  }
+  const live = snapshot.link_state === "connected" && snapshot.status !== null;
+  const on = snapshot.haptic_switch_on;
+  const toggle = () =>
+    api.setHapticFeedback(!on).then(
+      () => setError(null),
+      (e) => setError(String(e)),
+    );
+  return (
+    <button
+      className={on ? "danger" : undefined}
+      disabled={!live}
+      onClick={toggle}
+      title={
+        error ??
+        (on
+          ? "Vibration runs during an evaluation, one cue after each scored step. Click to switch it off."
+          : "Click to allow vibration during evaluations. It is off after every device restart.")
+      }
+    >
+      {!live ? "—" : snapshot.haptic_episode ? "On · buzzing" : on ? "On" : "Off"}
+    </button>
+  );
+}
 
 function sensorHealth(snapshot: Snapshot | null, sensor: "foot" | "shank"): string {
   if (!snapshot?.status) return "—";
@@ -108,19 +148,8 @@ export function StateBar({
       <div className="state-spacer" />
 
       <div className="state-block">
-        <span className="label">Haptics</span>
-        {snapshot?.motor_service_test ? (
-          <span
-            className="value"
-            title="The ERM driver is fitted; motors run only as service-test pulses (DEC-018). Error-driven feedback is not built (DEC-006)."
-          >
-            no feedback
-          </span>
-        ) : (
-          <span className="value absent" title="No ERM driver channels are fitted (DEC-006)">
-            not fitted
-          </span>
-        )}
+        <span className="label">Vibration</span>
+        <HapticSwitch snapshot={snapshot} />
       </div>
 
       <div className="state-block">

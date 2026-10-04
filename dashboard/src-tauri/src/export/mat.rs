@@ -205,12 +205,15 @@ fn header() -> Vec<u8> {
 
 /// Builds `session.mat`: `raw`, `gait`, `events`, `haptics`, `metadata`,
 /// `reference` (doc 10 §7), and `accel`, the accelerometer at its own rate.
+// One argument per table of the package; bundling them would only rename them.
+#[allow(clippy::too_many_arguments)]
 pub fn session_mat(
     session: &Session,
     cycles: &[StoredCycle],
     events: &[StoredEvent],
     status: &[StatusChange],
     reference: Option<&StoredReference>,
+    haptics: &[crate::store::StoredHaptic],
     frames: impl FnOnce(&mut dyn FnMut(&crate::protocol::RawFrame)) -> super::Result<usize>,
     accel: impl FnOnce(&mut dyn FnMut(&crate::protocol::AccelSample)) -> super::Result<usize>,
 ) -> super::Result<Vec<u8>> {
@@ -404,25 +407,44 @@ bounds, error transitions and faults that doc 10 §4 names, derived from gait an
         ],
     ));
 
-    // ---- haptics: the shape, and why it is empty ----------------------------
+    // ---- haptics: every feedback record (DEC-023) ---------------------------
+    // Integers: times, frames, motors and duties are exact; the score and
+    // confidence go in their own double array.
+    let haptic_columns = [
+        "timestamp_us", "cycle_start_frame", "motor_a", "duty_a", "motor_b", "duty_b",
+        "duration_ms",
+    ];
+    let mut haptic_values = Vec::with_capacity(haptics.len() * haptic_columns.len());
+    let mut haptic_scores = Vec::with_capacity(haptics.len() * 2);
+    for h in haptics {
+        haptic_values.extend_from_slice(&[
+            h.device_time_us, h.cycle_start_frame, h.motor_a, h.duty_a, h.motor_b, h.duty_b,
+            h.duration_ms,
+        ]);
+        haptic_scores.extend_from_slice(&[h.error_score as f64, h.confidence as f64]);
+    }
+    let text = |pick: fn(&crate::store::StoredHaptic) -> &str| -> Vec<String> {
+        haptics.iter().map(|h| pick(h).to_string()).collect()
+    };
     out.extend_from_slice(&structure(
         "haptics",
         &[
-            ("values", doubles("", 0, 0, &[])),
+            ("values", int64s("", haptics.len(), haptic_columns.len(), &haptic_values)),
+            ("columns", cell_of_strings("", &haptic_columns.map(String::from))),
+            ("scores", doubles("", haptics.len(), 2, &haptic_scores)),
             (
-                "columns",
-                cell_of_strings(
-                    "",
-                    &["timestamp_us", "motor_ids", "error_class", "pwm", "duration_ms"]
-                        .map(String::from),
-                ),
+                "score_columns",
+                cell_of_strings("", &["error_score", "confidence"].map(String::from)),
             ),
+            ("event", cell_of_strings("", &text(|h| &h.event))),
+            ("reason", cell_of_strings("", &text(|h| &h.reason))),
+            ("error_class", cell_of_strings("", &text(|h| &h.error_class))),
             (
                 "note",
                 char_array(
                     "",
-                    "Empty: no ERM drivers are fitted (DEC-006). The motor GPIOs are held \
-low and no haptic command has ever been issued. This is not a recording gap.",
+                    "One row per feedback record (doc 06 §13): event on, update or off. \
+Motor 0 is none; duty 0 is a cue the motor guard refused. Empty when no cue ran.",
                 ),
             ),
         ],

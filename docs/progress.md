@@ -1734,3 +1734,41 @@ Completed on the host. Not flashed; not tried on the leg.
 
 ### Next Steps
 Flash and walk; then the distance filter (DEC-020 6c).
+
+## 2026-10-04 — Haptic feedback during walking (DEC-023, TEST-060)
+
+### Objective
+DEC-020 item 2: vibration during walking, a master switch on the dashboard.
+
+### Investigation
+Doc 06 §5–§13 against what existed: the error engine scores each cycle of a check or
+an evaluation on the device; the motor guard enforced the limits for one-motor service
+pulses; HAPTIC_BATCH and CONFIG_SET were reserved message types; every export and UI
+said "no haptics (DEC-006)".
+
+### Approach
+On the device, one cue per scored cycle (DEC-023). Pure logic in `ead_core` with unit
+tests; the device module only wires it to the switch, the motors and the log.
+
+### Changes
+Firmware, protocol schema 7 (vectors regenerated; format-1 config keeps
+`haptics_fitted` 0), eadprobe, dashboard store schema 10, export, UI. Files in
+docs/implementation.md "Haptic feedback".
+
+### Problems
+- `HapticEngine::stop` first copied the cue's earlier fields into the OFF record:
+  garbage when called from outside a cycle (switch off). Rewritten to build a clean
+  record; `onCycle` adds the cycle's fields.
+- The guard test's rolling-limit case was wrong (see TEST-060).
+- Clippy: two functions at 8 arguments. `metadata_json` reads the haptics from the
+  store as it does the config; `session_mat` takes one argument per table and carries
+  an `allow` saying so.
+
+### Verification
+TEST-060.
+
+### Current Status
+Completed on the host. Not flashed, not felt.
+
+### Next Steps
+Flash; bench test with the motors visible; then worn.

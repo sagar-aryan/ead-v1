@@ -27,10 +27,11 @@ import time
 import zlib
 
 PROTOCOL_VERSION = 1
-SCHEMA = 6
+SCHEMA = 7
 HEADER = struct.Struct("<HBBIIQ")
 
-HELLO, CONFIG_GET, RAW_SAMPLE_BATCH, STATUS, ERROR = 0x01, 0x02, 0x08, 0x0C, 0x0E
+HELLO, CONFIG_GET, CONFIG_SET, RAW_SAMPLE_BATCH, STATUS, ERROR = 0x01, 0x02, 0x03, 0x08, 0x0C, 0x0E
+HAPTIC_BATCH = 0x0B
 SESSION_START, SESSION_STOP = 0x04, 0x05
 EVENT_BATCH, STEP_BATCH = 0x09, 0x0A
 BACKFILL_REQUEST, BACKFILL_DATA = 0x10, 0x11
@@ -53,7 +54,7 @@ USB_VID, USB_PID = 0x303A, 0x1001
 # Schema 6 frame (70 bytes): ..., q_foot, q_shank, rv_foot, rv_shank, status.
 RAW_FRAME = struct.Struct("<QI6h6h4h4h4h4hH")
 ACCEL_RECORD = struct.Struct("<QBB3h")
-STATUS_PAYLOAD = struct.Struct("<BBHIIIIIIIbBIHHHHBIHBI")
+STATUS_PAYLOAD = struct.Struct("<BBHIIIIIIIbBIHHHHBIHBIB")
 SENSOR_CHECK = struct.Struct("<HHHBBBBHII")
 CHECK_FLAGS = ["int_high_in_reset", "booted", "read_valid", "int_released", "wake",
                "product_id", "reports"]
@@ -309,7 +310,7 @@ def decode_status(p):
              "bus_errors", "imu_reinits", "oldest_seq", "last_seq", "ap_rssi_dbm", "ap_stations",
              "heap_free_min", "stack_free_acquisition", "stack_free_processing", "stack_free_usb",
              "stack_free_wifi", "calibration_state", "calibration_samples",
-             "calibration_reject", "gait_state", "cycles_completed"]
+             "calibration_reject", "gait_state", "cycles_completed", "haptics"]
     s = dict(zip(names, STATUS_PAYLOAD.unpack(p)))
     s["state"] = STATES[s["state"]]
     s["faults"] = flag_names(s["faults"], FAULTS)
@@ -317,7 +318,38 @@ def decode_status(p):
     s["calibration_state"] = CALIB_STATES[s["calibration_state"]]
     s["calibration_reject"] = flag_names(s["calibration_reject"], CALIB_REJECTS)
     s["gait_state"] = GAIT_STATES[s["gait_state"]]
+    s["haptics"] = [n for bit, n in enumerate(["switch_on", "episode"]) if s["haptics"] & (1 << bit)]
     return s
+
+
+# HAPTIC_BATCH record, schema 7 (docs/protocol.md §5.17).
+HAPTIC_RECORD = struct.Struct("<QIBBBBBBHBBHff")
+assert HAPTIC_RECORD.size == 32, HAPTIC_RECORD.size
+HAPTIC_EVENTS = {1: "on", 2: "update", 3: "off"}
+HAPTIC_REASONS = ["none", "below_threshold", "low_confidence", "invalid_step", "no_direction",
+                  "switched_off", "session_ended", "sensor_fault", "refused"]
+
+
+def decode_haptics(p):
+    count, size = p[0], p[1]
+    if size != HAPTIC_RECORD.size or len(p) != 2 + count * size:
+        raise ValueError(f"{count} haptic records of {size} bytes in {len(p)}")
+    out = []
+    for i in range(count):
+        (t, frame, event, reason, ma, da, mb, db, ms, cls, _, _, score,
+         conf) = HAPTIC_RECORD.unpack_from(p, 2 + i * size)
+        out.append({"time_us": t, "cycle_start_frame": frame, "event": HAPTIC_EVENTS[event],
+                    "reason": HAPTIC_REASONS[reason],
+                    "motors": [(m, d) for m, d in ((ma, da), (mb, db)) if m],
+                    "duration_ms": ms, "class": ERROR_CLASSES[cls], "score": round(score, 4),
+                    "confidence": round(conf, 4)})
+    return out
+
+
+def decode_config_set(p):
+    if len(p) != 2 or p[0] != 1:
+        raise ValueError(f"CONFIG_SET {p.hex()}")
+    return {"haptic_feedback": p[1]}
 
 
 GAIT_STATES = ["INIT", "SWING", "CONTACT_TRANSITION", "STANCE", "FOOT_FLAT_ZV", "PRE_SWING",
@@ -610,8 +642,9 @@ def cmd_walk(args):
     s.transport.close()
 
 
-def _collect(s, seconds, on_cycle=None):
-    """Streams for `seconds`, keeping the link alive, returning events and cycles."""
+def _collect(s, seconds, on_cycle=None, haptics=None):
+    """Streams for `seconds`, keeping the link alive, returning events and cycles.
+    HAPTIC_BATCH records go to `haptics` when it is a list."""
     events, cycles = [], []
     end = time.monotonic() + seconds
     while time.monotonic() < end:
@@ -626,6 +659,8 @@ def _collect(s, seconds, on_cycle=None):
                 if on_cycle:
                     for c in batch:
                         on_cycle(c)
+            elif t == HAPTIC_BATCH and haptics is not None:
+                haptics.extend(decode_haptics(p))
             elif t == ERROR:
                 print(decode_error(p), file=sys.stderr)
     return events, cycles
@@ -691,10 +726,18 @@ def cmd_score(args):
     s.hello()
     print(f"{'evaluation' if args.evaluate else 'check'} against a profile built from "
           f"{profile['cycles']} cycles: walk for {args.seconds:.0f} s")
+    if args.haptics:
+        print(decode_config_set(s.request(CONFIG_SET, b"\x01\x01", CONFIG_SET)))
     s.send(SESSION_START, struct.pack("<BBH", kind, 0, 0) + payload)
-    _, cycles = _collect(s, args.seconds)
+    cues = []
+    _, cycles = _collect(s, args.seconds, haptics=cues)
     s.send(SESSION_STOP, b"")
+    if args.haptics:
+        s.request(CONFIG_SET, b"\x01\x00", CONFIG_SET)
+        _collect(s, 0.5, haptics=cues)  # the episode's closing record
     s.transport.close()
+    for cue in cues:
+        print(cue)
 
     scored = [c for c in cycles if c["valid"] and c["confidence"] > 0]
     print(f"{len(cycles)} cycles, {len(scored)} scored")
@@ -758,6 +801,8 @@ def cmd_vectors(args):
                                  else decode_calibration(p)),
         SESSION_START: decode_session_start,
         SERVICE_TEST: decode_service_test,
+        HAPTIC_BATCH: decode_haptics,
+        CONFIG_SET: decode_config_set,
         RAW_SAMPLE_BATCH: decode_raw_batch,
         RAW_ACCEL_BATCH: decode_accel_batch,
     }
@@ -845,6 +890,16 @@ def cmd_pulse(args):
         sys.exit(1)  # the refusal was printed as an ERROR
     s.transport.close()
     print(decode_service_test(reply))
+
+
+def cmd_haptics(args):
+    """The haptic master switch (CONFIG_SET haptic_feedback, DEC-023)."""
+    s = Session(args)
+    s.open()
+    s.hello()
+    reply = s.request(CONFIG_SET, struct.pack("<BB", 1, 1 if args.state == "on" else 0), CONFIG_SET)
+    s.transport.close()
+    print(decode_config_set(reply))
 
 
 def cmd_reopen(args):
@@ -1115,6 +1170,10 @@ def main():
     sc.add_argument("--seconds", type=float, default=30)
     sc.add_argument("--evaluate", action="store_true",
                     help="EVALUATION rather than REFERENCE_CHECK")
+    sc.add_argument("--haptics", action="store_true",
+                    help="switch haptic feedback on for the session, off after (evaluation only)")
+    hp = sub.add_parser("haptics", help="the haptic master switch (DEC-023)")
+    hp.add_argument("state", choices=["on", "off"])
     ve = sub.add_parser("vectors", help="decode the golden vectors with this tool")
     ve.add_argument("--verbose", action="store_true")
     ck = sub.add_parser("check", help="per-wire sensor check (SERVICE_TEST)")
@@ -1130,7 +1189,7 @@ def main():
     {"hello": cmd_hello, "config": cmd_config, "stats": cmd_stats, "reopen": cmd_reopen,
      "calibrate": cmd_calibrate, "walk": cmd_walk, "capture": cmd_capture,
      "score": cmd_score, "vectors": cmd_vectors, "check": cmd_check,
-     "pulse": cmd_pulse}[args.command](args)
+     "pulse": cmd_pulse, "haptics": cmd_haptics}[args.command](args)
 
 
 if __name__ == "__main__":

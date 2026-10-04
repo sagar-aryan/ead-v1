@@ -11,6 +11,7 @@
 #include "ead/calibration.h"
 #include "ead/error_engine.h"
 #include "ead/gait.h"
+#include "ead/haptics.h"
 #include "ead/reference.h"
 #include "ead/protocol.h"
 
@@ -93,6 +94,7 @@ static void test_device_status() {
   s.calibration_reject = 0;
   s.gait_state = uint8_t(ead::GaitState::FootFlatZv);
   s.cycles_completed = 37;
+  s.haptics = ead::kHapticsSwitchOn;
   uint8_t payload[ead::kStatusPayloadSize];
   const size_t n = ead::encodeStatusPayload(s, payload, sizeof payload);
   TEST_ASSERT_EQUAL_size_t(ead::kStatusPayloadSize, n);
@@ -481,10 +483,62 @@ static void test_service_test_replies_match_the_vectors() {
   assertBytes(loadVector("motor_pulse.hex"), msg.data(), msg.size());
 }
 
+static void test_config_set_decodes_and_echoes() {
+  const auto request = loadVector("config_set_request.hex");
+  ead::Header h{};
+  const uint8_t* payload = nullptr;
+  TEST_ASSERT_TRUE(ead::parseMessage(request.data(), request.size(), &h, &payload));
+  TEST_ASSERT_EQUAL_UINT8(uint8_t(MsgType::ConfigSet), h.type);
+  ead::ConfigKey key{};
+  uint8_t value = 0;
+  TEST_ASSERT_TRUE(ead::decodeConfigSet(payload, h.length, &key, &value));
+  TEST_ASSERT_EQUAL(ead::ConfigKey::HapticFeedback, key);
+  TEST_ASSERT_EQUAL_UINT8(1, value);
+
+  uint8_t body[ead::kConfigSetPayloadSize];
+  TEST_ASSERT_EQUAL_size_t(sizeof body, ead::encodeConfigSet(key, value, body, sizeof body));
+  const auto msg = message(MsgType::ConfigSet, 42, 6500000, body, sizeof body);
+  assertBytes(loadVector("config_set_reply.hex"), msg.data(), msg.size());
+
+  // An unknown key, a value other than 0 or 1, or a wrong length is refused.
+  const uint8_t unknownKey[2] = {2, 1};
+  const uint8_t badValue[2] = {1, 2};
+  TEST_ASSERT_FALSE(ead::decodeConfigSet(unknownKey, 2, &key, &value));
+  TEST_ASSERT_FALSE(ead::decodeConfigSet(badValue, 2, &key, &value));
+  TEST_ASSERT_FALSE(ead::decodeConfigSet(badValue, 1, &key, &value));
+}
+
+static void test_haptic_batch_matches_the_vector() {
+  ead::HapticCue cues[2] = {};
+  cues[0].event = ead::HapticEvent::On;
+  cues[0].timeUs = 7000000;
+  cues[0].cycleStartFrame = 4200;
+  cues[0].motor[0] = 5;
+  cues[0].duty[0] = 204;
+  cues[0].motor[1] = 6;
+  cues[0].duty[1] = 120;
+  cues[0].durationMs = 250;
+  cues[0].errorClass = ead::ErrorClass::InversionDeviation;
+  cues[0].score = 0.8f;
+  cues[0].confidence = 0.9f;
+  cues[1].event = ead::HapticEvent::Off;
+  cues[1].reason = ead::HapticReason::SwitchedOff;
+  cues[1].timeUs = 8000000;
+  cues[1].errorClass = ead::ErrorClass::InversionDeviation;
+  uint8_t payload[2 + 2 * ead::kHapticRecordSize];
+  TEST_ASSERT_EQUAL_size_t(sizeof payload,
+                           ead::encodeHapticBatchPayload(cues, 2, payload, sizeof payload));
+  const auto msg = message(MsgType::HapticBatch, 61, 7000000, payload, sizeof payload);
+  assertBytes(loadVector("haptic_batch.hex"), msg.data(), msg.size());
+  TEST_ASSERT_EQUAL_size_t(0u, ead::encodeHapticBatchPayload(cues, 0, payload, sizeof payload));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_service_test_requests_decode);
   RUN_TEST(test_service_test_replies_match_the_vectors);
+  RUN_TEST(test_config_set_decodes_and_echoes);
+  RUN_TEST(test_haptic_batch_matches_the_vector);
   RUN_TEST(test_session_start_with_reference_decodes);
   RUN_TEST(test_reference_profile_round_trip);
   RUN_TEST(test_a_reference_with_a_zero_spread_is_refused);

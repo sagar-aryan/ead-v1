@@ -58,6 +58,7 @@ pub fn export_session(store: &Store, session_id: &str, directory: &Path) -> Resu
     let cycles = store.cycles(session_id)?;
     let events = store.events(session_id)?;
     let segments = store.segments(session_id)?;
+    let haptics = store.haptics(session_id)?;
     let status = store.status_changes(session_id)?;
     let reference = match session.reference_id.as_deref() {
         Some(id) => Some(store.reference(id)?),
@@ -82,6 +83,7 @@ pub fn export_session(store: &Store, session_id: &str, directory: &Path) -> Resu
     let event_csv = csv::events(&session, &cycles, &events, &status);
     let metadata =
         metadata_json(store, &session, &reference, &segments, frames, accel_rows, &cycles)?;
+    let haptic_csv = csv::haptics(&session, &cycles, &haptics);
 
     let mut files = Vec::new();
     for (name, contents) in [
@@ -89,7 +91,7 @@ pub fn export_session(store: &Store, session_id: &str, directory: &Path) -> Resu
         ("accel_native.csv", accel.as_str()),
         ("gait.csv", gait.as_str()),
         ("events.csv", event_csv.as_str()),
-        ("haptics.csv", csv::haptics()),
+        ("haptics.csv", haptic_csv.as_str()),
         ("metadata.json", metadata.as_str()),
     ] {
         write(directory, name, contents)?;
@@ -102,6 +104,7 @@ pub fn export_session(store: &Store, session_id: &str, directory: &Path) -> Resu
         &events,
         &status,
         reference.as_ref(),
+        &haptics,
         |visit| store.for_each_frame(session_id, visit).map_err(ExportError::Store),
         |visit| store.for_each_accel(session_id, visit).map_err(ExportError::Store),
     )?;
@@ -114,6 +117,7 @@ pub fn export_session(store: &Store, session_id: &str, directory: &Path) -> Resu
         &segments,
         &status,
         reference.as_ref(),
+        &haptics,
         &crate::protocol::ERROR_CLASSES,
     )?;
     write(directory, "report.pdf", report)?;
@@ -144,6 +148,7 @@ fn metadata_json(
     accel_samples: usize,
     cycles: &[crate::store::StoredCycle],
 ) -> Result<String> {
+    let haptics = store.haptics(&session.session_id)?;
     let config = store
         .session_config(&session.session_id)?
         .and_then(|section| section.parse().ok());
@@ -226,10 +231,15 @@ should not be shown",
             "segments": segments,
         },
         "haptics": {
-            "fitted": false,
-            "reason": "no ERM drivers are fitted (DEC-006); the motor GPIOs are held low \
-and no haptic command has ever been issued",
-            "safety_configuration": "not applicable: no driver, no PWM, no motor service",
+            // The device's own configuration says whether feedback could run;
+            // what ran is in haptics.csv.
+            "fitted": config.as_ref().map(|c| c.haptics.fitted),
+            "safety_configuration": config.as_ref().map(|c| &c.haptics),
+            "records": haptics.len(),
+            "cues_run": haptics.iter().filter(|h| h.event != "off" && h.duty_a > 0).count(),
+            "episodes": haptics.iter().filter(|h| h.event == "on").count(),
+            "delivery": "one cue per scored cycle when the cycle closes (the right foot \
+lands), in an EVALUATION session with the dashboard's master switch on (DEC-023)",
         },
         "storage_recovery": {
             "on_device_flash": "not implemented in V1 (M7 deferred)",
@@ -246,10 +256,12 @@ before device schema 6. A gap in a sensor's sequence column (it wraps at 256) is
 lost sample"),
             "events_csv": "ZUPT_END is written in addition to doc 10 §4's list: the device \
 reports zero-velocity windows, not instants, and dropping the end would lose the \
-window length. SERVICE_TEST never appears, because there are no haptics to test. \
+window length. SERVICE_TEST never appears: motor service tests are refused while a session runs. \
 The quality column carries the zero-velocity quality of the cycle the event fell in, \
 and is empty for an event that fell in no cycle.",
-            "haptics_csv": "header only; see haptics above",
+            "haptics_csv": "one row per feedback record; `event` (on, update, off) is \
+added after doc 10's columns because doc 06 §13 asks for every ON, update and OFF. \
+Header only when no cue ran",
             "gait_csv": "empty cells are values that were not measured, never zeroes: \
 symmetry proxy needs a previous valid cycle and a reference's spreads, and the error \
 columns need a reference",

@@ -611,3 +611,46 @@ their generated id (user request, 2026-10-04).
 Store test `a_session_can_be_named_and_renamed`; the v2 and v7 upgrade tests also undo
 schema 9 and pass; cargo test, clippy, npm test and build. The UI was not looked at
 on screen (no screenshot tool in this Wayland session).
+
+## Haptic feedback (DEC-023, protocol schema 7, store schema 10)
+
+### Objective
+Doc 06's spatial vibrotactile cue on the shank during walking: one cue per scored
+step, after it lands, with a master switch on the dashboard.
+
+### Design
+Device-side, closed loop. Each cycle an EVALUATION session scores goes to the haptic
+engine, which returns a cue (ON or UPDATE: one or two motors, duties, 250 ms) or an
+episode end (OFF with a reason). The motor guard accepts or refuses the cue against
+the contract's limits. The switch, the episode bit and every record travel to the
+dashboard (CONFIG_SET, STATUS `haptics`, HAPTIC_BATCH).
+
+### Implementation
+- `lib/ead_core/src/ead/haptics.{h,cpp}`: `HapticEngine::onCycle`, `stop`; the class
+  cue table (doc 06 §8), two-nearest-motor placement (§9), intensity (§10).
+- `lib/ead_core/src/ead/motor_guard.{h,cpp}`: `requestCue` (two motors together, each
+  held to every limit; history 256 entries).
+- `src/feedback.{h,cpp}`: the switch (atomic, off at boot), the engine on the
+  processing task, the log, `publish()`. `src/motors.cpp`: `cue()`, `stopAll()`.
+- `src/gait_service.cpp`: calls `feedback::onCycle` after scoring, `fault` on a read
+  failure, a frame gap or no orientation, `poll` every frame, `publish` per batch.
+- `src/link.cpp`: CONFIG_SET. `src/device.cpp`: STATUS `haptics`, capability bit 0.
+- Dashboard: `protocol::{haptic_switch_request, parse_haptic_batch}`,
+  `Device::set_haptic_feedback`, the `haptics` table and `Store::{record_haptics,
+  haptics}`, `haptics.csv` rows, the MAT `haptics` struct, the PDF panel, the
+  `set_haptic_feedback` command and the switch in `StateBar.tsx`.
+- `tools/eadprobe.py`: `haptics on|off`, `score --evaluate --haptics`.
+
+### Edge Cases
+- A score with no class (distance or shank dynamics only) has no direction: no
+  episode starts, a running one ends (`no_direction`).
+- A refused cue is logged with duty 0 and reason `refused`; the episode goes on.
+- Switching off stops the motors from the link task at once; the OFF record follows on
+  the next frame.
+
+### Limitations
+Not flashed or felt. The 250 ms cue, TIMING's alternation and dropping a second motor
+under 51 are choices doc 06 leaves open. Right leg only.
+
+### Verification
+TEST-060.

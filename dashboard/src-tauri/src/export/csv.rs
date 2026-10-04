@@ -8,7 +8,7 @@
 
 use std::fmt::Write as _;
 
-use crate::store::{Session, StatusChange, StoredCycle, StoredEvent};
+use crate::store::{Session, StatusChange, StoredCycle, StoredEvent, StoredHaptic};
 
 /// Quotes only when a value could otherwise break the row.
 fn field(value: &str) -> String {
@@ -156,9 +156,9 @@ struct Event {
 /// The device emits five event types; the doc's list has ten. The ones it can
 /// be built from honestly are built: cycle bounds from the cycles, error
 /// transitions from consecutive scored cycles, faults from the recorded status
-/// changes. `SERVICE_TEST` never appears — there are no haptics to test
-/// (DEC-006) — and its absence is stated in `metadata.json` rather than left for
-/// a reader to wonder about.
+/// changes. `SERVICE_TEST` never appears — motor service tests are refused while
+/// a session runs (doc 07 §7) — and its absence is stated in `metadata.json`
+/// rather than left for a reader to wonder about.
 pub fn events(
     session: &Session,
     cycles: &[StoredCycle],
@@ -273,14 +273,46 @@ pub fn events(
     out
 }
 
-/// `haptics.csv`, doc 10 §5: the header alone.
-///
-/// No ERM drivers are fitted (DEC-006), so the device has never commanded a
-/// motor and there is nothing to write. The file exists with its columns so
-/// that a tool reading the package finds the schema it expects and sees, rather
-/// than infers, that no haptic event occurred.
-pub fn haptics() -> &'static str {
-    "session_id,segment_id,cycle_id,timestamp_us,motor_ids,error_class,pwm,duration_ms,\
-error_score,confidence,reason\n"
+/// `haptics.csv`, doc 10 §5, one row per feedback record (DEC-023). `event`
+/// (on, update, off) is added after doc 10's columns: doc 06 §13 asks for every
+/// ON, update and OFF to be recorded, and the columns alone cannot tell them
+/// apart. `cycle_id` and `segment_id` follow `events.csv`: the cycle's position,
+/// 1-based, and its segment; empty for an episode ended outside a cycle.
+/// Motors and duties are `;`-separated in the same order; a duty of 0 is a cue
+/// the motor guard refused.
+pub fn haptics(session: &Session, cycles: &[StoredCycle], records: &[StoredHaptic]) -> String {
+    let mut out = String::from(
+        "session_id,segment_id,cycle_id,timestamp_us,motor_ids,error_class,pwm,duration_ms,\
+error_score,confidence,reason,event\n",
+    );
+    for h in records {
+        let cycle = (h.cycle_start_frame != 0)
+            .then(|| cycles.iter().position(|c| c.start_frame == h.cycle_start_frame))
+            .flatten();
+        let motors: Vec<(i64, i64)> = [(h.motor_a, h.duty_a), (h.motor_b, h.duty_b)]
+            .into_iter()
+            .filter(|&(motor, _)| motor != 0)
+            .collect();
+        let join = |pick: fn(&(i64, i64)) -> i64| {
+            motors.iter().map(|m| pick(m).to_string()).collect::<Vec<_>>().join(";")
+        };
+        let _ = writeln!(
+            out,
+            "{},{},{},{},{},{},{},{},{},{},{},{}",
+            field(&session.session_id),
+            cycle.map(|i| cycles[i].segment_index.to_string()).unwrap_or_default(),
+            cycle.map(|i| (i + 1).to_string()).unwrap_or_default(),
+            h.device_time_us,
+            join(|m| m.0),
+            field(&h.error_class),
+            join(|m| m.1),
+            h.duration_ms,
+            h.error_score,
+            h.confidence,
+            h.reason,
+            h.event,
+        );
+    }
+    out
 }
 

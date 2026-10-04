@@ -14,7 +14,8 @@ import { Raw } from "./views/Raw";
 import { Sessions } from "./views/Sessions";
 
 /**
- * Doc 11 order. HAPTICS is absent: no error-driven feedback exists (DEC-006).
+ * Doc 11 order. HAPTICS has no page of its own: the switch is in the state bar
+ * and the cues are exported (DEC-023).
  * Check is doc 11 §6's motor test, with the sensor wiring check beside it.
  */
 const VIEWS = [

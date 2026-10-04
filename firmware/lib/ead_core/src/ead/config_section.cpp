@@ -74,7 +74,7 @@ size_t encodeConfigSection(uint8_t* out, size_t cap) {
     w.f32(weight);
   }
 
-  // Haptics (contract values). The first byte: 0 = no error-driven feedback (DEC-006).
+  // Haptics (contract values). The first byte: 1 = error-driven feedback runs (DEC-023).
   w.u8(EAD_HAPTICS_FITTED);
   w.u16(EAD_HAPTIC_PWM_HZ);
   w.u8(EAD_HAPTIC_RES_BITS);

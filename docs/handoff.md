@@ -43,8 +43,9 @@ placeholder or fake data, no features the spec does not need.
   strides, so none can be trusted.** The evaluations recorded no cycles; two of
   them because of PROB-018 (fixed in code on 2026-10-02), the third (0 frames)
   for an unknown reason. No trustworthy reference exists.
-- **Dashboard:** every doc 11 view except HAPTICS, plus Check. It reads sessions of
-  both builds (configuration formats 1 and 2, store schema 7; the database on this
+- **Dashboard:** every doc 11 view except HAPTICS (the master switch is in the top
+  bar; cues are stored and exported), plus Check. It reads sessions of
+  both builds (configuration formats 1 and 2, store schema 10; the database on this
   machine was migrated with a backup beside it). Known gaps against doc 11 are under
   Next Steps.
 
@@ -104,7 +105,9 @@ Nothing in flight.
    re-validate the gait thresholds by replay.
 2. **Walking validation:** a new reference, a check, an evaluation, an export read end
    to end.
-3. **Haptic feedback** (DEC-006 still holds for it): doc 06 §6–§10.
+3. **Haptic feedback** (DEC-023): built and tested on the host (TEST-060); not yet
+   flashed or felt. Bench: `eadprobe haptics on`, then an evaluation with
+   `eadprobe score --evaluate --haptics`; then worn, with the dashboard's switch.
 4. **M7**, on-device storage: needs a DEC (the default partition leaves 1.5 MB).
 
 ## Known Problems
@@ -148,13 +151,15 @@ Nothing in flight.
 - `pkill -f ead-dashboard` from the agent's shell kills the shell itself; use a PID.
 
 ## Important Decisions
-DEC-005 USB link; DEC-006 no haptic code; DEC-007 raw = chip-frame counts;
+DEC-005 USB link; DEC-006 no haptic code (superseded by DEC-023); DEC-007 raw =
+chip-frame counts;
 DEC-008 session kinds; DEC-009 per-sensor mount maps; DEC-010 `esp_http_server`;
 DEC-011 dashboard stack; DEC-012 device-built reference; DEC-013 doc 06's open
 values (provisional); DEC-014 host-side segments; DEC-015 haptic band on the
 calf; DEC-016 final pin map, all 15 GPIOs used, GPIO39 never a motor; DEC-017 BNO086
 firmware (own SH-2 driver, Mahony kept, calibrated reports as counts); DEC-018 motor
-service-test pulses only.
+service-test pulses; DEC-019–021 soft footfalls, the user's decisions, the 200 Hz feed;
+DEC-022 gait events from the shank's swing; DEC-023 haptic feedback during evaluations.
 
 ## Environment
 - Linux (Ubuntu 24.04), node 24.13.1, npm 11.8.0, rustc/cargo 1.95.0.
@@ -203,12 +208,12 @@ service-test pulses only.
 
 ## How To Verify
 The whole suite, before every commit:
-- `pio test -d firmware -e native` (86), `pio run -d firmware`,
+- `pio test -d firmware -e native` (98), `pio run -d firmware`,
   `pio run -d firmware/bench/bno086 -e foot -e shank`
-- `cd dashboard/src-tauri && cargo test` (64, 4 ignored) and
+- `cd dashboard/src-tauri && cargo test` (73, 4 ignored) and
   `cargo clippy --all-targets -- -D warnings`
 - `cd dashboard && npm test` (28) and `npm run build`
-- `python3 tools/eadprobe.py vectors` (22, 0 failures)
+- `python3 tools/eadprobe.py vectors` (26, 0 failures)
 
 On hardware over USB, device still: `eadprobe check` (all PASS), `eadprobe stats
 --seconds 60` (100.14 Hz, 0 missing), `cargo test -- --ignored --test-threads=1` (both

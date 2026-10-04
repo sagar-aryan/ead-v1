@@ -1,8 +1,8 @@
 #pragma once
-// Motor outputs for the service test only (DEC-018): one pulse at a time, its
-// length timed here on the device, within the contract's limits. No error-driven
-// haptic feedback exists (DEC-006).
+// Motor outputs: service-test pulses (DEC-018) and feedback cues (DEC-023), each
+// timed here on the device and held to the contract's limits by one guard.
 
+#include "ead/haptics.h"
 #include "ead/motor_guard.h"
 #include "ead/protocol.h"
 
@@ -15,5 +15,12 @@ bool begin();
 
 /// Starts a pulse, or says why not. It ends by itself after its duration.
 ead::MotorGuard::Refusal pulse(const ead::MotorPulse& request);
+
+/// Starts a feedback cue on its one or two motors, or says why not. It ends by
+/// itself after its duration.
+ead::MotorGuard::Refusal cue(const ead::HapticCue& cue);
+
+/// Every motor off now (doc 06 §12). Safe from any task.
+void stopAll();
 
 }  // namespace motors

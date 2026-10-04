@@ -163,9 +163,9 @@ inline void eadMountApply(const EadMountMap& map, int32_t cx, int32_t cy,
 #define EAD_MOTOR_M4_DEG           180u
 #define EAD_MOTOR_M5_DEG           240u
 #define EAD_MOTOR_M6_DEG           300u
-// No error-driven haptic feedback runs (DEC-006). The driver board is fitted and
-// motors can be pulsed for the service test (DEC-018).
-#define EAD_HAPTICS_FITTED         0u
+// Error-driven feedback runs in evaluations with the dashboard's switch on
+// (DEC-023); outside sessions the motors run as service-test pulses (DEC-018).
+#define EAD_HAPTICS_FITTED         1u
 
 // ---- Network (doc 08) ----
 #define EAD_NET_AP_IP              "192.168.4.1"

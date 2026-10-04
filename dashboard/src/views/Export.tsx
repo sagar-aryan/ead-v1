@@ -16,7 +16,7 @@ const FILES: { name: string; what: string }[] = [
   { name: "accel_native.csv", what: "Every accelerometer sample at its own rate (DEC-021)" },
   { name: "gait.csv", what: "One row per cycle with its score and class (§3)" },
   { name: "events.csv", what: "Device events, cycle bounds, error transitions, faults (§4)" },
-  { name: "haptics.csv", what: "Header only: no ERM drivers are fitted (§5, DEC-006)" },
+  { name: "haptics.csv", what: "Every vibration cue and episode end (§5, DEC-023)" },
   { name: "metadata.json", what: "Device, calibration, reference, segmentation (§6)" },
   { name: "session.mat", what: "MATLAB Level-5, raw counts kept as integers (§7)" },
   { name: "report.pdf", what: "Three-page research report: measures, seven trends, quality (§8)" },

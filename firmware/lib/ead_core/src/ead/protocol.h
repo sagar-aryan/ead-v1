@@ -10,7 +10,7 @@
 namespace ead {
 
 constexpr uint16_t kProtocolVersion = 1;  // doc 08 header field
-constexpr uint16_t kSchemaVersion = 6;    // payload layouts, docs/protocol.md
+constexpr uint16_t kSchemaVersion = 7;    // payload layouts, docs/protocol.md
 constexpr size_t kHeaderSize = 20;
 constexpr size_t kRawFrameSize = 70;
 constexpr size_t kMaxRawFramesPerBatch = 10;
@@ -196,9 +196,16 @@ struct StatusInfo {
   uint16_t calibration_reject;
   uint8_t gait_state;
   uint32_t cycles_completed;
+  uint8_t haptics;  // StatusHaptics bits (schema 7)
 };
 
-constexpr size_t kStatusPayloadSize = 58;
+constexpr size_t kStatusPayloadSize = 59;
+
+/// STATUS `haptics` (docs/protocol.md §5.3).
+enum StatusHaptics : uint8_t {
+  kHapticsSwitchOn = 1u << 0,   // the dashboard's master switch, off at boot
+  kHapticsEpisode = 1u << 1,    // a feedback episode is running
+};
 
 /// STATUS calibration_state (docs/protocol.md §5.3).
 enum class CalibrationState : uint8_t { None = 0, Collecting = 1, Ready = 2, Rejected = 3 };
@@ -320,6 +327,22 @@ bool decodeServiceTest(const uint8_t* payload, size_t len, ServiceOp* op, bool* 
 size_t encodeSensorCheckPayload(const SensorCheck& foot, const SensorCheck& shank, uint8_t* out,
                                 size_t cap);
 size_t encodeMotorPulsePayload(const MotorPulse& pulse, uint8_t* out, size_t cap);
+
+// ---- CONFIG_SET (docs/protocol.md §5.16, schema 7) -------------------------
+
+enum class ConfigKey : uint8_t { HapticFeedback = 1 };
+constexpr size_t kConfigSetPayloadSize = 2;
+
+/// Host request {u8 key, u8 value}; the device echoes it when applied.
+bool decodeConfigSet(const uint8_t* payload, size_t len, ConfigKey* key, uint8_t* value);
+size_t encodeConfigSet(ConfigKey key, uint8_t value, uint8_t* out, size_t cap);
+
+// ---- HAPTIC_BATCH (docs/protocol.md §5.17, schema 7) -----------------------
+
+struct HapticCue;  // ead/haptics.h
+constexpr size_t kHapticRecordSize = 32;
+constexpr size_t kMaxHapticsPerBatch = 16;
+size_t encodeHapticBatchPayload(const HapticCue* cues, size_t count, uint8_t* out, size_t cap);
 
 // ---- CONFIG_GET response ---------------------------------------------------
 

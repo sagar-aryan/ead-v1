@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate EAD-V1 protocol golden vectors (schema 6).
+"""Generate EAD-V1 protocol golden vectors (schema 7).
 
 These bytes are built independently of the firmware: Python `struct`, `zlib`
 and `hashlib`, a separate COBS implementation, and the contract JSON for the
@@ -21,7 +21,7 @@ ROOT = HERE.parent.parent
 CONFIG_JSON = ROOT / "ead_agent_docs_v2" / "CONFIG_V1.json"
 
 PROTOCOL_VERSION = 1
-SCHEMA = 6
+SCHEMA = 7
 
 # Message types (doc 08 §3).
 HELLO, CONFIG_GET, STATUS, ERROR = 0x01, 0x02, 0x0C, 0x0E
@@ -30,6 +30,7 @@ RAW_ACCEL_BATCH = 0x13
 SESSION_START, SESSION_STOP = 0x04, 0x05
 EVENT_BATCH, STEP_BATCH = 0x09, 0x0A
 SERVICE_TEST = 0x12
+CONFIG_SET, HAPTIC_BATCH = 0x03, 0x0B
 
 # Calibration states and reject bits (docs/protocol.md §5.3, §6.5).
 CALIB_READY = 2
@@ -68,7 +69,8 @@ MOTOR_PINS = (1, 2, 42, 4, 5, 6)
 # Measured on the leg for the BNO086 boards (config_v1.h, TEST-051).
 FOOT_MOUNT = [[0, -1, 0], [1, 0, 0], [0, 0, 1]]
 SHANK_MOUNT = [[0, 0, 1], [1, 0, 0], [0, 1, 0]]
-HAPTICS_FITTED = 0  # DEC-006: no error-driven feedback
+HAPTICS_FITTED = 1  # DEC-023: error-driven feedback runs
+HAPTICS_SWITCH_ON = 1 << 0  # STATUS haptics (schema 7)
 
 
 def header(msg_type, payload_len, seq, time_us, flags=0):
@@ -147,7 +149,8 @@ def config_section_format1(cfg):
                        p["shank_imu_int_gpio"], *[motors[f"M{i}"] for i in range(1, 7)])
     # Everything after the pins is the same in both formats. In format 2 it
     # starts after 22 bytes of sensor fields, 18 of mount maps and 15 of pins.
-    return bytes(out) + config_section(cfg, cfg["zupt"]["gyro_threshold_dps"])[22 + 18 + 15:]
+    return bytes(out) + config_section(cfg, cfg["zupt"]["gyro_threshold_dps"],
+                                       haptics_fitted=0)[22 + 18 + 15:]
 
 
 # The ZUPT gyroscope limit of the current build: 30 deg/s by the user's decision
@@ -155,7 +158,7 @@ def config_section_format1(cfg):
 ZUPT_GYRO_DPS = 30.0
 
 
-def config_section(cfg, zupt_gyro_dps=ZUPT_GYRO_DPS):
+def config_section(cfg, zupt_gyro_dps=ZUPT_GYRO_DPS, haptics_fitted=HAPTICS_FITTED):
     cal, gait, zupt = cfg["calibration"], cfg["gait"], cfg["zupt"]
     err, hap, net = cfg["error"], cfg["haptics"], cfg["network"]
     sto, ref = cfg["storage"], cfg["reference"]
@@ -179,7 +182,7 @@ def config_section(cfg, zupt_gyro_dps=ZUPT_GYRO_DPS):
         w["swing_dorsiflexion"], w["initial_contact_plantarflexion"], w["inversion_eversion"],
         w["timing"], w["stance_swing_ratio"], w["cycle_distance"], w["shank_dynamics"])
     deg = hap["motor_positions_deg"]
-    out += struct.pack("<BHBBBfBBf6H", HAPTICS_FITTED, hap["pwm_hz"], hap["resolution_bits"],
+    out += struct.pack("<BHBBBfBBf6H", haptics_fitted, hap["pwm_hz"], hap["resolution_bits"],
                        hap["min_duty"], hap["max_duty"], hap["intensity_exponent"],
                        hap["max_continuous_on_s"], hap["rolling_window_s"],
                        hap["rolling_duty_limit"], *[deg[f"M{i}"] for i in range(1, 7)])
@@ -203,7 +206,7 @@ def main():
     cfg = json.loads(CONFIG_JSON.read_text())
 
     hello_request = message(HELLO, struct.pack("<H", SCHEMA), seq=7, time_us=0)
-    write("hello_request.hex", "Host HELLO, schema 6, command sequence 7.", hello_request)
+    write("hello_request.hex", f"Host HELLO, schema {SCHEMA}, command sequence 7.", hello_request)
 
     fw = "0.1.0+test"
     sha = hashlib.sha256(b"ead").digest()
@@ -220,16 +223,16 @@ def main():
           message(HELLO, hello_info_payload, seq=42, time_us=123456789))
 
     status_payload = struct.pack(
-        "<BBHIIIIIIIbBIHHHHBIHBI", STATE_READY, LINK_USB_ACTIVE,
+        "<BBHIIIIIIIbBIHHHHBIHBIB", STATE_READY, LINK_USB_ACTIVE,
         FAULT_SHANK_FROZEN | FAULT_ACQUISITION_STALLED, 123456, 3, 17, 2, 1, 1, 42, -47, 1, 201000,
-        1500, 2600, 3100, 4200, CALIB_READY, 500, 0, GAIT_FOOT_FLAT, 37)
-    assert len(status_payload) == 58
+        1500, 2600, 3100, 4200, CALIB_READY, 500, 0, GAIT_FOOT_FLAT, 37, HAPTICS_SWITCH_ON)
+    assert len(status_payload) == 59
     write("status.hex",
           "Device STATUS: READY, USB link active, faults 0x0300 (shank frozen + acquisition\n"
           "stalled), frame 123456, dropped 3, shank repeated 17, bus errors 2, reinits 1,\n"
           "sequence window 1..42, RSSI -47 dBm, 1 station, heap min 201000,\n"
           "stack free 1500/2600/3100/4200, calibration ready from 500 samples,\n"
-          "gait FOOT_FLAT_ZV with 37 cycles completed.\n"
+          "gait FOOT_FLAT_ZV with 37 cycles completed, haptic switch on, no episode.\n"
           "Header sequence 42, time 987654321.",
           message(STATUS, status_payload, seq=42, time_us=987654321))
 
@@ -344,11 +347,11 @@ def main():
     section = config_section(cfg)
     write("config_section.hex",
           "CONFIG_GET section format 2: BNO086 sensors and DEC-016 pins as in generate.py,\n"
-          "the measured BNO086 mount maps, 200 Hz (DEC-021), ZUPT gyroscope limit 30 deg/s (DEC-020),\nhaptics_fitted = 0, everything else\nfrom CONFIG_V1.json.", section)
+          "the measured BNO086 mount maps, 200 Hz (DEC-021), ZUPT gyroscope limit 30 deg/s (DEC-020),\nhaptics_fitted = 1 (DEC-023), everything else\nfrom CONFIG_V1.json.", section)
     write("config_section_format1.hex",
           "CONFIG_GET section format 1: the MPU6500 build (I2C addresses, DLPF, 8192 LSB/g,\n"
           "65.5 LSB/(deg/s), the shank map measured in TEST-027, doc-03 pins). Kept because\n"
-          "every session recorded before schema 5 stores this layout.",
+          "every session recorded before schema 5 stores this layout. haptics_fitted = 0.",
           config_section_format1(cfg))
     config_payload = (struct.pack("<H", 2) + hashlib.sha256(section).digest()
                       + struct.pack("<H", len(section)) + section)
@@ -382,6 +385,26 @@ def main():
           "Header sequence 42, time 6000000.",
           message(SERVICE_TEST, struct.pack("<BBBBH", 2, 4, 128, 0, 1000), seq=42,
                   time_us=6_000_000))
+
+    write("config_set_request.hex",
+          "Host CONFIG_SET: key 1 (haptic_feedback) = 1, the master switch on.\n"
+          "Command sequence 12.",
+          message(CONFIG_SET, struct.pack("<BB", 1, 1), seq=12, time_us=0))
+    write("config_set_reply.hex",
+          "Device CONFIG_SET reply: haptic_feedback = 1 applied. Header sequence 42, time 6500000.",
+          message(CONFIG_SET, struct.pack("<BB", 1, 1), seq=42, time_us=6_500_000))
+    haptic_on = struct.pack("<QIBBBBBBHBBHff", 7_000_000, 4200, 1, 0, 5, 204, 6, 120, 250, 3, 0, 0,
+                            0.8, 0.9)
+    haptic_off = struct.pack("<QIBBBBBBHBBHff", 8_000_000, 0, 3, 5, 0, 0, 0, 0, 0, 3, 0, 0,
+                             0.0, 0.0)
+    assert len(haptic_on) == 32
+    write("haptic_batch.hex",
+          "Device HAPTIC_BATCH, 2 records of 32 bytes. 1: ON at 7000000 us for the cycle\n"
+          "opened at frame 4200, motors 5 (duty 204) and 6 (duty 120), 250 ms, class 3\n"
+          "(inversion), score 0.8, confidence 0.9. 2: OFF at 8000000 us, reason 5 (switched\n"
+          "off), class 3. Header sequence 61, time 7000000.",
+          message(HAPTIC_BATCH, struct.pack("<BB", 2, 32) + haptic_on + haptic_off, seq=61,
+                  time_us=7_000_000))
 
     long_payload = bytes((i % 255) + 1 for i in range(300))
     long_msg = message(STATUS, long_payload, seq=1, time_us=2)

@@ -43,7 +43,8 @@ Project-level agent skills live in `.claude/skills/` (installed with the
   BNO086s on SPI (DEC-016, DEC-017) since schema 5; sessions recorded before it came
   from two MPU6500s on I²C (foot `0x68`, shank `0x69`).
 - Six ERM motors on a calf band (DEC-015), fitted on the DEC-016 build (user,
-  2026-10-02). No error-driven feedback (DEC-006); service-test pulses only (DEC-018).
+  2026-10-02). Error-driven feedback during evaluations with the dashboard's switch on
+  (DEC-023); service-test pulses outside sessions (DEC-018).
 - The wire protocol between device and dashboard is implemented three times over
   (firmware, dashboard, `tools/eadprobe.py`), all checked against the same golden
   vectors in `protocol/vectors/`.

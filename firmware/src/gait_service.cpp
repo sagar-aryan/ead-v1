@@ -6,6 +6,7 @@
 #include "calibration_service.h"
 #include "config_v1.h"
 #include "ead/gait.h"
+#include "feedback.h"
 #include "ead/mahony.h"
 #include "orientation.h"
 #include "session_service.h"
@@ -28,6 +29,8 @@ ead::GaitCycle s_cycles_[ead::kMaxCyclesPerBatch];
 ead::ErrorResult s_scores[ead::kMaxCyclesPerBatch];
 bool s_scored = false;
 size_t s_cycleCount = 0;
+uint32_t s_lastFrame = 0;
+bool s_haveFrame = false;
 
 /// Q15 back to float: the frame carries the estimate the device just made.
 void fromQ15(const int16_t q[4], float out[4]) {
@@ -45,6 +48,15 @@ void reset() {
 }
 
 void consume(const ead::RawFrame& frame) {
+  // Doc 06 §12: a failed read, a lost frame or no orientation stops feedback.
+  const bool gap = s_haveFrame && frame.frame_index != s_lastFrame + 1;
+  s_lastFrame = frame.frame_index;
+  s_haveFrame = true;
+  if (gap || (frame.status & (ead::kRawFootReadFail | ead::kRawShankReadFail)) != 0 ||
+      (frame.status & ead::kRawOrientationValid) == 0) {
+    feedback::fault(frame.timestamp_us);
+  }
+  feedback::poll(frame.timestamp_us);
   if ((frame.status & ead::kRawOrientationValid) == 0) return;
   if (!s_haveCalibration) {
     ead::CalibrationRecord record;
@@ -84,6 +96,7 @@ void consume(const ead::RawFrame& frame) {
     // The session decides what a cycle means: a capture collects it, a check or
     // an evaluation scores it against the locked reference.
     const ead::ErrorResult* score = session::consume(cycle);
+    feedback::onCycle(cycle, score);
     if (s_cycleCount < ead::kMaxCyclesPerBatch) {
       if (score != nullptr) {
         s_scores[s_cycleCount] = *score;
@@ -114,6 +127,7 @@ void publish() {
     s_cycleCount = 0;
     s_scored = false;
   }
+  feedback::publish();
 }
 
 uint8_t state() {

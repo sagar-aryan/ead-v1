@@ -138,8 +138,10 @@ export function Device({ device }: { device: DeviceApi }) {
               {snapshot?.capabilities.length ? snapshot.capabilities.join(", ") : <span className="absent">none</span>}
             </Field>
             <Field label="Haptics">
-              {snapshot?.motor_service_test ? (
-                "service-test pulses only; no feedback (DEC-006)"
+              {snapshot?.haptics_fitted ? (
+                `feedback during evaluations; switch ${snapshot.haptic_switch_on ? "on" : "off"}`
+              ) : snapshot?.motor_service_test ? (
+                "service-test pulses only; no feedback"
               ) : (
                 <span className="absent">not fitted</span>
               )}

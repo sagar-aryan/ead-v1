@@ -102,7 +102,7 @@ pub struct ErrorConfig {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct HapticConfig {
-    /// False in this build: no ERM driver channels are fitted (DEC-006).
+    /// Error-driven feedback runs (DEC-023); false before device schema 7.
     pub fitted: bool,
     pub pwm_hz: u16,
     pub pwm_bits: u8,

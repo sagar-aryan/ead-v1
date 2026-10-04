@@ -17,7 +17,7 @@ pub use config::ConfigSection;
 pub const PROTOCOL_VERSION: u16 = 1;
 use std::cmp::Ordering;
 
-pub const SCHEMA_VERSION: u16 = 6;
+pub const SCHEMA_VERSION: u16 = 7;
 pub const HEADER_SIZE: usize = 20;
 pub const RAW_FRAME_SIZE: usize = 70;
 pub const ACCEL_RECORD_SIZE: usize = 16;
@@ -234,7 +234,11 @@ pub fn hello_request() -> Vec<u8> {
 
 // ---- STATUS ----------------------------------------------------------------
 
-pub const STATUS_PAYLOAD_SIZE: usize = 58;
+pub const STATUS_PAYLOAD_SIZE: usize = 59;
+/// STATUS `haptics` bit 0: the master switch is on (off at every boot).
+pub const STATUS_HAPTICS_SWITCH_ON: u8 = 1 << 0;
+/// STATUS `haptics` bit 1: a feedback episode is running.
+pub const STATUS_HAPTICS_EPISODE: u8 = 1 << 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
 pub struct Status {
@@ -263,6 +267,8 @@ pub struct Status {
     /// Gait state, `docs/protocol.md` §6.6.
     pub gait_state: u8,
     pub cycles_completed: u32,
+    /// `STATUS_HAPTICS_*` bits (schema 7).
+    pub haptics: u8,
 }
 
 pub fn parse_status(payload: &[u8]) -> Result<Status> {
@@ -293,6 +299,7 @@ pub fn parse_status(payload: &[u8]) -> Result<Status> {
         calibration_reject: r.u16()?,
         gait_state: r.u8()?,
         cycles_completed: r.u32()?,
+        haptics: r.u8()?,
     })
 }
 
@@ -924,6 +931,90 @@ pub fn parse_service_test(payload: &[u8]) -> Result<ServiceReply> {
         }
         _ => Err(ProtocolError::BadPayload("SERVICE_TEST")),
     }
+}
+
+// ---- CONFIG_SET and HAPTIC_BATCH (schema 7, DEC-023) -----------------------
+
+/// CONFIG_SET key 1: the haptic master switch (docs/protocol.md §5.16).
+pub const CONFIG_KEY_HAPTIC_FEEDBACK: u8 = 1;
+
+pub fn haptic_switch_request(on: bool) -> Vec<u8> {
+    vec![CONFIG_KEY_HAPTIC_FEEDBACK, u8::from(on)]
+}
+
+/// The device's CONFIG_SET echo: the switch state it applied.
+pub fn parse_haptic_switch(payload: &[u8]) -> Result<bool> {
+    match payload {
+        [CONFIG_KEY_HAPTIC_FEEDBACK, value @ (0 | 1)] => Ok(*value == 1),
+        _ => Err(ProtocolError::BadPayload("CONFIG_SET")),
+    }
+}
+
+pub const HAPTIC_RECORD_SIZE: usize = 32;
+/// HAPTIC_BATCH `event`, 1-based (docs/protocol.md §5.17).
+pub const HAPTIC_EVENTS: [&str; 3] = ["on", "update", "off"];
+/// HAPTIC_BATCH `reason` (docs/protocol.md §6.12).
+pub const HAPTIC_REASONS: [&str; 9] = [
+    "none",
+    "below_threshold",
+    "low_confidence",
+    "invalid_step",
+    "no_direction",
+    "switched_off",
+    "session_ended",
+    "sensor_fault",
+    "refused",
+];
+
+/// One feedback cue or episode end, as the device logged it (doc 06 §13).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct HapticRecord {
+    pub device_time_us: u64,
+    pub cycle_start_frame: u32,
+    pub event: &'static str,
+    pub reason: &'static str,
+    /// (motor 1..6, duty of 255), one or two; duty 0 when it did not run.
+    pub motors: Vec<(u8, u8)>,
+    pub duration_ms: u16,
+    pub error_class: &'static str,
+    pub error_score: f32,
+    pub confidence: f32,
+}
+
+pub fn parse_haptic_batch(payload: &[u8]) -> Result<Vec<HapticRecord>> {
+    let mut r = Reader::new(payload);
+    let count = r.u8()? as usize;
+    let size = r.u8()? as usize;
+    if count == 0 || size != HAPTIC_RECORD_SIZE || payload.len() != 2 + count * size {
+        return Err(ProtocolError::BadPayload("HAPTIC_BATCH"));
+    }
+    let name = |names: &[&'static str], index: usize| {
+        names.get(index).copied().ok_or(ProtocolError::BadPayload("HAPTIC_BATCH"))
+    };
+    let mut records = Vec::with_capacity(count);
+    for _ in 0..count {
+        let device_time_us = r.u64()?;
+        let cycle_start_frame = r.u32()?;
+        let event = name(&HAPTIC_EVENTS, (r.u8()? as usize).wrapping_sub(1))?;
+        let reason = name(&HAPTIC_REASONS, r.u8()? as usize)?;
+        let pairs = [(r.u8()?, r.u8()?), (r.u8()?, r.u8()?)];
+        let duration_ms = r.u16()?;
+        let error_class = name(&ERROR_CLASSES, r.u8()? as usize)?;
+        r.u8()?;
+        r.u16()?;
+        records.push(HapticRecord {
+            device_time_us,
+            cycle_start_frame,
+            event,
+            reason,
+            motors: pairs.into_iter().filter(|&(motor, _)| motor != 0).collect(),
+            duration_ms,
+            error_class,
+            error_score: r.f32()?,
+            confidence: r.f32()?,
+        });
+    }
+    Ok(records)
 }
 
 // ---- BACKFILL --------------------------------------------------------------

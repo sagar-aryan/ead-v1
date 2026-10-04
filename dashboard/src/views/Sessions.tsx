@@ -109,7 +109,8 @@ function Evaluation({
       <p className="hint">
         Scores each cycle against the patient's locked reference and splits the
         session into segments. Both limits are required: doc 12 §5 says no default
-        may be invented for them.
+        may be invented for them. With Vibration on (top bar), each step that
+        deviates enough is cued on the shank after it lands.
       </p>
       <div className="row">
         <div className="field">

@@ -42,6 +42,8 @@ export interface DeviceStatus {
   /** Gait state index into `Vocabulary.gait_states`. */
   gait_state: number;
   cycles_completed: number;
+  /** Bit 0 the haptic master switch, bit 1 a feedback episode (schema 7). */
+  haptics: number;
 }
 
 export interface Snapshot {
@@ -72,6 +74,10 @@ export interface Snapshot {
   motor_service_test: boolean;
   /** The latest sensor check from this boot, once asked for. */
   sensor_check: SensorCheckReport | null;
+  /** The haptic master switch as the device reports it; off after every boot. */
+  haptic_switch_on: boolean;
+  /** A feedback episode is running on the device. */
+  haptic_episode: boolean;
 }
 
 /** One sensor's wiring check (docs/protocol.md §5.14). */
@@ -388,6 +394,8 @@ export const api = {
   sensorCheck: (rerun: boolean) => invoke<SensorCheckReport>("sensor_check", { rerun }),
   /** Returns the logged test's id, for its "felt" answer. */
   motorPulse: (motor: number, duty: number) => invoke<number>("motor_pulse", { motor, duty }),
+  /** The haptic master switch (DEC-023). */
+  setHapticFeedback: (on: boolean) => invoke<void>("set_haptic_feedback", { on }),
   recordMotorFelt: (testId: number, felt: boolean) =>
     invoke<void>("record_motor_felt", { testId, felt }),
   serviceTests: () => invoke<ServiceTest[]>("service_tests"),

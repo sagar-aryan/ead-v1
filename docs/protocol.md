@@ -1,4 +1,4 @@
-# Device Protocol (schema 6)
+# Device Protocol (schema 7)
 
 Wire protocol between the EAD-V1 device and host software (dashboard, `tools/eadprobe.py`).
 The frame header and message type numbers are fixed by
@@ -19,7 +19,7 @@ byte count followed by that many UTF-8 bytes (no terminator).
 | Field | Where | Value | Changes when |
 |---|---|---|---|
 | `protocol_version` | Every header | 1 | The header layout changes (doc 08) |
-| `schema` | HELLO payload | 6 | Any payload layout or enumeration changes |
+| `schema` | HELLO payload | 7 | Any payload layout or enumeration changes |
 | `config_format` | CONFIG_GET payload | 2 | The configuration section layout changes (1 = MPU6500 build, 2 = BNO086 build) |
 
 A host must compare `schema` in the device HELLO and refuse to interpret payloads of an
@@ -72,13 +72,13 @@ unknown schema.
 the timestamp of the batch's first frame; for other device messages, the time the message
 was built; host messages send 0. Host time is never substituted for device time (doc 08 §6).
 
-## 4. Message catalogue (schema 6)
+## 4. Message catalogue (schema 7)
 
-| Type | Name | Direction | Schema 6 behaviour |
+| Type | Name | Direction | Schema 7 behaviour |
 |---:|---|---|---|
 | 0x01 | HELLO | both | Host identifies; device replies with identity and starts streaming |
 | 0x02 | CONFIG_GET | both | Host request (empty); device reply with configuration |
-| 0x03 | CONFIG_SET | host → device | ERROR NotSupported |
+| 0x03 | CONFIG_SET | both | The haptic master switch (§5.16, DEC-023); the device echoes what it applied |
 | 0x04 | SESSION_START | host → device | Starts a session of any kind: CALIBRATION, REFERENCE_CAPTURE, REFERENCE_CHECK, EVALUATION (§5.9) |
 | 0x05 | SESSION_STOP | both | Host: stop or cancel. Device: the calibration record when a window completes, or the reference profile when a capture stops (§5.10) |
 | 0x06 | PAUSE | host → device | ERROR NotSupported |
@@ -86,7 +86,7 @@ was built; host messages send 0. Host time is never substituted for device time 
 | 0x08 | RAW_SAMPLE_BATCH | device → host | Durable; up to 10 frames |
 | 0x09 | EVENT_BATCH | device → host | Durable; gait events (§5.11) |
 | 0x0A | STEP_BATCH | device → host | Durable; one record per completed gait cycle (§5.12) |
-| 0x0B | HAPTIC_BATCH | device → host | Never emitted (no haptic feedback, DEC-006) |
+| 0x0B | HAPTIC_BATCH | device → host | Durable; every feedback cue and episode end (§5.17, DEC-023) |
 | 0x0C | STATUS | both | Device status at 5 Hz; host keepalive (empty) at 1 Hz |
 | 0x0D | ACK | device → host | Not emitted |
 | 0x0E | ERROR | device → host | Reply to a failed command, or `cmd_seq` 0 if unsolicited |
@@ -103,7 +103,8 @@ fields in STEP_BATCH. Schema 5 is the BNO086 build (DEC-016, DEC-017): HELLO's s
 (§5.2), configuration format 2 (§5.5), new frame semantics (§5.4), SERVICE_TEST (§5.14)
 and capability bit 3. Payload layouts are otherwise unchanged. Schema 6 (DEC-021): 200 Hz
 frames of 70 bytes carrying the BNO086's game rotation vectors (§5.4), and RAW_ACCEL_BATCH
-(§5.15).
+(§5.15). Schema 7 (DEC-023): haptic feedback — CONFIG_SET's master switch (§5.16),
+HAPTIC_BATCH (§5.17), STATUS `haptics` (§5.3), capability bit 0 set.
 
 ## 5. Payloads
 
@@ -138,7 +139,7 @@ Host → device: empty payload, sent at least once per second while connected. A
 host message counts as activity. A link streams only while the host has been active
 within 3 s.
 
-Device → host (58 bytes), every 200 ms while streaming:
+Device → host (59 bytes), every 200 ms while streaming:
 
 | Offset | Type | Field |
 |---:|---|---|
@@ -164,6 +165,7 @@ Device → host (58 bytes), every 200 ms while streaming:
 | 51 | u16 | `calibration_reject`: reason bits (§6.5), 0 while collecting or when ready |
 | 53 | u8 | `gait_state` (§6.6) |
 | 54 | u32 | `cycles_completed` since boot, valid and invalid alike |
+| 58 | u8 | `haptics`: bit 0 the master switch is on (off at every boot), bit 1 a feedback episode is running (schema 7) |
 
 Counters are cumulative since boot. The calibration fields describe the record held in
 RAM; it is lost on reset, and `calibration_state` returns to 0.
@@ -493,6 +495,53 @@ A refusal is ERROR BadPayload (out of range), InvalidState (another pulse runnin
 Rejected (rolling limit, or a motor switched off in this build's enable mask),
 with the reason in `detail`.
 
+### 5.16 CONFIG_SET (schema 7, DEC-023)
+
+Host → device (2 bytes): u8 `key`, u8 `value`. One key exists:
+
+| Key | Name | Value |
+|---:|---|---|
+| 1 | `haptic_feedback` | 0 off, 1 on: the dashboard's master switch |
+
+The device applies it and replies with the same two bytes as CONFIG_SET; an unknown key,
+another value or another length is ERROR BadPayload. The switch is off at every boot.
+Switching it off stops the motors at once; a running episode's OFF record follows in
+HAPTIC_BATCH. Switching it on starts nothing by itself: cues come only from scored cycles
+in an EVALUATION session (§5.17). STATUS `haptics` reports the switch.
+
+### 5.17 HAPTIC_BATCH (device → host, durable, schema 7)
+
+Cues are decided per scored cycle in an EVALUATION session with the switch on, when the
+cycle closes, i.e. when the right foot lands (doc 06, DEC-023). Gating: a new episode needs
+`error_score` ≥ 0.35 and `confidence` ≥ 0.75; it continues while the score stays ≥ 0.25 and
+confidence ≥ 0.50; an invalid cycle, a lost frame, a failed read, the switch or the end of
+the session ends it.
+
+| Offset | Type | Field |
+|---:|---|---|
+| 0 | u8 | `count`, 1–16 |
+| 1 | u8 | `record_size` = 32 |
+| 2 | … | `count` records |
+
+Each record:
+
+| Offset | Type | Field |
+|---:|---|---|
+| 0 | u64 | `device_time_us`: the cue's start, or when the episode ended |
+| 8 | u32 | `cycle_start_frame`: the cycle that produced it; 0 when ended from outside a cycle |
+| 12 | u8 | `event`: 1 ON (first cue of an episode), 2 UPDATE, 3 OFF |
+| 13 | u8 | `reason` (§6.12): why an episode ended, or 8 for a cue the motor guard refused |
+| 14 | u8 | `motor_a` 1–6, 0 none |
+| 15 | u8 | `duty_a` of 255; 0 when it did not run |
+| 16 | u8 | `motor_b` 1–6, 0 none |
+| 17 | u8 | `duty_b` |
+| 18 | u16 | `duration_ms` |
+| 20 | u8 | `error_class` (§6.10) |
+| 21 | u8 | reserved, 0 |
+| 22 | u16 | reserved, 0 |
+| 24 | f32 | `error_score` of the cycle; 0 when ended from outside a cycle |
+| 28 | f32 | `confidence` of the cycle; 0 likewise |
+
 ### 5.15 RAW_ACCEL_BATCH (device → host, durable, schema 6)
 
 Every accelerometer sample of both sensors as measured, in arrival order (DEC-021): the
@@ -540,7 +589,7 @@ Bit 0 `usb_active`, bit 1 `wifi_active`: a host on that link sent HELLO and has 
 active within 3 s.
 
 ### 6.4 Capabilities
-Bit 0 `haptics_fitted` (error-driven feedback runs; 0, DEC-006), bit 1 `flash_storage`,
+Bit 0 `haptics_fitted` (error-driven feedback runs; 1 since schema 7, DEC-023), bit 1 `flash_storage`,
 bit 2 `psram_ring`, bit 3 `motor_service_test` (SERVICE_TEST motor pulses available).
 
 ### 6.5 Calibration reject bits
@@ -595,6 +644,12 @@ time, 4 stance ratio, 5 cycle distance, 6 shank dynamics`. Weights, in the same 
 `0 NONE, 1 INSUFFICIENT_DORSIFLEXION, 2 EXCESS_PLANTARFLEXION, 3 INVERSION_DEVIATION,
 4 EVERSION_DEVIATION, 5 TIMING_DEVIATION, 6 OVERALL_DEVIATION`. In `active_classes`,
 bit *n* is class *n*.
+
+### 6.12 Haptic reasons (§5.17)
+0 none, 1 below_threshold (score under 0.25), 2 low_confidence (under 0.50),
+3 invalid_step, 4 no_direction (no class names a direction), 5 switched_off,
+6 session_ended, 7 sensor_fault (failed read, lost frame, no orientation), 8 refused (the
+motor guard's rolling limit).
 
 ### 6.6 Gait state (doc 05 §2)
 

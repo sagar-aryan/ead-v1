@@ -2108,3 +2108,39 @@ and untested.
 ### Notes
 All ground truth is one healthy wearer. Distance still comes from the same ZUPT
 integrator; the 2026-10-02 slow shortfall is a distance problem, not detection.
+
+## TEST-060 — Haptic feedback on the host
+
+### Objective
+DEC-023 end to end without hardware: engine, guard, protocol, store and export.
+
+### Environment
+Native tests (`pio test -d firmware -e native`), the dashboard's `cargo test`, the
+regenerated vectors (`protocol/vectors`, schema 7) and `eadprobe vectors`.
+
+### Procedure
+1. `test_haptics`: gating, hysteresis, low confidence, invalid step, medial/lateral
+   pairs, OVERALL direction, TIMING alternation, intensity, no direction, external stop.
+2. `test_motor_guard`: two-motor cues within each motor's limits, Busy, refusals, the
+   rolling limit counted per motor.
+3. `test_protocol`: STATUS 59 bytes, CONFIG_SET decode and echo, HAPTIC_BATCH against
+   `haptic_batch.hex`.
+4. Dashboard: the vectors decode; a HAPTIC_BATCH counts for gap detection and reaches
+   the sink; an export writes the records, stores a backfilled copy once, and counts
+   episodes in `metadata.json`; schema 2 and 7 stores upgrade to 10.
+
+### Expected
+All pass; a test that inverts a doc 06 rule fails.
+
+### Actual
+Native 98 of 98 (9 haptic, 1 new guard, 2 new protocol). Dashboard 73 passed, 4
+ignored (hardware). Vectors: 0 failures in eadprobe. Firmware builds (RAM 23.0 %,
+flash 22.0 %). One test was wrong on first run: the rolling-limit case expected a
+refusal at exactly 5.0 s on in 10 s, which the contract allows; corrected to 5.25 s.
+
+### Result
+PASS on the host. Not flashed; no motor has run from a cue; nothing felt.
+
+### Notes
+Bench next: `eadprobe haptics on`, a check with a reference, then an evaluation with
+`--haptics`, motors watched and felt; then worn, with the dashboard's switch.

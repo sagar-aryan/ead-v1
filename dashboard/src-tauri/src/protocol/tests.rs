@@ -81,7 +81,7 @@ fn device_hello_decodes() {
     assert_eq!(hello.mac_string(), "44:B1:76:AF:FB:7C");
     // Foot BNO086 answered its product ID, shank did not.
     assert_eq!((hello.sensor_foot, hello.sensor_shank), (0x86, 0));
-    assert!(!hello.haptics_fitted());
+    assert!(!hello.haptics_fitted(), "the vector's capabilities are 0x0C");
     assert!(hello.motor_service_test());
     assert_eq!(hello.capability_names(), vec!["psram_ring", "motor_service_test"]);
     assert_eq!((hello.oldest_seq, hello.last_seq), (1, 42));
@@ -103,6 +103,7 @@ fn device_status_decodes() {
     assert_eq!(status.calibration_state, 2, "ready");
     assert_eq!(status.calibration_samples, 500);
     assert_eq!(status.calibration_reject, 0);
+    assert_eq!(status.haptics, STATUS_HAPTICS_SWITCH_ON);
     assert_eq!(parse_status(&payload[..10]), Err(ProtocolError::BadPayload("STATUS")));
 }
 
@@ -241,8 +242,8 @@ fn config_section_decodes_every_documented_field() {
     assert_eq!(config.ws_port, 8080);
     assert_eq!(config.reference_min_cycles, 30);
 
-    // No error-driven feedback (DEC-006); maps not yet measured for these boards.
-    assert!(!config.haptics.fitted);
+    // Error-driven feedback runs (DEC-023); the maps measured on the leg (TEST-051).
+    assert!(config.haptics.fitted);
     assert_eq!(config.imu.foot_mount, [[0, -1, 0], [1, 0, 0], [0, 0, 1]]);
     assert_eq!(config.imu.shank_mount, [[0, 0, 1], [1, 0, 0], [0, 1, 0]]);
 
@@ -278,6 +279,36 @@ fn format_1_sections_still_decode() {
     assert_eq!(config.reference_min_cycles, 30);
     // A format-1 section is not a valid format-2 one.
     assert!(config::parse_section(config::FORMAT_BNO086, &section).is_err());
+}
+
+#[test]
+fn haptic_switch_and_batch_vectors_decode() {
+    let request = vector("config_set_request.hex");
+    let (header, payload) = parse(&request).unwrap();
+    assert_eq!(header.msg_type, MsgType::ConfigSet as u8);
+    assert_eq!(payload, haptic_switch_request(true));
+    let reply = vector("config_set_reply.hex");
+    let (_, payload) = parse(&reply).unwrap();
+    assert_eq!(parse_haptic_switch(payload), Ok(true));
+    assert!(parse_haptic_switch(&[2, 1]).is_err());
+    assert!(parse_haptic_switch(&[1, 2]).is_err());
+
+    let batch = vector("haptic_batch.hex");
+    let (header, payload) = parse(&batch).unwrap();
+    assert_eq!(header.msg_type, MsgType::HapticBatch as u8);
+    let records = parse_haptic_batch(payload).unwrap();
+    assert_eq!(records.len(), 2);
+    let on = &records[0];
+    assert_eq!((on.device_time_us, on.cycle_start_frame), (7_000_000, 4200));
+    assert_eq!((on.event, on.reason), ("on", "none"));
+    assert_eq!(on.motors, vec![(5, 204), (6, 120)]);
+    assert_eq!(on.duration_ms, 250);
+    assert_eq!(on.error_class, "inversion_deviation");
+    assert!((on.error_score - 0.8).abs() < 1e-6 && (on.confidence - 0.9).abs() < 1e-6);
+    let off = &records[1];
+    assert_eq!((off.event, off.reason), ("off", "switched_off"));
+    assert!(off.motors.is_empty());
+    assert!(parse_haptic_batch(&payload[..payload.len() - 1]).is_err());
 }
 
 #[test]

@@ -14,8 +14,9 @@ foot-only ZUPT correction, and scores each gait cycle against a patient-specific
 reference. A Tauri 2 desktop dashboard observes, configures, records, analyses
 and exports; it never closes a control loop.
 
-Haptic feedback is part of the V1 contract, but no error-driven feedback exists
-(DEC-006); the motors run only as service-test pulses (DEC-018).
+Haptic feedback runs on the device during an EVALUATION session with the dashboard's
+master switch on: one cue per scored cycle, after the step lands (DEC-023). Outside a
+session the motors run only as service-test pulses (DEC-018).
 
 The hardware is the DEC-016 build: two BNO086 on SPI plus six motor channels on a
 separate ERM driver board, with the haptic band on the calf (DEC-015). The product
@@ -34,13 +35,13 @@ came from it.
   (`src/bno086.cpp`, `lib/ead_core/src/ead/sh2.cpp`); rates from TEST-054.
 - Mount maps: measured on the leg (TEST-051; DEC-009: per sensor).
 
-### Haptic band (no haptic code)
+### Haptic band
 Contract: six ERMs around the lower shank (moved to the calf by DEC-015), low-side
 IRLML6344 switches on GPIO 1, 2, 4, 9, 43, 44 (doc 03; GPIO 1, 2, 42, 4, 5, 6 under
 DEC-016), 200 Hz PWM limited to 20–80 % duty, 5 s maximum on-time,
 50 % rolling duty over 10 s. Current build: all six motor GPIOs are driven LOW at boot;
-the only drive is a service-test pulse (DEC-018), timed on the device within those
-limits.
+they are driven by a service-test pulse (DEC-018) or a feedback cue (DEC-023), each
+timed on the device and held to those limits by one `MotorGuard`.
 
 ### ESP32-S3 real-time controller
 - **Acquisition** (core 1, highest priority): each sensor's INT (IRAM-safe handler)
@@ -96,6 +97,7 @@ processing: mount map → calibration → segment orientation from each game rot
             → gait state machine + events (shank swing, DEC-022) → ZUPT (foot)
             → cycle features
             → reference comparison → error score, class, confidence
+            → haptic engine (EVALUATION, switch on) → motor guard → PWM (DEC-023)
                      │
                      ▼
 durable message ring (RAW_SAMPLE_BATCH / EVENT_BATCH / STEP_BATCH, sequence numbers)
@@ -121,7 +123,7 @@ They take effect between frames, and the ACK reports the effective frame index.
 |---|---|
 | I²C | 400 kHz, foot `0x68`, shank `0x69` |
 | GPIO interrupts | Foot INT → GPIO7, shank INT → GPIO8; both verified at 100 Hz (TEST-015) |
-| Motor GPIOs | 1, 2, 4, 9, 43, 44 held LOW (not fitted) |
+| Motor GPIOs | 1, 2, 42, 4, 5, 6 (DEC-016): service-test pulses and feedback cues (DEC-023) |
 | Wi-Fi | Device AP, `ws://192.168.4.1:8080/ws`, binary frames (doc 08 header) |
 | USB | Native USB Serial/JTAG `303a:1001`: flashing, and the same binary protocol framed `00 \| COBS(msg ‖ CRC32) \| 00` |
 | Protocol payloads | `docs/protocol.md` |

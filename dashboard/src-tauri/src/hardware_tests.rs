@@ -102,7 +102,8 @@ fn records_a_session_from_a_real_device() {
         snapshot.capabilities
     );
     assert!(!snapshot.schema_mismatch, "device and host protocol schemas differ");
-    assert!(!snapshot.haptics_fitted, "no ERM drivers are fitted (DEC-006)");
+    assert!(snapshot.haptics_fitted, "schema 7 runs error-driven feedback (DEC-023)");
+    assert!(!snapshot.haptic_switch_on, "the haptic master switch is off after boot");
     assert_eq!(snapshot.faults, Vec::<&str>::new(), "device reports faults");
 
     // The configuration must be the as-built one (docs/hardware.md): the BNO086

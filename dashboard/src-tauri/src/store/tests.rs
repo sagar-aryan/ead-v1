@@ -580,7 +580,8 @@ fn schema_upgrades_from_version_2_keeping_frames() {
         // 3 to 9 added, so it really looks like a v2 store.
         connection
             .execute_batch(
-                "ALTER TABLE sessions DROP COLUMN label;
+                "DROP TABLE haptics;
+                 ALTER TABLE sessions DROP COLUMN label;
                  DROP TABLE raw_accel;
                  ALTER TABLE raw_frames DROP COLUMN rfw;
                  ALTER TABLE raw_frames DROP COLUMN rfx;
@@ -633,12 +634,13 @@ fn schema_upgrades_from_version_7_keeping_frames_without_rotation_vectors() {
         store.record_frames(&[frame(0), frame(1)]);
         store.flush();
         store.stop_session().unwrap();
-        // Undo schemas 8 and 9, so it really looks like a v7 store.
+        // Undo schemas 8 to 10, so it really looks like a v7 store.
         store
             .reader()
             .unwrap()
             .execute_batch(
-                "ALTER TABLE sessions DROP COLUMN label;
+                "DROP TABLE haptics;
+                 ALTER TABLE sessions DROP COLUMN label;
                  DROP TABLE raw_accel;
                  ALTER TABLE raw_frames DROP COLUMN rfw;
                  ALTER TABLE raw_frames DROP COLUMN rfx;
@@ -894,6 +896,32 @@ fn exportable_session() -> (Arc<Store>, tempdir::TempDir, String) {
         &cycles,
         &[GaitEvent { event_type: crate::protocol::GaitEventType::InitialContact, frame_index: 0, timestamp_us: 0 }],
     );
+    // A feedback episode on the second cycle, its end on the third; the ON
+    // arrives twice, as a backfilled copy would, and is stored once.
+    let on = crate::protocol::HapticRecord {
+        device_time_us: 2_000_000,
+        cycle_start_frame: cycles[1].start_frame,
+        event: "on",
+        reason: "none",
+        motors: vec![(5, 204), (6, 120)],
+        duration_ms: 250,
+        error_class: "inversion_deviation",
+        error_score: 0.8,
+        confidence: 0.9,
+    };
+    let off = crate::protocol::HapticRecord {
+        device_time_us: 3_000_000,
+        cycle_start_frame: cycles[2].start_frame,
+        event: "off",
+        reason: "below_threshold",
+        motors: Vec::new(),
+        duration_ms: 0,
+        error_class: "inversion_deviation",
+        error_score: 0.1,
+        confidence: 0.9,
+    };
+    store.record_haptics(std::slice::from_ref(&on));
+    store.record_haptics(&[on, off]);
     store.record_status(&crate::protocol::Status {
         device_state: 5,
         frame_index: 1,
@@ -951,12 +979,19 @@ fn the_export_package_matches_the_database() {
     for kind in ["INITIAL_CONTACT", "CYCLE_START", "CYCLE_END", "ERROR_ACTIVE", "FAULT"] {
         assert!(events.contains(kind), "events.csv is missing {kind}");
     }
-    assert!(!events.contains("SERVICE_TEST"), "no haptics, so no service test happened");
+    assert!(!events.contains("SERVICE_TEST"), "service tests are refused during a session");
 
-    // Doc 10 §5: the header alone, so a reader sees no haptic event occurred
-    // rather than finding no file at all.
+    // Doc 10 §5 plus `event`: one row per stored record, the backfilled copy once.
     let haptics = std::fs::read_to_string(target.join("haptics.csv")).unwrap();
-    assert_eq!(haptics.lines().count(), 1);
+    let rows: Vec<&str> = haptics.lines().collect();
+    assert_eq!(rows.len(), 3, "{haptics}");
+    assert!(rows[0].ends_with(",reason,event"));
+    let segment = store.cycles(&session_id).unwrap()[1].segment_index;
+    assert_eq!(
+        rows[1],
+        format!("{session_id},{segment},2,2000000,5;6,inversion_deviation,204;120,250,0.8,0.9,none,on")
+    );
+    assert!(rows[2].ends_with(",3000000,,inversion_deviation,,0,0.1,0.9,below_threshold,off"), "{}", rows[2]);
 
     let metadata: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(target.join("metadata.json")).unwrap())
@@ -965,11 +1000,15 @@ fn the_export_package_matches_the_database() {
                 "segmentation", "haptics", "storage_recovery", "coordinate_convention"] {
         assert!(!metadata[key].is_null(), "metadata.json is missing {key}");
     }
-    assert_eq!(metadata["haptics"]["fitted"], serde_json::json!(false));
+    // No configuration was stored with this session, so whether feedback could
+    // run is unknown, not false; what ran is counted all the same.
+    assert_eq!(metadata["haptics"]["fitted"], serde_json::Value::Null);
+    assert_eq!(metadata["haptics"]["records"], serde_json::json!(2));
+    assert_eq!(metadata["haptics"]["episodes"], serde_json::json!(1));
     assert_eq!(metadata["device"]["firmware_version"], serde_json::json!("0.1.0+test"));
     assert_eq!(metadata["segmentation"]["max_valid_cycles_per_segment"], serde_json::json!(2));
     assert_eq!(metadata["session"]["accel_samples_stored"], serde_json::json!(3));
-    assert_eq!(metadata["device"]["payload_schema"], serde_json::json!(6));
+    assert_eq!(metadata["device"]["payload_schema"], serde_json::json!(crate::protocol::SCHEMA_VERSION));
 
     assert!(target.join("session.mat").metadata().unwrap().len() > 256);
 

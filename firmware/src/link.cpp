@@ -2,6 +2,7 @@
 
 #include "acquisition.h"
 #include "calibration_service.h"
+#include "feedback.h"
 #include "motors.h"
 #include "session_service.h"
 
@@ -221,6 +222,20 @@ void Link::onMessage(const uint8_t* msg, size_t len, int64_t nowUs) {
                              : refusal == ead::MotorGuard::Refusal::Busy ? ErrorCode::InvalidState
                                                                          : ErrorCode::Rejected;
       queueError(h.sequence, h.type, code, refusalText(refusal), nowUs);
+      return;
+    }
+    case MsgType::ConfigSet: {
+      ead::ConfigKey key{};
+      uint8_t value = 0;
+      if (!ead::decodeConfigSet(payload, h.length, &key, &value)) {
+        queueError(h.sequence, h.type, ErrorCode::BadPayload,
+                   "CONFIG_SET is {u8 key = 1 haptic_feedback, u8 0 or 1}", nowUs);
+        return;
+      }
+      feedback::setEnabled(value != 0);
+      uint8_t body[ead::kConfigSetPayloadSize];
+      queueReply(MsgType::ConfigSet, body, ead::encodeConfigSet(key, value, body, sizeof body),
+                 nowUs);
       return;
     }
     case MsgType::BackfillRequest: {

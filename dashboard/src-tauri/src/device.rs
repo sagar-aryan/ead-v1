@@ -31,6 +31,8 @@ pub trait Sink: Send + Sync + 'static {
     fn status(&self, status: &Status);
     /// Gait cycles and events, whichever the device sent (schema 3).
     fn gait(&self, cycles: &[protocol::GaitCycle], events: &[protocol::GaitEvent]);
+    /// Feedback cues and episode ends (schema 7, DEC-023).
+    fn haptics(&self, _records: &[protocol::HapticRecord]) {}
     /// The device restarted (a new boot_id after an earlier one). Returns what
     /// the operator must be told, if anything (PROB-019).
     fn device_restarted(&self) -> Option<String> {
@@ -80,6 +82,10 @@ pub struct Snapshot {
     pub motor_service_test: bool,
     /// The latest sensor check from this boot, when one has been asked for.
     pub sensor_check: Option<protocol::SensorCheckReport>,
+    /// The haptic master switch as the device reports it (off at every boot).
+    pub haptic_switch_on: bool,
+    /// A feedback episode is running on the device.
+    pub haptic_episode: bool,
 }
 
 #[derive(Default)]
@@ -175,6 +181,8 @@ impl Device {
             session_valid_cycles: state.session_valid_cycles,
             motor_service_test: state.hello.as_ref().is_some_and(|h| h.motor_service_test()),
             sensor_check: if connected { state.sensor_check.clone() } else { None },
+            haptic_switch_on: status.is_some_and(|s| s.haptics & protocol::STATUS_HAPTICS_SWITCH_ON != 0),
+            haptic_episode: status.is_some_and(|s| s.haptics & protocol::STATUS_HAPTICS_EPISODE != 0),
         }
     }
 
@@ -250,6 +258,13 @@ impl Device {
         self.clear_error();
         self.send_now(MsgType::ServiceTest, payload)?;
         Ok(seen)
+    }
+
+    /// The haptic master switch (CONFIG_SET, DEC-023). The device echoes it and
+    /// reports it in STATUS; a refusal arrives as the last error.
+    pub fn set_haptic_feedback(&self, on: bool) -> Result<(), String> {
+        self.clear_error();
+        self.send_now(MsgType::ConfigSet, &protocol::haptic_switch_request(on))
     }
 
     pub fn service_replies(&self) -> u64 {
@@ -496,6 +511,12 @@ impl Tracker {
                 }
                 Err(e) => self.note_error(format!("SERVICE_TEST: {e}")),
             },
+            MsgType::ConfigSet => {
+                // The echo only confirms; STATUS carries the switch from here on.
+                if let Err(e) = protocol::parse_haptic_switch(payload) {
+                    self.note_error(format!("CONFIG_SET: {e}"));
+                }
+            }
             MsgType::BackfillData => {
                 if let Ok(chunk) = protocol::parse_backfill_data(payload) {
                     for message in chunk.messages {
@@ -648,6 +669,11 @@ impl Tracker {
                     self.sink.gait(&cycles, &[]);
                 }
                 Err(e) => self.note_error(format!("STEP_BATCH: {e}")),
+            }
+        } else if msg_type == MsgType::HapticBatch as u8 {
+            match protocol::parse_haptic_batch(payload) {
+                Ok(records) => self.sink.haptics(&records),
+                Err(e) => self.note_error(format!("HAPTIC_BATCH: {e}")),
             }
         }
     }
@@ -815,6 +841,32 @@ mod tests {
         assert_eq!(indices, vec![100, 101, 100, 101, 101]);
         assert_eq!(samples.len(), 3);
         assert_eq!((samples[1].sensor, samples[1].sequence), (1, 255));
+    }
+
+    // HAPTIC_BATCH is durable as well: the episode log must survive a gap.
+    #[test]
+    fn haptic_batches_are_durable_and_reach_the_sink() {
+        #[derive(Default)]
+        struct Haptics(Mutex<Vec<protocol::HapticRecord>>);
+        impl Sink for Haptics {
+            fn raw_frames(&self, _: &[RawFrame]) {}
+            fn raw_accel(&self, _: &[AccelSample]) {}
+            fn status(&self, _: &Status) {}
+            fn gait(&self, _: &[protocol::GaitCycle], _: &[protocol::GaitEvent]) {}
+            fn haptics(&self, records: &[protocol::HapticRecord]) {
+                self.0.lock().unwrap().extend_from_slice(records);
+            }
+        }
+        let sink = Arc::new(Haptics::default());
+        let device = Device::new(sink.clone());
+        let mut tracker = connect(&device);
+        tracker.handle(&hello(0xA1B2_C3D4));
+        tracker.handle(&vector("raw_batch.hex")); // sequence 3
+        tracker.handle(&vector("haptic_batch.hex")); // sequence 61
+        assert_eq!(tracker.missing.iter().copied().collect::<Vec<_>>(), (4..=60).collect::<Vec<_>>());
+        let records = sink.0.lock().unwrap();
+        assert_eq!(records.len(), 2);
+        assert_eq!((records[0].event, records[1].reason), ("on", "switched_off"));
     }
 
     // Event and step batches count toward gap detection like any durable

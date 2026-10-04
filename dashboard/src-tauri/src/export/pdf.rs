@@ -297,6 +297,7 @@ pub fn report(
     segments: &[StoredSegment],
     status: &[StatusChange],
     reference: Option<&StoredReference>,
+    haptics: &[crate::store::StoredHaptic],
     classes: &[&str],
 ) -> super::Result<Vec<u8>> {
     let fonts = Fonts::load()
@@ -541,11 +542,21 @@ so.",
             ),
             ("Stance ratio", valid.iter().map(|c| c.stance_ratio).collect()),
             ("Peak dorsiflexion (deg)", valid.iter().map(|c| c.peak_dorsiflexion_deg).collect()),
-            // Doc 10 §8 asks for a haptic-response plot. There are no ERM
-            // drivers (DEC-006), so the panel is drawn empty and labelled
-            // rather than omitted: a reader must see that it was asked for and
-            // that nothing could answer it.
-            ("Haptic response — no drivers fitted (DEC-006)", Vec::new()),
+            // Doc 10 §8's haptic-response plot: the duty each cycle's cue ran
+            // at, 0 where it produced none (DEC-023).
+            (
+                "Haptic response (cue duty of 255 per cycle)",
+                valid
+                    .iter()
+                    .map(|c| {
+                        haptics
+                            .iter()
+                            .filter(|h| h.cycle_start_frame == c.start_frame && h.event != "off")
+                            .map(|h| h.duty_a.max(h.duty_b) as f32)
+                            .fold(0.0, f32::max)
+                    })
+                    .collect(),
+            ),
             ("ZUPT quality", valid.iter().map(|c| c.zupt_quality).collect()),
         ];
         // Seven charts have to fit above the footer: 7 x (72 + 20) = 644 pt
@@ -671,9 +682,14 @@ came first.",
             y,
             CONTENT,
             7.5,
-            "Haptics: no ERM drivers are fitted (DEC-006). The motor GPIOs are held low and no \
-haptic command was issued, so there is no haptic response to summarise. On-device flash \
-storage is not implemented in V1, so there is no storage recovery state to report.",
+            &format!(
+                "Haptics: {} cues ran in {} episodes; {} refused by the motor guard's rolling \
+limit (DEC-023, haptics.csv). On-device flash storage is not implemented in V1, so there is \
+no storage recovery state to report.",
+                haptics.iter().filter(|h| h.event != "off" && h.duty_a > 0).count(),
+                haptics.iter().filter(|h| h.event == "on").count(),
+                haptics.iter().filter(|h| h.reason == "refused").count(),
+            ),
         );
 
         c.footer(3, pages, &session.session_id);

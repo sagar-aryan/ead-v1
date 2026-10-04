@@ -57,11 +57,40 @@ static void test_many_short_pulses_still_count() {
   TEST_ASSERT_EQUAL(Refusal::None, guard.request(1, 128, 100, 10000));
 }
 
+static void test_a_cue_runs_two_motors_together_within_each_limit() {
+  MotorGuard guard = contractGuard(0x3F & ~(1u << 2));  // motor 3 switched off
+  const uint8_t pair[2] = {5, 6};
+  const uint8_t duties[2] = {204, 120};
+  TEST_ASSERT_EQUAL(Refusal::None, guard.requestCue(pair, duties, 250, 0));
+  TEST_ASSERT_EQUAL(Refusal::Busy, guard.requestCue(pair, duties, 250, 100));
+  TEST_ASSERT_EQUAL(Refusal::Busy, guard.request(1, 128, 200, 100));  // a pulse waits too
+  const uint8_t single[2] = {4, 0};
+  const uint8_t singleDuty[2] = {80, 0};
+  TEST_ASSERT_EQUAL(Refusal::None, guard.requestCue(single, singleDuty, 250, 250));
+  // Either motor failing a limit refuses the cue.
+  const uint8_t withOff[2] = {2, 3};
+  TEST_ASSERT_EQUAL(Refusal::Disabled, guard.requestCue(withOff, duties, 250, 1000));
+  const uint8_t weak[2] = {204, 50};
+  TEST_ASSERT_EQUAL(Refusal::BadDuty, guard.requestCue(pair, weak, 250, 1000));
+  const uint8_t same[2] = {5, 5};
+  TEST_ASSERT_EQUAL(Refusal::BadMotor, guard.requestCue(same, duties, 250, 1000));
+  // The rolling limit counts each motor of a cue: twenty cues from 0 to 9.5 s
+  // put 5 s of motor 6 in the first 10 s, the most allowed, so one more ending
+  // inside them is refused.
+  MotorGuard rolling = contractGuard();
+  for (uint32_t t = 0; t < 10000; t += 500) {
+    TEST_ASSERT_EQUAL(Refusal::None, rolling.requestCue(pair, duties, 250, t));
+  }
+  const uint8_t six[2] = {6, 0};
+  TEST_ASSERT_EQUAL(Refusal::RollingLimit, rolling.requestCue(six, duties, 250, 9750));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_refuses_requests_outside_the_contract);
   RUN_TEST(test_one_motor_at_a_time_and_the_pulse_ends_on_its_own);
   RUN_TEST(test_at_most_half_of_any_ten_seconds_on_per_motor);
   RUN_TEST(test_many_short_pulses_still_count);
+  RUN_TEST(test_a_cue_runs_two_motors_together_within_each_limit);
   return UNITY_END();
 }

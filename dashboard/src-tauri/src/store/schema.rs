@@ -7,7 +7,7 @@ use rusqlite::{Connection, Result};
 
 use crate::protocol::{AccelSample, RawFrame};
 
-pub const SCHEMA_VERSION: i32 = 9;
+pub const SCHEMA_VERSION: i32 = 10;
 
 pub fn migrate(connection: &mut Connection) -> Result<()> {
     // WAL keeps readers (UI queries) from blocking the writer thread.
@@ -44,6 +44,7 @@ pub fn migrate(connection: &mut Connection) -> Result<()> {
             6 => transaction.execute_batch(MIGRATE_6_TO_7)?,
             7 => transaction.execute_batch(MIGRATE_7_TO_8)?,
             8 => transaction.execute_batch(MIGRATE_8_TO_9)?,
+            9 => transaction.execute_batch(MIGRATE_9_TO_10)?,
             other => unreachable!("no migration from schema {other}"),
         }
         version += 1;
@@ -267,6 +268,46 @@ CREATE TABLE raw_accel (
 -- Schema 9: a name the user gives a session ("normal pace 1", "slow"), shown
 -- with its generated id. NULL until one is given.
 ALTER TABLE sessions ADD COLUMN label TEXT;
+
+-- Schema 10 (device schema 7, DEC-023): every feedback cue and episode end the
+-- device logged (doc 06 §13), keyed by device time and event, so a backfilled
+-- record repeats its key and is ignored. Motor 0 means none; duty 0 means the
+-- cue did not run (the motor guard refused it).
+CREATE TABLE haptics (
+  session_id        TEXT NOT NULL REFERENCES sessions(session_id),
+  device_time_us    INTEGER NOT NULL,
+  event             TEXT NOT NULL,               -- on, update, off
+  cycle_start_frame INTEGER NOT NULL,
+  reason            TEXT NOT NULL,
+  motor_a INTEGER NOT NULL, duty_a INTEGER NOT NULL,
+  motor_b INTEGER NOT NULL, duty_b INTEGER NOT NULL,
+  duration_ms       INTEGER NOT NULL,
+  error_class       TEXT NOT NULL,
+  error_score       REAL NOT NULL,
+  confidence        REAL NOT NULL,
+  PRIMARY KEY (session_id, device_time_us, event)
+) WITHOUT ROWID;
+"#;
+
+const MIGRATE_9_TO_10: &str = r#"
+-- Schema 10 (device schema 7, DEC-023): every feedback cue and episode end the
+-- device logged (doc 06 §13), keyed by device time and event, so a backfilled
+-- record repeats its key and is ignored. Motor 0 means none; duty 0 means the
+-- cue did not run (the motor guard refused it).
+CREATE TABLE haptics (
+  session_id        TEXT NOT NULL REFERENCES sessions(session_id),
+  device_time_us    INTEGER NOT NULL,
+  event             TEXT NOT NULL,               -- on, update, off
+  cycle_start_frame INTEGER NOT NULL,
+  reason            TEXT NOT NULL,
+  motor_a INTEGER NOT NULL, duty_a INTEGER NOT NULL,
+  motor_b INTEGER NOT NULL, duty_b INTEGER NOT NULL,
+  duration_ms       INTEGER NOT NULL,
+  error_class       TEXT NOT NULL,
+  error_score       REAL NOT NULL,
+  confidence        REAL NOT NULL,
+  PRIMARY KEY (session_id, device_time_us, event)
+) WITHOUT ROWID;
 "#;
 
 const MIGRATE_8_TO_9: &str = r#"
@@ -532,6 +573,12 @@ VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?
 pub const INSERT_EVENT: &str = r#"
 INSERT OR IGNORE INTO events (session_id, frame_index, timestamp_us, kind)
 VALUES (?1, ?2, ?3, ?4)
+"#;
+
+pub const INSERT_HAPTIC: &str = r#"
+INSERT OR IGNORE INTO haptics (session_id, device_time_us, event, cycle_start_frame, reason,
+  motor_a, duty_a, motor_b, duty_b, duration_ms, error_class, error_score, confidence)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
 "#;
 
 pub const INSERT_STATUS_CHANGE: &str = r#"

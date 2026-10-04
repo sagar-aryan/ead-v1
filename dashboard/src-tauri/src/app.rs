@@ -36,6 +36,10 @@ impl Sink for Telemetry {
         self.store.record_gait(cycles, events);
     }
 
+    fn haptics(&self, records: &[crate::protocol::HapticRecord]) {
+        self.store.record_haptics(records);
+    }
+
     fn device_restarted(&self) -> Option<String> {
         match self.store.end_session_at_restart() {
             Ok(Some(session)) => {
@@ -631,6 +635,13 @@ pub async fn motor_pulse(
     let seen = app.device.request_motor_pulse(&pulse)?;
     await_service_reply(&app, seen, 1000).await?;
     app.store.record_motor_pulse(&app.device_identity(), &pulse).map_err(failed)
+}
+
+/// The haptic master switch (DEC-023). The device applies it at once and reports
+/// it in STATUS, which is what the UI shows; it is off after every device boot.
+#[tauri::command]
+pub fn set_haptic_feedback(app: tauri::State<'_, Arc<App>>, on: bool) -> CommandResult<()> {
+    app.device.set_haptic_feedback(on).map_err(failed)
 }
 
 #[tauri::command]
