@@ -238,8 +238,10 @@ hardware tests; the second resets the board).
    `tools/session2eadlog.py`.
 2. Dashboard gaps against doc 11: LIVE metrics, the seven TRENDS, CYCLES → RAW and
    the haptic column and lane are done (implementation.md, not yet seen on screen).
-   Left: symmetry proxy on LIVE, RAW cycle/error filters, the "roll the sole inward"
-   mounting step, PAUSE/RESUME.
+   Left: symmetry proxy on LIVE, RAW cycle/error filters, PAUSE/RESUME. The "roll the
+   sole inward" step is dropped: the toes and still steps fix the foot's Y and Z,
+   and a mount map must be a proper rotation (`static_assert` in config_v1.h), so X
+   follows; a sole roll could not fail where the other two pass.
 3. M7 storage DEC, then the code.
 
 ## Warnings

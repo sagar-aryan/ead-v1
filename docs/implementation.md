@@ -680,8 +680,9 @@ panels, CYCLES → RAW, the haptic column and lane.
 Not seen on screen (no screenshot tool in this environment). LIVE shows no symmetry
 proxy (it needs the session's reference spreads; it is in CYCLES and TRENDS). RAW has
 no cycle or error filter beyond the click-through; no separate HAPTICS page (table in
-CYCLES, timeline in EVENTS, file in the export); the "roll the sole inward" mounting
-step and PAUSE/RESUME remain.
+CYCLES, timeline in EVENTS, file in the export); PAUSE/RESUME remains. The "roll the
+sole inward" mounting step is not built: with Y and Z checked and every mount map a
+proper rotation, the foot's X axis is already determined.
 
 ### Verification
 `npm test` (28), `npm run build`, `cargo test` (the device test checks `last_cycle`),
