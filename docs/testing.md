@@ -2144,3 +2144,33 @@ PASS on the host. Not flashed; no motor has run from a cue; nothing felt.
 ### Notes
 Bench next: `eadprobe haptics on`, a check with a reference, then an evaluation with
 `--haptics`, motors watched and felt; then worn, with the dashboard's switch.
+
+## TEST-061 — Shank swing axis against the anatomical Y axis
+
+### Objective
+Evidence for or against a per-session functional calibration (DEC-020 6d): how far
+the shank's swing axis sits from anatomical Y after mount map and static alignment.
+
+### Environment
+Host replay traces (aligned shank gyro) of the 2026-10-04 walks, two 2026-10-02 walks
+and the 6 m MPU6500 course.
+
+### Procedure
+Principal axis of the shank gyro over samples above 100 °/s; its angle from +Y, split
+into a heading part (toward X) and a part toward Z.
+
+### Actual
+2026-10-04, barefoot: 8.9–13.6° off Y, heading −3.9 to −6.7°, toward Z −6.8 to −12.1°;
+the axis carries 68–75 % of the swing energy. 2026-10-02, shod: 6.9 and 8.7° off Y,
+heading −0.4 and −1.9°. 6 m course (other build): 14.5°, heading +12.9°.
+
+### Result
+Measured. Detection: unaffected (cos 10° = 0.985). Ankle angles: a 6° heading puts
+about 10 % of the sagittal angle into the frontal one, about 1–1.5° of inversion at
+peak dorsiflexion; the heading moved by about 5° between the two days.
+
+### Notes
+The functional calibration is deferred until a reference shows inversion spreads small
+enough for that to raise false INVERSION or EVERSION classes; no trustworthy reference
+exists yet. Part of the tilt toward Z may be anatomical (knee axis, tibial rotation),
+not mounting.
