@@ -236,9 +236,10 @@ hardware tests; the second resets the board).
    is the user's decision). Check any detector change with
    `tools/replay/walks.py`; a dashboard session becomes a fixture with
    `tools/session2eadlog.py`.
-2. Dashboard gaps against doc 11: live gait metrics on LIVE, the seven TRENDS
-   panels, CYCLES → RAW click-through, RAW cycle/error filters, the "roll the
-   sole inward" mounting step, PAUSE/RESUME, CONFIG_SET.
+2. Dashboard gaps against doc 11: LIVE metrics, the seven TRENDS, CYCLES → RAW and
+   the haptic column and lane are done (implementation.md, not yet seen on screen).
+   Left: symmetry proxy on LIVE, RAW cycle/error filters, the "roll the sole inward"
+   mounting step, PAUSE/RESUME.
 3. M7 storage DEC, then the code.
 
 ## Warnings

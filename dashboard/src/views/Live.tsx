@@ -1,9 +1,8 @@
 /**
- * LIVE: what the two sensors are reading right now.
- *
- * Gait metrics (cadence, stance/swing, error score) are computed on the device
- * and stored per cycle (CYCLES view), but this view does not show them yet.
+ * LIVE: what the two sensors are reading right now, and the latest cycle the
+ * device measured and scored.
  */
+import type { Snapshot } from "../api";
 import { Strip } from "../components/Strip";
 import type { DeviceApi } from "../useDevice";
 import { Orientation } from "./Orientation";
@@ -46,6 +45,56 @@ function Axis({ label, value, unit }: { label: string; value: number | null; uni
         )}
       </span>
     </div>
+  );
+}
+
+/**
+ * Doc 11 LIVE: the latest cycle's measurements and score, as the device sent
+ * them. Distance and speed are marked when the cycle had too little zero
+ * velocity to trust them (doc 05 §8); the error fields only mean something when
+ * the cycle was scored (confidence above zero).
+ */
+function LastCycle({ snapshot, classes }: { snapshot: Snapshot | null; classes: string[] }) {
+  const c = snapshot?.last_cycle;
+  if (!c) {
+    return <p className="hint">No cycle yet on this link: walk a few steps.</p>;
+  }
+  const scored = c.confidence > 0;
+  const lowZupt = c.zupt_quality < 0.15;
+  const vibration = !snapshot?.haptic_switch_on
+    ? "off"
+    : snapshot.haptic_episode
+      ? "on, buzzing"
+      : "on, quiet";
+  return (
+    <>
+      <h3 style={{ marginTop: 14 }}>
+        Last cycle{!c.valid && <span className="absent"> (failed the temporal guards)</span>}
+      </h3>
+      <div className="readouts">
+        <Axis label="cycle time" value={c.cycle_time_s} unit="s" />
+        <Axis label="cadence" value={c.cadence_steps_per_min} unit="steps/min" />
+        <Axis label={lowZupt ? "speed (low ZUPT)" : "speed"} value={c.speed_mps} unit="m/s" />
+        <Axis label={lowZupt ? "stride (low ZUPT)" : "stride"} value={c.distance_m} unit="m" />
+        <Axis label="stance" value={c.stance_ratio * 100} unit="%" />
+        <Axis label="swing" value={c.swing_ratio * 100} unit="%" />
+        <Axis label="ZUPT quality" value={c.zupt_quality} unit="" />
+        <Axis label="error score" value={scored ? c.error_score : null} unit="" />
+        <Axis label="confidence" value={scored ? c.confidence : null} unit="" />
+        <div className="readout">
+          <span className="label">Error class</span>
+          <span className="value" style={{ fontSize: 15 }}>
+            {scored ? (classes[c.primary_class] ?? "unknown").replace(/_/g, " ") : (
+              <span className="absent">not scored</span>
+            )}
+          </span>
+        </div>
+        <div className="readout">
+          <span className="label">Vibration</span>
+          <span className="value" style={{ fontSize: 15 }}>{vibration}</span>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -201,6 +250,7 @@ export function Live({ device }: { device: DeviceApi }) {
             </span>
           </div>
         </div>
+        <LastCycle snapshot={snapshot} classes={vocabulary?.error_classes ?? []} />
       </div>
 
       <Orientation device={device} />

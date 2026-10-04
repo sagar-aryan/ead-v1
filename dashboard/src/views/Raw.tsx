@@ -163,13 +163,25 @@ function EnvelopeChart({
   return <div ref={host} style={{ width: "100%", height }} />;
 }
 
-export function Raw() {
+/** A frame range to open on, e.g. a cycle clicked in CYCLES (doc 11 RAW). */
+export interface RawFocus {
+  sessionId: string;
+  from: number;
+  to: number;
+}
+
+export function Raw({ focus = null }: { focus?: RawFocus | null }) {
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [selected, setSelected] = useState("");
+  const [selected, setSelected] = useState(focus?.sessionId ?? "");
   const [groups, setGroups] = useState<SignalGroup[]>(GROUPS.map((g) => g.id));
   const [detail, setDetail] = useState<RawWindow | null>(null);
   const [overview, setOverview] = useState<RawWindow | null>(null);
-  const [range, setRange] = useState<[number, number] | null>(null);
+  // A focused cycle opens with a quarter of its length either side for context.
+  const [range, setRange] = useState<[number, number] | null>(() => {
+    if (!focus) return null;
+    const pad = Math.round((focus.to - focus.from) / 4);
+    return [focus.from - pad, focus.to + pad];
+  });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -189,8 +201,6 @@ export function Raw() {
   const groupKey = groups.join(",");
   /** The overview is context for all of them, so it draws the topmost signal. */
   const contextGroup = groups[0] ?? null;
-
-  useEffect(() => setRange(null), [selected]);
 
   // The overview covers the whole session, so it only reloads when the session
   // or the context signal changes: panning and zooming leave it alone.
@@ -307,7 +317,14 @@ export function Raw() {
         <div className="row">
           <div className="field">
             <label htmlFor="session">Session</label>
-            <select id="session" value={selected} onChange={(e) => setSelected(e.target.value)}>
+            <select
+              id="session"
+              value={selected}
+              onChange={(e) => {
+                setSelected(e.target.value);
+                setRange(null);
+              }}
+            >
               <option value="">Select…</option>
               {sessions.map((s) => (
                 <option key={s.session_id} value={s.session_id}>

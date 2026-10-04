@@ -86,6 +86,8 @@ pub struct Snapshot {
     pub haptic_switch_on: bool,
     /// A feedback episode is running on the device.
     pub haptic_episode: bool,
+    /// The latest cycle the device reported on this link, valid or not.
+    pub last_cycle: Option<protocol::GaitCycle>,
 }
 
 #[derive(Default)]
@@ -108,6 +110,8 @@ struct State {
     /// thirty-cycle gate will use — up to the builder's sixty-four cycle ring.
     session_valid_cycles: u32,
     sensor_check: Option<protocol::SensorCheckReport>,
+    /// The latest cycle the device reported, for LIVE (doc 11).
+    last_cycle: Option<protocol::GaitCycle>,
     /// SERVICE_TEST replies received, so a command can tell its own from older.
     service_replies: u64,
     frames_received: u64,
@@ -183,6 +187,7 @@ impl Device {
             sensor_check: if connected { state.sensor_check.clone() } else { None },
             haptic_switch_on: status.is_some_and(|s| s.haptics & protocol::STATUS_HAPTICS_SWITCH_ON != 0),
             haptic_episode: status.is_some_and(|s| s.haptics & protocol::STATUS_HAPTICS_EPISODE != 0),
+            last_cycle: if connected { state.last_cycle } else { None },
         }
     }
 
@@ -660,12 +665,17 @@ impl Tracker {
             match protocol::parse_step_batch(payload) {
                 Ok(cycles) => {
                     let valid = cycles.iter().filter(|c| c.valid).count() as u32;
-                    if valid > 0 {
-                        let mut state = self.state.lock().expect("device state");
-                        if state.session_kind.is_some() {
-                            state.session_valid_cycles += valid;
+                    let mut state = self.state.lock().expect("device state");
+                    if valid > 0 && state.session_kind.is_some() {
+                        state.session_valid_cycles += valid;
+                    }
+                    // A backfilled batch is older than what LIVE already shows.
+                    if let Some(last) = cycles.last() {
+                        if state.last_cycle.is_none_or(|c| last.start_us >= c.start_us) {
+                            state.last_cycle = Some(*last);
                         }
                     }
+                    drop(state);
                     self.sink.gait(&cycles, &[]);
                 }
                 Err(e) => self.note_error(format!("STEP_BATCH: {e}")),
@@ -883,6 +893,9 @@ mod tests {
         assert_eq!(tracker.highest_seq, Some(52));
         assert_eq!(tracker.missing.iter().copied().collect::<Vec<_>>(), (4..=50).collect::<Vec<_>>());
         assert_eq!(sink.0.lock().unwrap().2, 1);
+        let shown = device.state.lock().unwrap().last_cycle.expect("LIVE's last cycle");
+        assert_eq!(shown.start_frame, protocol::parse_step_batch(
+            protocol::parse(&vector("step_batch.hex")).unwrap().1).unwrap().last().unwrap().start_frame);
 
         // The same cycle delivered by backfill is handed on as well.
         let mut payload = Vec::new();

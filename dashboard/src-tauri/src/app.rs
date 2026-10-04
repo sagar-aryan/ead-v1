@@ -502,6 +502,15 @@ pub fn default_export_directory(
     app.store.export_root().join(&session_id).display().to_string()
 }
 
+/// Every feedback record of a session, in time order (DEC-023).
+#[tauri::command]
+pub fn haptics(
+    app: tauri::State<'_, Arc<App>>,
+    session_id: String,
+) -> CommandResult<Vec<crate::store::StoredHaptic>> {
+    app.store.haptics(&session_id).map_err(failed)
+}
+
 /// Every segment of a session, in order; empty unless it was an evaluation.
 #[tauri::command]
 pub fn segments(

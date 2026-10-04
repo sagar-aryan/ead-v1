@@ -74,6 +74,7 @@ fn main() {
             app::launch_mode,
             app::sensor_check,
             app::motor_pulse,
+            app::haptics,
             app::set_haptic_feedback,
             app::record_motor_felt,
             app::service_tests,

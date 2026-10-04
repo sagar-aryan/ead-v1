@@ -654,3 +654,35 @@ under 51 are choices doc 06 leaves open. Right leg only.
 
 ### Verification
 TEST-060.
+
+## Dashboard: doc 11 gaps closed (2026-10-04)
+
+### Objective
+The doc 11 items that needed no new device data: LIVE cycle metrics, the seven TRENDS
+panels, CYCLES → RAW, the haptic column and lane.
+
+### Implementation
+- LIVE (`views/Live.tsx` `LastCycle`): the latest cycle the device sent, kept in the
+  device tracker (`State::last_cycle`, a backfilled older batch never replaces it):
+  cycle time, cadence, speed and stride (marked "low ZUPT" under 0.15), stance and swing,
+  ZUPT quality, error score, confidence and class (only when scored), vibration state.
+- TRENDS (`views/Cycles.tsx`): `PRIMARY_TRENDS` is doc 11's seven in its order
+  (cadence, symmetry proxy, error score, stance ratio, peak dorsiflexion, cue duty,
+  ZUPT quality); the rest under "Other measurements". Error and haptic panels only in
+  a scored session; a missing value is a gap, never zero.
+- CYCLES: a Vibration column (motors and duty of the cycle's cue, "refused" for duty 0);
+  clicking a row opens RAW on that cycle with a quarter-cycle either side
+  (`RawFocus`, held in `App.tsx`, cleared by plain navigation).
+- EVENTS: a Vibration lane, cues as bars of their length, episode ends as ticks.
+- Backend: `haptics` command; `Snapshot::last_cycle`.
+
+### Limitations
+Not seen on screen (no screenshot tool in this environment). LIVE shows no symmetry
+proxy (it needs the session's reference spreads; it is in CYCLES and TRENDS). RAW has
+no cycle or error filter beyond the click-through; no separate HAPTICS page (table in
+CYCLES, timeline in EVENTS, file in the export); the "roll the sole inward" mounting
+step and PAUSE/RESUME remain.
+
+### Verification
+`npm test` (28), `npm run build`, `cargo test` (the device test checks `last_cycle`),
+clippy.

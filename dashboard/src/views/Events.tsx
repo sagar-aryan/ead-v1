@@ -12,7 +12,14 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { api, sessionTitle, type Cycle, type GaitEvent, type Session } from "../api";
+import {
+  api,
+  sessionTitle,
+  type Cycle,
+  type GaitEvent,
+  type HapticRecord,
+  type Session,
+} from "../api";
 import { zuptSpans, type Span } from "../events";
 import { clock } from "../timeline";
 
@@ -22,6 +29,7 @@ const LANES = [
   { kind: "foot_flat", label: "Foot flat" },
   { kind: "zupt", label: "Zero velocity" },
   { kind: "cycle", label: "Cycles" },
+  { kind: "haptic", label: "Vibration" },
 ] as const;
 
 const LANE_HEIGHT = 34;
@@ -36,6 +44,7 @@ export function Events() {
   const [selected, setSelected] = useState("");
   const [events, setEvents] = useState<GaitEvent[]>([]);
   const [cycles, setCycles] = useState<Cycle[]>([]);
+  const [haptics, setHaptics] = useState<HapticRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
   /** Device-time window in µs; null is the whole session. */
   const [window, setWindow] = useState<Span | null>(null);
@@ -51,12 +60,14 @@ export function Events() {
     if (!selected) {
       setEvents([]);
       setCycles([]);
+      setHaptics([]);
       return;
     }
-    Promise.all([api.events(selected), api.cycles(selected)])
-      .then(([e, c]) => {
+    Promise.all([api.events(selected), api.cycles(selected), api.haptics(selected)])
+      .then(([e, c, h]) => {
         setEvents(e);
         setCycles(c);
+        setHaptics(h);
         setError(null);
       })
       .catch((e) => setError(String(e)));
@@ -156,6 +167,27 @@ export function Events() {
       g.fillRect(from, zuptTop + 8, Math.max(1, to - from), LANE_HEIGHT - 16);
     }
 
+    // Vibration: each cue that ran as a bar of its length, an episode's end
+    // (and a refused cue) as a muted tick (doc 11 EVENTS: haptic ON/OFF).
+    const hapticTop = laneTop("haptic");
+    for (const h of haptics) {
+      const from = x(h.device_time_us);
+      if (from > width) continue;
+      if (h.event !== "off" && h.duty_a > 0) {
+        const to = x(h.device_time_us + h.duration_ms * 1000);
+        if (to < LABEL_WIDTH) continue;
+        g.fillStyle = INK;
+        g.fillRect(from, hapticTop + 8, Math.max(2, to - from), LANE_HEIGHT - 16);
+      } else if (from >= LABEL_WIDTH) {
+        g.strokeStyle = MUTED;
+        g.lineWidth = 1.5;
+        g.beginPath();
+        g.moveTo(from, hapticTop + 9);
+        g.lineTo(from, hapticTop + LANE_HEIGHT - 9);
+        g.stroke();
+      }
+    }
+
     // Event ticks.
     g.strokeStyle = INK;
     g.lineWidth = 1.5;
@@ -176,7 +208,7 @@ export function Events() {
     LANES.forEach((lane, i) => {
       g.fillText(lane.label, 6, i * LANE_HEIGHT + LANE_HEIGHT / 2 + 4);
     });
-  }, [view, bounds, events, cycles]);
+  }, [view, bounds, events, cycles, haptics]);
 
   useEffect(() => {
     draw();
@@ -245,7 +277,7 @@ export function Events() {
         <>
           <div className="panel">
             <div className="readouts">
-              {LANES.filter((l) => l.kind !== "zupt" && l.kind !== "cycle").map((lane) => (
+              {LANES.filter((l) => !["zupt", "cycle", "haptic"].includes(l.kind)).map((lane) => (
                 <div className="readout" key={lane.kind}>
                   <span className="label">{lane.label}</span>
                   <span className="value num">{counts.get(lane.kind) ?? 0}</span>

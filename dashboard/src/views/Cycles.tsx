@@ -15,24 +15,64 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
 
-import { api, sessionTitle, type Cycle, type Segment, type Session } from "../api";
+import {
+  api,
+  sessionTitle,
+  type Cycle,
+  type HapticRecord,
+  type Segment,
+  type Session,
+} from "../api";
 import { className } from "./References";
 import type { DeviceApi } from "../useDevice";
+import type { RawFocus } from "./Raw";
 
 /** Below this, doc 05 §8 says to report distance and speed as low-confidence. */
 const ZUPT_ADEQUATE = 0.15;
 
-const TRENDS: { key: keyof Cycle; label: string; unit: string; digits: number }[] = [
-  { key: "cadence_steps_per_min", label: "Cadence", unit: "steps/min", digits: 0 },
-  { key: "cycle_time_s", label: "Cycle time", unit: "s", digits: 2 },
-  { key: "stance_ratio", label: "Stance ratio", unit: "", digits: 2 },
-  { key: "distance_m", label: "Cycle distance", unit: "m", digits: 2 },
-  { key: "speed_mps", label: "Speed", unit: "m/s", digits: 2 },
-  { key: "peak_dorsiflexion_deg", label: "Peak dorsiflexion", unit: "°", digits: 1 },
-  { key: "peak_shank_rate_dps", label: "Peak shank rate", unit: "°/s", digits: 0 },
-  { key: "zupt_quality", label: "ZUPT quality", unit: "", digits: 2 },
-  { key: "error_score", label: "Error score", unit: "", digits: 2 },
-  { key: "confidence", label: "Confidence", unit: "", digits: 2 },
+/**
+ * Doc 11 TRENDS: exactly seven primary panels, in its order. Each is a value per
+ * valid cycle; null is "not measured", drawn as a gap, never as zero.
+ */
+type TrendSpec = {
+  label: string;
+  unit: string;
+  scoredOnly?: boolean;
+  value: (c: Cycle, cues: HapticRecord[]) => number | null;
+};
+const PRIMARY_TRENDS: TrendSpec[] = [
+  { label: "Cadence", unit: "steps/min", value: (c) => c.cadence_steps_per_min },
+  { label: "Unilateral cycle symmetry proxy", unit: "", value: (c) => c.symmetry_proxy },
+  {
+    label: "Error score",
+    unit: "",
+    scoredOnly: true,
+    value: (c) => (c.confidence > 0 ? c.error_score : null),
+  },
+  { label: "Stance ratio", unit: "", value: (c) => c.stance_ratio },
+  { label: "Foot angle: peak dorsiflexion", unit: "°", value: (c) => c.peak_dorsiflexion_deg },
+  {
+    label: "Haptic response: cue duty",
+    unit: "of 255",
+    scoredOnly: true,
+    value: (c, cues) =>
+      cues
+        .filter((h) => h.cycle_start_frame === c.start_frame && h.event !== "off")
+        .reduce((max, h) => Math.max(max, h.duty_a, h.duty_b), 0),
+  },
+  { label: "ZUPT quality", unit: "", value: (c) => c.zupt_quality },
+];
+const OTHER_TRENDS: TrendSpec[] = [
+  { label: "Cycle time", unit: "s", value: (c) => c.cycle_time_s },
+  { label: "Cycle distance", unit: "m", value: (c) => c.distance_m },
+  { label: "Speed", unit: "m/s", value: (c) => c.speed_mps },
+  { label: "Peak shank rate", unit: "°/s", value: (c) => c.peak_shank_rate_dps },
+  {
+    label: "Confidence",
+    unit: "",
+    scoredOnly: true,
+    value: (c) => (c.confidence > 0 ? c.confidence : null),
+  },
 ];
 
 /**
@@ -50,15 +90,13 @@ const AXIS = {
 };
 
 /** One measurement across the session's valid cycles. */
-function Trend({ cycles, index }: { cycles: Cycle[]; index: number }) {
+function Trend({ valid, cues, trend }: { valid: Cycle[]; cues: HapticRecord[]; trend: TrendSpec }) {
   const host = useRef<HTMLDivElement>(null);
-  const trend = TRENDS[index];
 
   useEffect(() => {
     if (!host.current) return;
-    const valid = cycles.filter((c) => c.valid);
     const x = valid.map((_, i) => i + 1);
-    const y = valid.map((c) => c[trend.key] as number);
+    const y = valid.map((c) => trend.value(c, cues));
     const plot = new uPlot(
       {
         width: host.current.clientWidth || 400,
@@ -82,7 +120,7 @@ function Trend({ cycles, index }: { cycles: Cycle[]; index: number }) {
       observer.disconnect();
       plot.destroy();
     };
-  }, [cycles, trend]);
+  }, [valid, cues, trend]);
 
   return (
     <div>
@@ -109,11 +147,30 @@ function summary(values: number[]) {
   return { median, mad };
 }
 
-export function Cycles({ device }: { device: DeviceApi }) {
+/** Doc 11's "haptic channels/level": the cue a cycle produced, e.g. "M5 204 · M6 120". */
+function cueText(records: HapticRecord[], startFrame: number) {
+  const cue = records.find((h) => h.cycle_start_frame === startFrame && h.event !== "off");
+  if (!cue) return <span className="absent">—</span>;
+  if (cue.duty_a === 0) return <span className="absent">refused</span>;
+  return [[cue.motor_a, cue.duty_a], [cue.motor_b, cue.duty_b]]
+    .filter(([motor]) => motor !== 0)
+    .map(([motor, duty]) => `M${motor} ${duty}`)
+    .join(" · ");
+}
+
+export function Cycles({
+  device,
+  onOpenRaw,
+}: {
+  device: DeviceApi;
+  /** Doc 11: a cycle, and with it its error, jumps to its raw range. */
+  onOpenRaw: (focus: RawFocus) => void;
+}) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selected, setSelected] = useState("");
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [segments, setSegments] = useState<Segment[]>([]);
+  const [haptics, setHaptics] = useState<HapticRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -124,12 +181,18 @@ export function Cycles({ device }: { device: DeviceApi }) {
     if (!sessionId) {
       setCycles([]);
       setSegments([]);
+      setHaptics([]);
       return;
     }
     try {
-      const [c, g] = await Promise.all([api.cycles(sessionId), api.segments(sessionId)]);
+      const [c, g, h] = await Promise.all([
+        api.cycles(sessionId),
+        api.segments(sessionId),
+        api.haptics(sessionId),
+      ]);
       setCycles(c);
       setSegments(g);
+      setHaptics(h);
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -372,13 +435,23 @@ export function Cycles({ device }: { device: DeviceApi }) {
                         <th>Score</th>
                         <th>Conf.</th>
                         <th>Class</th>
+                        <th title="Motors and duty (of 255) of the cue this cycle produced (DEC-023)">
+                          Vibration
+                        </th>
                       </>
                     )}
                   </tr>
                 </thead>
                 <tbody>
                   {cycles.map((c, index) => (
-                    <tr key={c.start_frame} style={c.valid ? undefined : { color: "#868c93" }}>
+                    <tr
+                      key={c.start_frame}
+                      style={{ cursor: "pointer", ...(c.valid ? {} : { color: "#868c93" }) }}
+                      title="Open this cycle in Raw data"
+                      onClick={() =>
+                        onOpenRaw({ sessionId: selected, from: c.start_frame, to: c.end_frame })
+                      }
+                    >
                       <td className="num">{index + 1}</td>
                       <td className="num">
                         {((c.start_us - cycles[0].start_us) / 1e6).toFixed(1)}
@@ -426,6 +499,9 @@ export function Cycles({ device }: { device: DeviceApi }) {
                               </span>
                             )}
                           </td>
+                          <td className="num" style={{ fontSize: 13 }}>
+                            {cueText(haptics, c.start_frame)}
+                          </td>
                         </>
                       )}
                     </tr>
@@ -443,11 +519,19 @@ export function Cycles({ device }: { device: DeviceApi }) {
               view is where that gets settled.
             </p>
             <div className="trend-grid">
-              {TRENDS.map((trend, index) =>
-                // The error trends belong to a scored session; for any other
-                // session the column is absent, not flat at zero.
-                !isScored && (trend.key === "error_score" || trend.key === "confidence") ? null : (
-                  <Trend key={trend.key} cycles={cycles} index={index} />
+              {PRIMARY_TRENDS.map((trend) =>
+                // The error and haptic trends belong to a scored session; for any
+                // other session the panel is absent, not flat at zero.
+                trend.scoredOnly && !isScored ? null : (
+                  <Trend key={trend.label} valid={valid} cues={haptics} trend={trend} />
+                ),
+              )}
+            </div>
+            <h3 style={{ marginTop: 16 }}>Other measurements</h3>
+            <div className="trend-grid">
+              {OTHER_TRENDS.map((trend) =>
+                trend.scoredOnly && !isScored ? null : (
+                  <Trend key={trend.label} valid={valid} cues={haptics} trend={trend} />
                 ),
               )}
             </div>

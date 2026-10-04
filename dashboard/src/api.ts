@@ -78,6 +78,8 @@ export interface Snapshot {
   haptic_switch_on: boolean;
   /** A feedback episode is running on the device. */
   haptic_episode: boolean;
+  /** The latest cycle the device reported on this link, valid or not. */
+  last_cycle: Omit<Cycle, "segment_index"> | null;
 }
 
 /** One sensor's wiring check (docs/protocol.md §5.14). */
@@ -314,6 +316,24 @@ export interface Cycle {
   primary_class: number;
   /** Which segment of the session it fell in; 0 when the session has none. */
   segment_index: number;
+  /** Doc 05 §10 repeatability against the previous valid cycle; null when not computable. */
+  symmetry_proxy: number | null;
+}
+
+/** A feedback cue or episode end (DEC-023). Motor 0 is none; duty 0 did not run. */
+export interface HapticRecord {
+  device_time_us: number;
+  event: "on" | "update" | "off";
+  cycle_start_frame: number;
+  reason: string;
+  motor_a: number;
+  duty_a: number;
+  motor_b: number;
+  duty_b: number;
+  duration_ms: number;
+  error_class: string;
+  error_score: number;
+  confidence: number;
 }
 
 /** One feature of a reference profile: the patient's own median and spread. */
@@ -417,6 +437,7 @@ export const api = {
   cycles: (sessionId: string) => invoke<Cycle[]>("cycles", { sessionId }),
   references: (patientId: string) => invoke<StoredReference[]>("references", { patientId }),
   segments: (sessionId: string) => invoke<Segment[]>("segments", { sessionId }),
+  haptics: (sessionId: string) => invoke<HapticRecord[]>("haptics", { sessionId }),
   exportSession: (sessionId: string, directory: string | null) =>
     invoke<ExportSummary>("export_session", { sessionId, directory }),
   defaultExportDirectory: (sessionId: string) =>
