@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
 
-import { api, type Cycle, type Segment, type Session } from "../api";
+import { api, sessionTitle, type Cycle, type Segment, type Session } from "../api";
 import { className } from "./References";
 import type { DeviceApi } from "../useDevice";
 
@@ -187,7 +187,7 @@ export function Cycles({ device }: { device: DeviceApi }) {
               <option value="">Select…</option>
               {sessions.map((s) => (
                 <option key={s.session_id} value={s.session_id}>
-                  {s.session_id} — {s.patient_name}
+                  {sessionTitle(s)} — {s.patient_name}
                 </option>
               ))}
             </select>

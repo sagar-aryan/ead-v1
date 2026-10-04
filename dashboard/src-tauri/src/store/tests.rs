@@ -577,10 +577,11 @@ fn schema_upgrades_from_version_2_keeping_frames() {
         store.flush();
         let connection = store.reader().unwrap();
         // Pretend this store predates the gait tables: undo everything schemas
-        // 3 to 8 added, so it really looks like a v2 store.
+        // 3 to 9 added, so it really looks like a v2 store.
         connection
             .execute_batch(
-                "DROP TABLE raw_accel;
+                "ALTER TABLE sessions DROP COLUMN label;
+                 DROP TABLE raw_accel;
                  ALTER TABLE raw_frames DROP COLUMN rfw;
                  ALTER TABLE raw_frames DROP COLUMN rfx;
                  ALTER TABLE raw_frames DROP COLUMN rfy;
@@ -632,12 +633,13 @@ fn schema_upgrades_from_version_7_keeping_frames_without_rotation_vectors() {
         store.record_frames(&[frame(0), frame(1)]);
         store.flush();
         store.stop_session().unwrap();
-        // Undo schema 8, so it really looks like a v7 store.
+        // Undo schemas 8 and 9, so it really looks like a v7 store.
         store
             .reader()
             .unwrap()
             .execute_batch(
-                "DROP TABLE raw_accel;
+                "ALTER TABLE sessions DROP COLUMN label;
+                 DROP TABLE raw_accel;
                  ALTER TABLE raw_frames DROP COLUMN rfw;
                  ALTER TABLE raw_frames DROP COLUMN rfx;
                  ALTER TABLE raw_frames DROP COLUMN rfy;
@@ -666,6 +668,7 @@ fn schema_upgrades_from_version_7_keeping_frames_without_rotation_vectors() {
     assert!(csv.lines().all(|row| row.ends_with(",0,,,,")), "{csv}");
     assert_eq!(read[1].foot, frame(1).foot);
     assert_eq!(store.accel_count(&session_id).unwrap(), 0);
+    assert_eq!(store.session(&session_id).unwrap().label, None, "no name until one is given");
 
     // And the upgraded store takes schema-6 data.
     store.create_patient("P-NEW", "New study").unwrap();
@@ -679,6 +682,23 @@ fn schema_upgrades_from_version_7_keeping_frames_without_rotation_vectors() {
     store.for_each_frame(&session.session_id, |f| read.push(*f)).unwrap();
     assert_eq!(read, vec![frame(5)]);
     assert_eq!(store.accel_count(&session.session_id).unwrap(), 1);
+}
+
+#[test]
+fn a_session_can_be_named_and_renamed() {
+    let (store, _dir) = temp_store();
+    store.create_patient("DEV-1", "Developer").unwrap();
+    let session = store
+        .start_session("DEV-1", SessionKind::Recording, &DeviceIdentity::default(), None, None)
+        .unwrap();
+    assert_eq!(session.label, None);
+    store.set_session_label(&session.session_id, "  normal pace 1 ").unwrap();
+    assert_eq!(store.session(&session.session_id).unwrap().label.as_deref(), Some("normal pace 1"));
+    assert_eq!(store.sessions().unwrap()[0].label.as_deref(), Some("normal pace 1"));
+    // A blank name clears it; an unknown session is refused.
+    store.set_session_label(&session.session_id, " ").unwrap();
+    assert_eq!(store.session(&session.session_id).unwrap().label, None);
+    assert!(store.set_session_label("20990101-000000-0000", "x").is_err());
 }
 
 fn sample_profile(cycles: u16) -> crate::protocol::ReferenceProfile {

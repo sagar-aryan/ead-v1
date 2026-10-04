@@ -349,7 +349,13 @@ document is not a validated clinical diagnostic report.",
         y += 20.0;
         let left = vec![
             ("Patient", format!("{} ({})", session.patient_name, session.patient_id)),
-            ("Session", session.session_id.clone()),
+            (
+                "Session",
+                match &session.label {
+                    Some(label) => format!("{label} ({})", session.session_id),
+                    None => session.session_id.clone(),
+                },
+            ),
             ("Kind", session.kind.replace('_', " ")),
             ("Started", session.started_at.replace('T', " ")),
             ("Stopped", session.stopped_at.clone().unwrap_or_else(|| "still open".into()).replace('T', " ")),

@@ -51,6 +51,7 @@ fn main() {
             app::create_patient,
             app::patients,
             app::start_recording,
+            app::rename_session,
             app::stop_recording,
             app::recording_session,
             app::sessions,

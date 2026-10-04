@@ -188,6 +188,8 @@ pub struct Session {
     /// Segment limits as entered; both null unless this is an evaluation.
     pub max_cycles_per_segment: Option<i64>,
     pub max_errors_per_segment: Option<i64>,
+    /// The name the user gave the session, if any.
+    pub label: Option<String>,
 }
 
 /// Device identity recorded with a session, so every dataset carries the
@@ -565,6 +567,19 @@ impl Store {
         Ok(Some(session_id))
     }
 
+    /// Names a session, or clears its name when `label` is blank.
+    pub fn set_session_label(&self, session_id: &str, label: &str) -> Result<()> {
+        let label = label.trim();
+        let changed = self.reader()?.execute(
+            "UPDATE sessions SET label = ?2 WHERE session_id = ?1",
+            rusqlite::params![session_id, (!label.is_empty()).then_some(label)],
+        )?;
+        if changed == 0 {
+            return Err(StoreError::Rejected(format!("no session {session_id}")));
+        }
+        Ok(())
+    }
+
     pub fn recording_session(&self) -> Option<String> {
         self.recording.lock().expect("recording").clone()
     }
@@ -575,7 +590,8 @@ impl Store {
             "SELECT s.session_id, s.patient_id, COALESCE(p.name, ''), s.kind, s.started_at,
                     s.stopped_at, s.firmware, s.config_sha256, s.device_mac, s.boot_id,
                     MIN(f.frame_index), MAX(f.frame_index), COUNT(f.frame_index),
-                    s.reference_id, s.max_cycles_per_segment, s.max_errors_per_segment
+                    s.reference_id, s.max_cycles_per_segment, s.max_errors_per_segment,
+                    s.label
              FROM sessions s
              LEFT JOIN patients p ON p.patient_id = s.patient_id
              LEFT JOIN raw_frames f ON f.session_id = s.session_id
@@ -592,7 +608,8 @@ impl Store {
             "SELECT s.session_id, s.patient_id, COALESCE(p.name, ''), s.kind, s.started_at,
                     s.stopped_at, s.firmware, s.config_sha256, s.device_mac, s.boot_id,
                     MIN(f.frame_index), MAX(f.frame_index), COUNT(f.frame_index),
-                    s.reference_id, s.max_cycles_per_segment, s.max_errors_per_segment
+                    s.reference_id, s.max_cycles_per_segment, s.max_errors_per_segment,
+                    s.label
              FROM sessions s
              LEFT JOIN patients p ON p.patient_id = s.patient_id
              LEFT JOIN raw_frames f ON f.session_id = s.session_id
@@ -1103,6 +1120,7 @@ fn session_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
         reference_id: row.get(13)?,
         max_cycles_per_segment: row.get(14)?,
         max_errors_per_segment: row.get(15)?,
+        label: row.get(16)?,
     })
 }
 

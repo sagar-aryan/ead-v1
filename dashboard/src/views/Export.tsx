@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
-import { api, type ExportSummary, type Session } from "../api";
+import { api, sessionTitle, type ExportSummary, type Session } from "../api";
 
 const FILES: { name: string; what: string }[] = [
   { name: "raw.csv", what: "Every stored sample, two rows per frame (doc 10 §2)" },
@@ -78,7 +78,7 @@ export function Export() {
               <option value="">Select…</option>
               {sessions.map((s) => (
                 <option key={s.session_id} value={s.session_id}>
-                  {s.session_id} — {s.patient_name} ({s.kind.replace(/_/g, " ")})
+                  {sessionTitle(s)} — {s.patient_name} ({s.kind.replace(/_/g, " ")})
                 </option>
               ))}
             </select>

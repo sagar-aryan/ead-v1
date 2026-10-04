@@ -160,6 +160,7 @@ fn metadata_json(
         "patient": { "patient_id": session.patient_id, "patient_name": session.patient_name },
         "session": {
             "session_id": session.session_id,
+            "label": session.label,
             "kind": session.kind,
             "started_at": session.started_at,
             "stopped_at": session.stopped_at,

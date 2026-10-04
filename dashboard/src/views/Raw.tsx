@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
 
-import { api, type RawSignal, type RawWindow, type Session, type SignalGroup } from "../api";
+import { api, sessionTitle, type RawSignal, type RawWindow, type Session, type SignalGroup } from "../api";
 import { MIN_SPAN, clock, nearest, placeWindow } from "../timeline";
 
 const GROUPS: { id: SignalGroup; label: string }[] = [
@@ -311,7 +311,7 @@ export function Raw() {
               <option value="">Select…</option>
               {sessions.map((s) => (
                 <option key={s.session_id} value={s.session_id}>
-                  {s.session_id} — {s.patient_name} ({s.frames_stored.toLocaleString()} frames)
+                  {sessionTitle(s)} — {s.patient_name} ({s.frames_stored.toLocaleString()} frames)
                 </option>
               ))}
             </select>

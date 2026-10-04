@@ -7,7 +7,7 @@ use rusqlite::{Connection, Result};
 
 use crate::protocol::{AccelSample, RawFrame};
 
-pub const SCHEMA_VERSION: i32 = 8;
+pub const SCHEMA_VERSION: i32 = 9;
 
 pub fn migrate(connection: &mut Connection) -> Result<()> {
     // WAL keeps readers (UI queries) from blocking the writer thread.
@@ -43,6 +43,7 @@ pub fn migrate(connection: &mut Connection) -> Result<()> {
             5 => transaction.execute_batch(MIGRATE_5_TO_6)?,
             6 => transaction.execute_batch(MIGRATE_6_TO_7)?,
             7 => transaction.execute_batch(MIGRATE_7_TO_8)?,
+            8 => transaction.execute_batch(MIGRATE_8_TO_9)?,
             other => unreachable!("no migration from schema {other}"),
         }
         version += 1;
@@ -262,6 +263,16 @@ CREATE TABLE raw_accel (
   ax INTEGER NOT NULL, ay INTEGER NOT NULL, az INTEGER NOT NULL,
   PRIMARY KEY (session_id, timestamp_us, sensor, sequence)
 ) WITHOUT ROWID;
+
+-- Schema 9: a name the user gives a session ("normal pace 1", "slow"), shown
+-- with its generated id. NULL until one is given.
+ALTER TABLE sessions ADD COLUMN label TEXT;
+"#;
+
+const MIGRATE_8_TO_9: &str = r#"
+-- Schema 9: a name the user gives a session ("normal pace 1", "slow"), shown
+-- with its generated id. NULL until one is given.
+ALTER TABLE sessions ADD COLUMN label TEXT;
 "#;
 
 const MIGRATE_7_TO_8: &str = r#"

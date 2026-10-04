@@ -220,14 +220,33 @@ pub fn patients(app: tauri::State<'_, Arc<App>>) -> CommandResult<Vec<Patient>> 
 pub fn start_recording(
     app: tauri::State<'_, Arc<App>>,
     patient_id: String,
+    label: Option<String>,
 ) -> CommandResult<Session> {
     if !app.device.is_live() {
         return Err("device is not connected".into());
     }
     let identity = app.device_identity();
-    app.store
+    let session = app
+        .store
         .start_session(&patient_id, SessionKind::Recording, &identity, None, None)
-        .map_err(failed)
+        .map_err(failed)?;
+    match label {
+        Some(label) if !label.trim().is_empty() => {
+            app.store.set_session_label(&session.session_id, &label).map_err(failed)?;
+            app.store.session(&session.session_id).map_err(failed)
+        }
+        _ => Ok(session),
+    }
+}
+
+#[tauri::command]
+pub fn rename_session(
+    app: tauri::State<'_, Arc<App>>,
+    session_id: String,
+    label: String,
+) -> CommandResult<Session> {
+    app.store.set_session_label(&session_id, &label).map_err(failed)?;
+    app.store.session(&session_id).map_err(failed)
 }
 
 #[tauri::command]

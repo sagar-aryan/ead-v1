@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { api, type Cycle, type GaitEvent, type Session } from "../api";
+import { api, sessionTitle, type Cycle, type GaitEvent, type Session } from "../api";
 import { zuptSpans, type Span } from "../events";
 import { clock } from "../timeline";
 
@@ -223,7 +223,7 @@ export function Events() {
               <option value="">Select…</option>
               {sessions.map((s) => (
                 <option key={s.session_id} value={s.session_id}>
-                  {s.session_id} — {s.patient_name}
+                  {sessionTitle(s)} — {s.patient_name}
                 </option>
               ))}
             </select>

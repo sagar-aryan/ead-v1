@@ -195,6 +195,13 @@ export interface Session {
   /** Segment limits as entered; both null unless this is an evaluation. */
   max_cycles_per_segment: number | null;
   max_errors_per_segment: number | null;
+  /** The name the user gave the session, if any. */
+  label: string | null;
+}
+
+/** A session as lists show it: its name, if it has one, then its id. */
+export function sessionTitle(s: Session): string {
+  return s.label ? `${s.label} · ${s.session_id}` : s.session_id;
 }
 
 /** What an export actually wrote. */
@@ -389,7 +396,10 @@ export const api = {
   createPatient: (patientId: string, name: string) =>
     invoke<Patient>("create_patient", { patientId, name }),
   patients: () => invoke<Patient[]>("patients"),
-  startRecording: (patientId: string) => invoke<Session>("start_recording", { patientId }),
+  startRecording: (patientId: string, label: string) =>
+    invoke<Session>("start_recording", { patientId, label }),
+  renameSession: (sessionId: string, label: string) =>
+    invoke<Session>("rename_session", { sessionId, label }),
   stopRecording: () => invoke<Session | null>("stop_recording"),
   recordingSession: () => invoke<string | null>("recording_session"),
   /** The session a device restart ended, until another starts (PROB-019). */

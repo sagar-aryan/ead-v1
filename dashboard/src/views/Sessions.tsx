@@ -206,6 +206,53 @@ function useSessions() {
   return { patients, sessions, recording, error, setError, refresh };
 }
 
+/** A session's name, editable in place. */
+function SessionName({ session, refresh }: { session: Session; refresh: () => void }) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    if (editing === null) return;
+    try {
+      await api.renameSession(session.session_id, editing);
+      setEditing(null);
+      setError(null);
+      refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  if (editing === null) {
+    return (
+      <span className="row" style={{ gap: 8 }}>
+        {session.label ?? <span className="absent">—</span>}
+        <button onClick={() => setEditing(session.label ?? "")}>Rename</button>
+      </span>
+    );
+  }
+  return (
+    <span className="row" style={{ gap: 8 }}>
+      <input
+        aria-label={`Name of session ${session.session_id}`}
+        value={editing}
+        autoFocus
+        maxLength={80}
+        onChange={(e) => setEditing(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+          if (e.key === "Escape") setEditing(null);
+        }}
+      />
+      <button className="primary" onClick={save}>
+        Save
+      </button>
+      <button onClick={() => setEditing(null)}>Cancel</button>
+      {error && <span className="error">{error}</span>}
+    </span>
+  );
+}
+
 function duration(session: Session): string {
   if (!session.stopped_at) return "recording";
   const seconds =
@@ -219,12 +266,14 @@ export function Sessions({ device }: { device: DeviceApi }) {
   const { patients, sessions, recording, error, setError, refresh } = useSessions();
   const [patientId, setPatientId] = useState("");
   const [name, setName] = useState("");
+  const [label, setLabel] = useState("");
   const [selected, setSelected] = useState("");
 
   const connected = device.snapshot?.link_state === "connected";
   /** What kind of session is open, when one is: a recording stops here, the
    *  others stop where they started so the device session ends with them. */
   const openKind = sessions.find((s) => s.session_id === recording)?.kind;
+  const recordingLabel = sessions.find((s) => s.session_id === recording)?.label;
 
   const create = async () => {
     try {
@@ -240,7 +289,8 @@ export function Sessions({ device }: { device: DeviceApi }) {
 
   const start = async () => {
     try {
-      await api.startRecording(selected);
+      await api.startRecording(selected, label);
+      setLabel("");
       setError(null);
       refresh();
     } catch (e) {
@@ -279,7 +329,8 @@ export function Sessions({ device }: { device: DeviceApi }) {
         ) : recording ? (
           <div className="row">
             <p className="hint" style={{ margin: 0, flex: 1 }}>
-              Recording <span className="num">{recording}</span>
+              Recording {recordingLabel && <>{recordingLabel} · </>}
+              <span className="num">{recording}</span>
               {device.snapshot?.status && (
                 <>
                   {" — "}
@@ -306,6 +357,16 @@ export function Sessions({ device }: { device: DeviceApi }) {
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="field">
+              <label htmlFor="session-label">Name (optional)</label>
+              <input
+                id="session-label"
+                value={label}
+                maxLength={80}
+                placeholder="e.g. normal pace 1"
+                onChange={(e) => setLabel(e.target.value)}
+              />
             </div>
             <button className="primary" disabled={!connected || selected === ""} onClick={start}>
               Start recording
@@ -374,6 +435,7 @@ export function Sessions({ device }: { device: DeviceApi }) {
             <thead>
               <tr>
                 <th>Session</th>
+                <th>Name</th>
                 <th>Patient</th>
                 <th>Started</th>
                 <th>Duration</th>
@@ -386,6 +448,9 @@ export function Sessions({ device }: { device: DeviceApi }) {
               {sessions.map((s) => (
                 <tr key={s.session_id}>
                   <td className="num">{s.session_id}</td>
+                  <td>
+                    <SessionName session={s} refresh={refresh} />
+                  </td>
                   <td>{s.patient_name}</td>
                   <td className="num">{s.started_at.slice(0, 19).replace("T", " ")}</td>
                   <td className="num">{duration(s)}</td>

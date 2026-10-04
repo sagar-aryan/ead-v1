@@ -549,3 +549,24 @@ accelerometer stream.
 ### Verification
 cargo test 69 passed (then 70 with PROB-025's test), clippy clean, npm test 28, build;
 `tools/check_mat.py` on an exported sample: 0 failures. Not yet run against the device.
+
+## Session names (store schema 9)
+
+### Objective
+Let the user name a recording ("normal pace 1") instead of telling sessions apart by
+their generated id (user request, 2026-10-04).
+
+### Implementation
+- `sessions.label TEXT`, NULL until given (`MIGRATE_8_TO_9`, also in `CREATE_SCHEMA`).
+- `Store::set_session_label` (trimmed; blank clears it; unknown session refused).
+- Commands: `start_recording(patient_id, label)` names the new session;
+  `rename_session(session_id, label)` names or renames any session, any kind.
+- UI: an optional name field beside Start recording; a Name column with Rename in the
+  sessions table; every session picker shows `name · id` (`sessionTitle` in `api.ts`).
+- Export: `metadata.json` `session.label`; the PDF's Session row shows the name with
+  the id.
+
+### Verification
+Store test `a_session_can_be_named_and_renamed`; the v2 and v7 upgrade tests also undo
+schema 9 and pass; cargo test, clippy, npm test and build. The UI was not looked at
+on screen (no screenshot tool in this Wayland session).
