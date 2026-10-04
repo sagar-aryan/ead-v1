@@ -1,6 +1,7 @@
 # Clinical requirements — coverage and traceability
 
-Source: `Critical Clinical Insights.docx` (repository root; committed in `9238d1c`),
+Source: `Critical Clinical Insights.docx` (committed in `9238d1c`; removed from the
+repository on 2026-10-04 at the user's request, still in history and kept locally),
 the researcher's four additions to the original quotation. The contract package
 folded these into `ead_agent_docs_v2/SOURCE_REQUIREMENTS.md`; this file maps each
 one to the specification that defines it, the code that implements it, and the

@@ -789,3 +789,37 @@ the stillness test by a few milliseconds.
 ### Consequences
 Doc 04 §7's 6 Hz gait path is still not implemented. A threshold change (the 25 °/s
 gyro limit, PROB-024 attempt 5) remains open for the user.
+
+## DEC-020 — User decisions after the first BNO086 walks
+
+**Date:** 2026-10-04
+
+**Status:** Accepted (items marked open still need an answer)
+
+### Context
+After TEST-052/053 the user was asked for every decision blocking a fully working
+device, including changes the contract does not allow, and lifted the contract
+and handoff restrictions for these choices.
+
+### Decision
+1. ZUPT gyro limit 25 → 30 °/s (deviates from doc 05 §6; PROB-024 attempt 5).
+2. Haptic feedback during walking: build it (lifts DEC-006). The user wears it
+   first; no patient until the user says so. The buzz is the per-step error score,
+   delivered after the step lands. Open: what "master switch" for the motors means;
+   the user's motor reference image.
+3. Baseline: the existing reference-capture session kind.
+4. Raw rate: open (the user asked where 100 Hz is specified).
+5. On-device storage (M7): not now.
+6. Gait engine: contacts from the shank's swing (a), the BNO086's own orientation
+   (b), an error-state Kalman filter with per-stride smoothing (c). Not shoe
+   mounting: patients will likely walk barefoot and shoes differ (d: alternative
+   needed). No left-foot sensor: no budget (e); symmetry stays the one-leg proxy.
+7. Validation: video beside a measured floor, one wearer (the developer).
+8. The cell has its own protection board (user; not inspected).
+9. `Critical Clinical Insights.docx` removed from the repository; history is not
+   rewritten.
+
+### Consequences
+Thresholds remain fitted to one healthy wearer; any clinical claim needs wider
+validation. Items 6a–c replace the inside of the gait engine; the fixtures in
+`recordings/` and `tools/replay/walks.py` are the regression check.
