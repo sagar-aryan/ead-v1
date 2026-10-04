@@ -181,7 +181,7 @@ void service(bno086::Sensor which) {
       // off; turn them back on, as the MPU6500 build reconfigured after one.
       device::counters.imuReinits++;
       s_sequenceKnown = false;
-      bno086::enableReports(which);
+      bno086::enableReports(which, EAD_REPORT_INTERVAL_US);
     }
     for (size_t k = 0; k < r.samples; k++) consume(which, samples[k]);
     SensorState& foot = s_sensor[kFoot];

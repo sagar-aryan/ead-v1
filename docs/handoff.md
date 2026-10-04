@@ -203,7 +203,7 @@ service-test pulses only.
 
 ## How To Verify
 The whole suite, before every commit:
-- `pio test -d firmware -e native` (79), `pio run -d firmware`,
+- `pio test -d firmware -e native` (80), `pio run -d firmware`,
   `pio run -d firmware/bench/bno086 -e foot -e shank`
 - `cd dashboard/src-tauri && cargo test` (64, 4 ignored) and
   `cargo clippy --all-targets -- -D warnings`

@@ -1838,3 +1838,49 @@ change removed. Rejected sweeps (confirm level, swing rate) and the measured
 ### Result
 PASS for contact detection on these walks. Distance: PARTIAL (PROB-024: slow
 strides short, five uncorrected cycles). Flashed as 0.1.0+156b186 on 2026-10-04.
+
+## TEST-054 — BNO086 report-rate survey, both sensors, product driver
+
+### Objective
+Find the fastest rate both sensors deliver completely over the shared 1 MHz SPI
+bus, with the accelerometer, gyroscope and game rotation vector all on (DEC-020:
+"the rate that gives the most accuracy").
+
+### Environment
+DEC-016 build, both BNO086 on the harness, SPI 1 MHz. `firmware/bench/rates`
+(new): the product driver (`firmware/src/bno086.cpp`, `ead/sh2`) reading both
+sensors as the product does; each report counted for 3 s after a 0.5 s settle,
+with gaps from the per-report sequence numbers, and the interval each hub
+confirmed in its Get Feature Response.
+
+### Procedure
+1. `pio run -d firmware/bench/rates -t upload`; send any byte to the port to read
+   the transcript.
+
+### Actual
+| Requested | Hub chose (accel / gyro / game RV) | Delivered foot (accel / gyro / RV) | Shank | Gaps, bad packets |
+|---|---|---|---|---|
+| 10000 µs | 8000 / 10000 / 10000 µs | 125.3 / 100.0 / 100.0 Hz | 127.7 / 99.7 / 99.7 Hz | 0, 0 |
+| 5000 µs | 4000 / 5000 / 5000 µs | 250.3 / 200.3 / 200.3 Hz | 255.0 / 199.3 / 199.7 Hz | 0, 0 |
+| 4000 µs | 4000 / 2500 / 2500 µs | 92.7 / 306.7 / 306.7 Hz | 104.3 / 302.7 / 302.7 Hz | 0, 0 |
+| 2500 µs | 2000 / 2500 / 2500 µs | 57.0 / 301.7 / 302.0 Hz | 61.0 / 300.3 / 300.3 Hz | 0, 0 |
+| 2000 µs | 2000 / 2000 / 2000 µs | 18.7 / 65.0 / 65.0 Hz | 19.7 / 69.3 / 69.3 Hz | 0, 0 |
+
+Check flags 0x7f (all steps) on both sensors at the start.
+
+### Result
+PASS. 200 Hz gyroscope and game rotation vector with a 250 Hz accelerometer is
+the fastest complete setting on this bus. From 400 Hz up the reports arrive at a
+fraction of the confirmed rate with no sequence gaps: the hubs send fewer, not
+lose them, which points at the bus (hypothesis; 3 MHz SPI would test it, after
+the soak test wiring rule 5 requires). The accelerometer and gyroscope never share
+a rate: the hub offers the accelerometer 125/250/500 Hz and the gyroscope and
+fusion 100/200/400 Hz.
+
+### Notes — failed first attempt
+The same survey through the SparkFun library in `firmware/bench/bno086` read
+0–415 Hz at random per report and interval, and the sensor reset itself after
+it. That library keeps only the last report of a packet carrying several, so it
+undercounts when three reports run together. Discarded; the bench file was
+restored. Its metadata read is kept as evidence: accelerometer BMA280, minimum
+period 2000 µs; gyroscope BMI055.

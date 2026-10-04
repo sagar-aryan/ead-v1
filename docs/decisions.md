@@ -823,3 +823,45 @@ and handoff restrictions for these choices.
 Thresholds remain fitted to one healthy wearer; any clinical claim needs wider
 validation. Items 6a–c replace the inside of the gait engine; the fixtures in
 `recordings/` and `tools/replay/walks.py` are the regression check.
+
+## DEC-021 — Sensor feed: 200 Hz, the BNO086's own orientation, native accelerometer
+
+**Date:** 2026-10-04
+
+**Status:** Accepted (DEC-020 item 6b and the raw-rate choice)
+
+### Context
+DEC-020: use the BNO086's own orientation, and the sampling rate that gives the
+most accuracy. The researcher asks for every raw IMU reading at its native rate
+with its own timestamp (clinical point 4). TEST-054: 200 Hz gyroscope and game
+rotation vector, 250 Hz accelerometer, is the fastest complete setting on the
+1 MHz bus; the accelerometer cannot run at the gyroscope's rate.
+
+### Options Considered
+1. Stay at 100 Hz (the quotation's figure) with Mahony on the ESP32.
+2. 200 Hz frames holding the latest accelerometer sample (up to 4 ms old).
+3. 200 Hz frames with the accelerometer interpolated to the frame time, plus the
+   native 250 Hz accelerometer stored as its own stream.
+4. 400 Hz: needs 3 MHz SPI and the harness soak test first.
+
+### Decision
+3. Request 5000 µs from both sensors. Frames are clocked by the foot gyroscope at
+200 Hz; each carries both gyroscopes, both game rotation vectors (raw, chip
+frame), the segment orientations derived from them, and each accelerometer
+interpolated linearly to the frame time. Every accelerometer sample is also sent
+and stored as it came, with its own time. Mahony stays only in the replay, for
+recordings made before this change.
+
+### Reason
+At 400 °/s a 4 ms skew between orientation and acceleration is 1.6°, about
+0.27 m/s² of gravity in the wrong axis during a swing; interpolation removes it.
+The separate stream keeps every measured value for the researcher's validation.
+
+### Trade-offs
+About twice the data per session, a frame up to one accelerometer interval
+(4 ms) later, and a new message and table. 400 Hz left for after the soak test.
+
+### Consequences
+Protocol schema 6, store schema 8, export gains the native accelerometer file.
+Everything that assumed 100 Hz is rechecked. Old recordings keep replaying
+through Mahony.

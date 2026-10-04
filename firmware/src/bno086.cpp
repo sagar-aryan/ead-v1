@@ -87,7 +87,7 @@ struct Drain {
 // stays asserted while reads through this CS bring nothing back means CS and
 // INT do not reach the same sensor.
 Drain drain(Sensor s, uint32_t quietUs, uint32_t maxUs, bool wantProductId = false,
-            uint8_t wantFeatures = 0) {
+            uint16_t wantFeatures = 0) {
   Drain d{};
   int fruitless = 0;
   const int64_t start = esp_timer_get_time();
@@ -120,11 +120,24 @@ bool sendControl(Sensor s, size_t (*encode)(uint8_t, uint8_t*, size_t)) {
   return n > 0 && writePacket(s, packet, n);
 }
 
-bool sendSetFeature(Sensor s, uint8_t reportId) {
+bool sendSetFeature(Sensor s, uint8_t reportId, uint32_t intervalUs) {
   uint8_t packet[32];
-  const size_t n = ead::sh2::encodeSetFeature(s_controlSequence[s]++, reportId,
-                                              EAD_REPORT_INTERVAL_US, packet, sizeof packet);
+  const size_t n = ead::sh2::encodeSetFeature(s_controlSequence[s]++, reportId, intervalUs, packet,
+                                              sizeof packet);
   return n > 0 && writePacket(s, packet, n);
+}
+
+constexpr uint8_t kReports[] = {ead::sh2::kReportAccelerometer, ead::sh2::kReportGyroscope,
+                                ead::sh2::kReportGameRotationVector};
+
+/// The interval each sensor's hub chose for each report, from its Get Feature
+/// Responses; 0 until one arrives.
+uint32_t s_intervalUs[2][16] = {};
+
+void noteIntervals(Sensor s, const ead::sh2::ControlReplies& replies) {
+  for (uint8_t id = 0; id < 16; ++id) {
+    if (replies.featureSensors & (1u << id)) s_intervalUs[s][id] = replies.intervalUs[id];
+  }
 }
 
 }  // namespace
@@ -222,10 +235,15 @@ void resetAndCheck(ead::SensorCheck* foot, ead::SensorCheck* shank) {
     // One at a time: a write discards whatever the sensor sends meanwhile, which
     // could be the previous command's confirmation.
     bool reports = true;
-    for (uint8_t report : {ead::sh2::kReportAccelerometer, ead::sh2::kReportGyroscope}) {
-      const uint8_t bit = uint8_t(1u << report);
-      reports = reports && sendSetFeature(Sensor(s), report) &&
-                (drain(Sensor(s), 300000, 300000, false, bit).control.featureSensors & bit) != 0;
+    for (uint8_t report : kReports) {
+      const uint16_t bit = uint16_t(1u << report);
+      if (!reports || !sendSetFeature(Sensor(s), report, EAD_REPORT_INTERVAL_US)) {
+        reports = false;
+        continue;
+      }
+      const Drain d = drain(Sensor(s), 300000, 300000, false, bit);
+      noteIntervals(Sensor(s), d.control);
+      reports = (d.control.featureSensors & bit) != 0;
     }
     if (reports) c.flags |= ead::kCheckReports;
   }
@@ -251,15 +269,27 @@ ReadResult read(Sensor s, int64_t intUs, ead::sh2::Sample* out, size_t cap) {
     case ead::sh2::kChannelExecutable:
       r.resetSeen = cargo[0] == ead::sh2::kExecutableResetComplete;
       break;
+    case ead::sh2::kChannelControl: {
+      ead::sh2::ControlReplies replies{};
+      ead::sh2::parseControl(cargo, len, &replies);
+      noteIntervals(s, replies);
+      break;
+    }
     default:
       break;  // advertisement, control responses: nothing the stream needs
   }
   return r;
 }
 
-bool enableReports(Sensor s) {
-  return sendSetFeature(s, ead::sh2::kReportAccelerometer) &&
-         sendSetFeature(s, ead::sh2::kReportGyroscope);
+bool enableReports(Sensor s, uint32_t intervalUs) {
+  for (uint8_t report : kReports) {
+    if (!sendSetFeature(s, report, intervalUs)) return false;
+  }
+  return true;
+}
+
+uint32_t reportIntervalUs(Sensor s, uint8_t reportId) {
+  return reportId < 16 ? s_intervalUs[s][reportId] : 0;
 }
 
 }  // namespace bno086

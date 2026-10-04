@@ -19,8 +19,8 @@ void beginBus();
 bool intAsserted(Sensor s);
 
 /// Resets both sensors, checks each line of each one (the flags in
-/// ead::SensorCheckFlag), and turns their accelerometer and gyroscope reports
-/// on. Takes up to about two seconds.
+/// ead::SensorCheckFlag), and turns their accelerometer, gyroscope and game
+/// rotation vector reports on. Takes up to about two seconds.
 void resetAndCheck(ead::SensorCheck* foot, ead::SensorCheck* shank);
 
 struct ReadResult {
@@ -33,8 +33,13 @@ struct ReadResult {
 /// INT was asserted; sample times are worked out from it.
 ReadResult read(Sensor s, int64_t intUs, ead::sh2::Sample* out, size_t cap);
 
-/// Turns the reports on again after a sensor reset itself. False if it never
+/// Turns the accelerometer, gyroscope and game rotation vector reports on at
+/// `intervalUs` (again, after a sensor reset itself). False if the sensor never
 /// became ready to receive.
-bool enableReports(Sensor s);
+bool enableReports(Sensor s, uint32_t intervalUs);
+
+/// The interval the sensor's hub chose for a report, from its confirmation; 0
+/// before one arrived. The hub rounds a request to a rate its part supports.
+uint32_t reportIntervalUs(Sensor s, uint8_t reportId);
 
 }  // namespace bno086

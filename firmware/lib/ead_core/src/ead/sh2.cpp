@@ -12,6 +12,7 @@ constexpr size_t kProductIdSize = 16;
 constexpr size_t kFeatureResponseSize = 17;
 constexpr size_t kTimestampSize = 5;
 constexpr size_t kSensorReportSize = 10;
+constexpr size_t kRotationReportSize = 12;
 
 size_t encodeControl(uint8_t sequence, const uint8_t* cargo, size_t cargoLen, uint8_t* out,
                      size_t cap) {
@@ -73,7 +74,12 @@ void parseControl(const uint8_t* cargo, size_t len, ControlReplies* out) {
       pos += kProductIdSize;
     } else if (id == kReportGetFeatureResponse && pos + kFeatureResponseSize <= len) {
       const uint8_t sensor = cargo[pos + 1];
-      if (sensor < 8) out->featureSensors |= uint8_t(1u << sensor);
+      if (sensor < 16) {
+        out->featureSensors |= uint16_t(1u << sensor);
+        // Feature flags (1), change sensitivity (2), then the interval.
+        ByteReader r(cargo + pos + 5, 4);
+        out->intervalUs[sensor] = r.u32();
+      }
       pos += kFeatureResponseSize;
     } else {
       return;  // other control traffic (command responses); its length varies
@@ -98,8 +104,11 @@ size_t parseInput(const uint8_t* cargo, size_t len, int64_t intUs, Sample* out, 
       referenceUs = id == kReportBaseTimestamp ? intUs - int64_t(ticks) * 100
                                                : referenceUs + int64_t(ticks) * 100;
       pos += kTimestampSize;
-    } else if (id == kReportAccelerometer || id == kReportGyroscope) {
-      if (pos + kSensorReportSize > len) break;
+    } else if (id == kReportAccelerometer || id == kReportGyroscope ||
+               id == kReportGameRotationVector) {
+      const bool rotation = id == kReportGameRotationVector;
+      const size_t size = rotation ? kRotationReportSize : kSensorReportSize;
+      if (pos + size > len) break;
       const uint8_t* p = cargo + pos;
       if (count < cap) {
         Sample& s = out[count++];
@@ -108,10 +117,11 @@ size_t parseInput(const uint8_t* cargo, size_t len, int64_t intUs, Sample* out, 
         s.accuracy = uint8_t(p[2] & 0x03u);
         const uint16_t delay = uint16_t(((p[2] & 0xFCu) << 6) | p[3]);
         s.timeUs = referenceUs + int64_t(delay) * 100;
-        ByteReader r(p + 4, 6);
-        for (int16_t& v : s.value) v = r.i16();
+        ByteReader r(p + 4, size - 4);
+        for (int i = 0; i < (rotation ? 4 : 3); ++i) s.value[i] = r.i16();
+        if (!rotation) s.value[3] = 0;
       }
-      pos += kSensorReportSize;
+      pos += size;
     } else {
       *unknown = true;
       break;

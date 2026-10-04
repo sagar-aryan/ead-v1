@@ -23,6 +23,9 @@ enum Channel : uint8_t {
 // Sensor report ids (SH-2 reference manual).
 constexpr uint8_t kReportAccelerometer = 0x01;     // calibrated, Q8 m/s^2
 constexpr uint8_t kReportGyroscope = 0x02;         // calibrated, Q9 rad/s
+/// The hub's own accelerometer + gyroscope fusion, no magnetometer: unit
+/// quaternion (i, j, k, real) in Q14, Z up, heading arbitrary but not jumping.
+constexpr uint8_t kReportGameRotationVector = 0x08;
 constexpr uint8_t kReportProductIdRequest = 0xF9;
 constexpr uint8_t kReportProductIdResponse = 0xF8;
 constexpr uint8_t kReportSetFeature = 0xFD;
@@ -63,7 +66,10 @@ struct ProductId {
 struct ControlReplies {
   uint8_t productIds;      // product ID responses seen
   ProductId firstProductId;
-  uint8_t featureSensors;  // bit n set: a Get Feature Response for sensor id n (n < 8)
+  uint16_t featureSensors;  // bit n set: a Get Feature Response for sensor id n (n < 16)
+  /// The report interval each Get Feature Response gave, by sensor id: the
+  /// hub rounds a requested interval to one its sensors support.
+  uint32_t intervalUs[16];
 };
 
 void parseControl(const uint8_t* cargo, size_t len, ControlReplies* out);
@@ -72,7 +78,7 @@ struct Sample {
   uint8_t reportId;
   uint8_t sequence;  // per report id, wraps at 256
   uint8_t accuracy;  // 0 unreliable .. 3 high
-  int16_t value[3];
+  int16_t value[4];  // x, y, z; a rotation vector adds the real part
   int64_t timeUs;
 };
 

@@ -68,8 +68,35 @@ static void test_control_replies_give_the_product_id_and_enabled_features() {
   TEST_ASSERT_EQUAL_UINT16(6, replies.firstProductId.versionPatch);
   TEST_ASSERT_EQUAL_UINT32(62, replies.firstProductId.buildNumber);
   TEST_ASSERT_EQUAL_UINT8(4, replies.firstProductId.resetCause);
-  TEST_ASSERT_EQUAL_HEX8((1u << kReportAccelerometer) | (1u << kReportGyroscope),
-                         replies.featureSensors);
+  TEST_ASSERT_EQUAL_HEX16((1u << kReportAccelerometer) | (1u << kReportGyroscope),
+                          replies.featureSensors);
+  // Each response carries the interval the hub chose: 0x2710 = 10000 us.
+  TEST_ASSERT_EQUAL_UINT32(10000, replies.intervalUs[kReportAccelerometer]);
+  TEST_ASSERT_EQUAL_UINT32(10000, replies.intervalUs[kReportGyroscope]);
+}
+
+static void test_a_game_rotation_vector_carries_four_components() {
+  // Base timestamp 0; a game rotation vector 5 ms after it: i = 1000, j = -1000,
+  // k = 0, real = 16384 (Q14), accuracy 3. Then a gyroscope report, to show the
+  // longer report is stepped over correctly.
+  const uint8_t cargo[] = {
+      0xFB, 0, 0, 0, 0,
+      kReportGameRotationVector, 7, 0x03, 50, 0xE8, 0x03, 0x18, 0xFC, 0x00, 0x00, 0x00, 0x40,
+      kReportGyroscope, 9, 0x00, 0, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00,
+  };
+  Sample s[4];
+  bool unknown = true;
+  TEST_ASSERT_EQUAL_size_t(2, parseInput(cargo, sizeof cargo, 1'000'000, s, 4, &unknown));
+  TEST_ASSERT_FALSE(unknown);
+  TEST_ASSERT_EQUAL_UINT8(kReportGameRotationVector, s[0].reportId);
+  TEST_ASSERT_EQUAL_UINT8(3, s[0].accuracy);
+  TEST_ASSERT_EQUAL_INT64(1'005'000, s[0].timeUs);
+  TEST_ASSERT_EQUAL_INT16(1000, s[0].value[0]);
+  TEST_ASSERT_EQUAL_INT16(-1000, s[0].value[1]);
+  TEST_ASSERT_EQUAL_INT16(0, s[0].value[2]);
+  TEST_ASSERT_EQUAL_INT16(16384, s[0].value[3]);
+  TEST_ASSERT_EQUAL_UINT8(kReportGyroscope, s[1].reportId);
+  TEST_ASSERT_EQUAL_INT16(3, s[1].value[2]);
 }
 
 static void test_input_reports_carry_values_and_their_own_sample_time() {
@@ -134,6 +161,7 @@ int main() {
   RUN_TEST(test_host_packets_match_the_sh2_layouts);
   RUN_TEST(test_control_replies_give_the_product_id_and_enabled_features);
   RUN_TEST(test_input_reports_carry_values_and_their_own_sample_time);
+  RUN_TEST(test_a_game_rotation_vector_carries_four_components);
   RUN_TEST(test_a_rebase_moves_the_reference_later);
   RUN_TEST(test_parsing_stops_at_a_report_of_unknown_length);
   return UNITY_END();
