@@ -514,6 +514,7 @@ async fn connection(
     commands: mpsc::Sender<Vec<u8>>,
     stop: &mut tokio::sync::watch::Receiver<bool>,
 ) -> bool {
+    tracker.hello_seen = false;
     let mut command_seq: u32 = 0;
     let mut keepalive = tokio::time::interval(KEEPALIVE);
     keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -603,6 +604,11 @@ struct Tracker {
     highest_seq: Option<u32>,
     missing: std::collections::BTreeSet<u32>,
     oldest_stored: u32,
+    /// This connection's HELLO has been read. The tracker outlives connections,
+    /// and until HELLO says which boot this is, its missing set may belong to a
+    /// boot that no longer exists: asking a reset device for it got
+    /// BackfillUnavailable (TEST-065).
+    hello_seen: bool,
 }
 
 impl Tracker {
@@ -614,6 +620,7 @@ impl Tracker {
             highest_seq: None,
             missing: std::collections::BTreeSet::new(),
             oldest_stored: 0,
+            hello_seen: false,
         }
     }
 
@@ -691,6 +698,7 @@ impl Tracker {
 
     fn on_hello(&mut self, payload: &[u8]) {
         let Ok(hello) = protocol::parse_hello(payload) else { return };
+        self.hello_seen = true;
         // A new boot_id means the device restarted: sequence numbers restarted
         // with it, and nothing from the previous boot can be backfilled.
         if self.boot_id != Some(hello.boot_id) {
@@ -893,6 +901,9 @@ impl Tracker {
 
     /// Contiguous ranges to request, oldest first.
     fn take_backfill_requests(&mut self) -> Vec<(u32, u32)> {
+        if !self.hello_seen {
+            return Vec::new();
+        }
         self.forget_evicted();
         let mut ranges = Vec::new();
         let mut iter = self.missing.iter().copied();
@@ -991,10 +1002,14 @@ mod tests {
         let mut tracker = connect(&device);
         tracker.handle(&hello_holding(7, 1, 150));
         assert_eq!(tracker.take_backfill_requests(), vec![(101, 150)]);
-        device.keep_tracker(tracker);
 
-        // Another boot: its numbers start again and nothing earlier exists.
+        // Another boot: its numbers start again and nothing earlier exists. Until
+        // its HELLO is read, the old boot's gap is not asked for either (TEST-065).
+        tracker.handle(&resequenced("raw_batch.hex", 200)); // 151-199 now missing
+        device.keep_tracker(tracker);
         let mut tracker = connect(&device);
+        tracker.hello_seen = false; // as `connection()` starts each one
+        assert!(tracker.take_backfill_requests().is_empty());
         tracker.handle(&hello_holding(8, 1, 20));
         assert!(tracker.take_backfill_requests().is_empty());
     }

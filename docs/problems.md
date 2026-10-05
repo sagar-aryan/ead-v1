@@ -1431,7 +1431,7 @@ not a list of conditions repeated at each call site.
 
 ## PROB-027 — A second calibration was accepted and ignored
 
-**Status:** Resolved in code (2026-10-05); not verified on hardware
+**Status:** Resolved (2026-10-05); verified on the board, worn (TEST-065)
 
 ### Symptoms
 Audit finding I03, confirmed in the code: after the first accepted calibration, a
@@ -1548,6 +1548,13 @@ tracker as before.
 `a_reconnect_to_the_same_boot_requests_what_it_missed`: received 1–100, reconnect
 with history to 150 → requests (101, 150); a new boot → none. Fails with a new tracker
 per connection ("left: [] right: [(101, 150)]").
+
+### Update (2026-10-05, TEST-065)
+Found on the board: after a device reset, the keepalive tick could send the old
+boot's missing ranges before the new connection's HELLO had been read, and the device
+answered BackfillUnavailable. `Tracker::hello_seen`, cleared when a connection starts
+and set by HELLO, holds backfill requests until the boot is known. The reconnect test
+now covers it and fails without the check.
 
 ### Limitations
 The tracker lives in memory: a dashboard restarted while the device kept running

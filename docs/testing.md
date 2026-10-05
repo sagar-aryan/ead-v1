@@ -2258,3 +2258,35 @@ hardware tests, a probe script for the ACK.
 ### Result
 PARTIAL. ACK and STATUS `session` verified on the board; the reset test, the
 recalibration check (PROB-027) and anything with motors are still to do.
+
+## TEST-065 — Device reset and recalibration, worn, on the board (USB)
+
+### Objective
+The two checks TEST-064 left: the reset hardware test, and PROB-027 (a second
+calibration is used).
+
+### Environment
+Firmware `29c560c`, worn by the user standing still, USB, battery switch off.
+
+### Procedure and actual
+1. `eadprobe calibrate --seconds 3` standing: accepted (foot strap tilt 40.5°, shank
+   12.0°).
+2. `a_device_reset_ends_the_session_and_its_calibration`: **FAIL**, new: the last
+   error was "BackfillUnavailable for command 3 (type 0x10): requested range is not
+   stored" instead of the restart notice. Cause: since PROB-030 the tracker outlives
+   the connection, and the keepalive tick sent the old boot's missing ranges to the
+   reset device before the new connection's HELLO had been read. Fixed (PROB-030,
+   update); test extended; rerun **PASS**.
+3. The reset cleared the calibration. Calibrate standing: accepted; foot segment tilt
+   from the device's `q_foot` over 2 s: 0.2°.
+4. The user re-strapped the foot sensor and stood still. Before calibrating: 8.4°
+   (pitch −5.5°).
+5. Calibrate again: accepted, foot strap tilt 31.6°; foot segment tilt 0.1°.
+
+### Expected
+Step 5 near 0°: the second record is the one in use. With the old firmware it would
+have stayed at 8.4°.
+
+### Result
+PASS. The re-strap moved the sensor 8.4° (asked for 20–30°), enough to separate the
+outcomes. Not checked worn: anything with the battery, motors, Wi-Fi or walking.
