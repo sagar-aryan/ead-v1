@@ -1516,6 +1516,16 @@ stores all 10 frames and clears the warning.
 against the old `flush`, which returned nothing; the behaviour it checks is the one
 the audit reproduced.
 
+### Update (2026-10-05): the writer's queue and foreign keys
+Two related audit points. The command queue to the writer thread was unbounded, so
+a stalled disk grew memory without limit: it is now `sync_channel(WRITE_QUEUE = 1024)`
+(about 30 s of recording), and data that does not fit is counted as lost with "the
+database writer fell more than 30 s behind" (`Store::queue`). The connections that
+write session, segment and reference rows did not enable foreign keys (a per-
+connection setting in SQLite); `reader()` now does. Tests:
+`a_stalled_writer_counts_what_it_could_not_queue`,
+`a_session_needs_a_patient_that_exists`.
+
 ### Limitations
 Lost rows are reported while the app runs, not stored with the session: a later
 reader sees them only as gaps in `frame_index`. Data still held for retry when the

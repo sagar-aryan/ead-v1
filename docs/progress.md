@@ -1833,3 +1833,7 @@ PROB-036 (audit I14): Vite 5 → 8 and its React plugin 4 → 6, `npm audit` cle
 Rust notices all come through Tauri's GTK3 stack and krilla's newest release, so they
 wait on upstream. The release app was launched against an empty data folder and
 renders (screenshot).
+
+Store: bounded writer queue and foreign keys on every connection (PROB-029 update).
+Not changed, for the user to decide: Wi-Fi controller ownership (audit I12), which
+cannot be tested from this laptop.

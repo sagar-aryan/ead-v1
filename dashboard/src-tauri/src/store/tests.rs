@@ -1258,3 +1258,34 @@ fn a_session_still_recording_is_not_exported() {
     assert_eq!(summary.raw_rows, 20);
     assert_eq!(std::fs::read_to_string(target.join("raw.csv")).unwrap().lines().count(), 21);
 }
+
+#[test]
+fn a_session_needs_a_patient_that_exists() {
+    // The metadata connections did not enforce foreign keys (audit).
+    let (store, _dir) = temp_store();
+    let refused =
+        store.start_session("NOBODY", SessionKind::Recording, &DeviceIdentity::default(), None, None);
+    assert!(refused.is_err(), "{refused:?}");
+    assert!(store.sessions().unwrap().is_empty());
+}
+
+#[test]
+fn a_stalled_writer_counts_what_it_could_not_queue() {
+    // The writer's queue was unbounded: a stalled disk grew memory without limit.
+    let (store, dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
+    let blocker = Connection::open(dir.path().join("ead.sqlite3")).unwrap();
+    blocker.execute_batch("BEGIN EXCLUSIVE;").unwrap();
+    // One batch, then long enough for the writer to start its commit and wait on
+    // the lock; everything after queues behind it.
+    store.record_frames(&[frame(0)]);
+    std::thread::sleep(COMMIT_INTERVAL * 2);
+    for i in 1..(WRITE_QUEUE as u32 + 200) {
+        store.record_frames(&[frame(i)]);
+    }
+    blocker.execute_batch("COMMIT;").unwrap();
+    let flushed = store.flush();
+    assert!(matches!(&flushed, Err(StoreError::Rejected(m)) if m.contains("fell more than 30 s behind")), "{flushed:?}");
+    store.stop_session().ok();
+}

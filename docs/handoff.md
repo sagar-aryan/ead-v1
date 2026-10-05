@@ -113,8 +113,8 @@ Nothing in flight. The audit list's remaining items are under Next Steps.
   2 s calibration was once rejected as "moved". Calibrate again.
 - **Not yet fixed from the audit:** anyone on the access point can control the device
   (no pairing); dependency advisories (Vite/esbuild dev server, glib, unmaintained
-  font crates); `session.mat` built in memory; the writer's command queue is
-  unbounded; reader connections do not enable foreign keys.
+  font crates, fixed for npm in PROB-036; the Rust ones wait on Tauri and krilla);
+  `session.mat` built in memory.
 
 ## Failed Approaches
 - Mount maps derived from statements or images (PROB-002). Measure on the leg;
@@ -201,7 +201,7 @@ DEC-024 session commands acknowledged, a session outlives the link but not the a
 The whole suite, before every commit:
 - `pio test -d firmware -e native` (101), `pio run -d firmware`,
   `pio run -d firmware/bench/bno086 -e foot -e shank`
-- `cd dashboard/src-tauri && cargo test` (82, 4 ignored) and
+- `cd dashboard/src-tauri && cargo test` (84, 4 ignored) and
   `cargo clippy --all-targets -- -D warnings`
 - `cd dashboard && npm test` (28) and `npm run build`
 - `python3 tools/eadprobe.py vectors` (27, 0 failures)
@@ -217,9 +217,9 @@ the second resets the board and needs both sensors right way up, or worn standin
 2. **The full workflow walk (user, Wi-Fi):** calibrate standing; a reference capture of
    at least 30 valid cycles; a check; an evaluation with the switch on and deliberate
    deviations; export, then `check_mat.py` and `check_pdf.py` on the package.
-3. **Audit remainder:** controller pairing on the access point; dependency updates;
-   `session.mat` in two passes; a bound on the writer queue; foreign keys on every
-   connection; reference/mounting compatibility.
+3. **Audit remainder:** controller ownership on the access point (the user's
+   decision, needs a Wi-Fi test); `session.mat` in two passes; reference/mounting
+   compatibility.
 4. Distance (PROB-024) with floor-mark ground truth; functional calibration of the
    shank swing axis (TEST-061).
 5. Dashboard gaps against doc 11: symmetry proxy on LIVE, RAW cycle/error filters,

@@ -28,6 +28,10 @@ const COMMIT_INTERVAL: Duration = Duration::from_millis(250);
 /// Past it the oldest are dropped and counted, rather than memory growing until
 /// the app dies and takes everything with it.
 const MAX_RETAINED_ROWS: usize = 5 * 60 * 700;
+/// Messages queued for the writer thread: about 30 s of a recording (some 35 a
+/// second). A writer that far behind is stalled; past it new data is counted as
+/// lost rather than queued without bound (audit: the queue was unbounded).
+const WRITE_QUEUE: usize = 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -337,7 +341,7 @@ pub struct Store {
     health: Arc<Mutex<WriteHealth>>,
     /// The last (state, faults) written, so only changes are stored.
     last_status: Mutex<Option<(u8, u16)>>,
-    writer: Mutex<Option<mpsc::Sender<WriteCommand>>>,
+    writer: Mutex<Option<mpsc::SyncSender<WriteCommand>>>,
     /// Session currently recording, if any.
     recording: Mutex<Option<String>>,
     /// The session a device restart ended, until the next one starts (PROB-019).
@@ -355,7 +359,7 @@ impl Store {
         schema::migrate(&mut connection)?;
         close_orphaned_sessions(&connection)?;
 
-        let (tx, rx) = mpsc::channel::<WriteCommand>();
+        let (tx, rx) = mpsc::sync_channel::<WriteCommand>(WRITE_QUEUE);
         let health = Arc::new(Mutex::new(WriteHealth::default()));
         let writer_health = health.clone();
         std::thread::Builder::new()
@@ -382,6 +386,10 @@ impl Store {
     fn reader(&self) -> Result<Connection> {
         let connection = Connection::open(&self.path)?;
         connection.pragma_update(None, "busy_timeout", 5000)?;
+        // Per connection in SQLite, and these connections write too (sessions,
+        // segments, references): without it, a session for a patient who does
+        // not exist was accepted (audit).
+        connection.pragma_update(None, "foreign_keys", "ON")?;
         Ok(connection)
     }
 
@@ -697,13 +705,22 @@ impl Store {
 
     // ---- frames ------------------------------------------------------------
 
+    /// Queues data for the writer without waiting; `rows` is what is lost if the
+    /// queue is full, counted and reported like a failed commit (PROB-029).
+    fn queue(&self, command: WriteCommand, rows: usize) {
+        let writer = self.writer.lock().expect("writer");
+        let Some(writer) = writer.as_ref() else { return };
+        if let Err(mpsc::TrySendError::Full(_)) = writer.try_send(command) {
+            let mut health = self.health.lock().expect("write health");
+            health.lost_rows += rows;
+            health.lost_because = Some("the database writer fell more than 30 s behind".into());
+        }
+    }
+
     /// Queues frames for the session currently recording. Returns immediately.
     pub fn record_frames(&self, frames: &[RawFrame]) {
         let Some(session_id) = self.recording_session() else { return };
-        let writer = self.writer.lock().expect("writer");
-        if let Some(writer) = writer.as_ref() {
-            let _ = writer.send(WriteCommand::Frames { session_id, frames: frames.to_vec() });
-        }
+        self.queue(WriteCommand::Frames { session_id, frames: frames.to_vec() }, frames.len());
     }
 
     /// Queues accelerometer samples for the session currently recording, under
@@ -711,10 +728,7 @@ impl Store {
     /// backfilled, is its data.
     pub fn record_accel(&self, samples: &[AccelSample]) {
         let Some(session_id) = self.recording_session() else { return };
-        let writer = self.writer.lock().expect("writer");
-        if let Some(writer) = writer.as_ref() {
-            let _ = writer.send(WriteCommand::Accel { session_id, samples: samples.to_vec() });
-        }
+        self.queue(WriteCommand::Accel { session_id, samples: samples.to_vec() }, samples.len());
     }
 
     /// Stores gait cycles and events for the recording session, if any.
@@ -723,14 +737,11 @@ impl Store {
             return;
         }
         let Some(session_id) = self.recording_session() else { return };
-        let writer = self.writer.lock().expect("writer");
-        if let Some(writer) = writer.as_ref() {
-            let _ = writer.send(WriteCommand::Gait {
-                session_id,
-                cycles: cycles.to_vec(),
-                events: events.to_vec(),
-            });
-        }
+        let rows = cycles.len() + events.len();
+        self.queue(
+            WriteCommand::Gait { session_id, cycles: cycles.to_vec(), events: events.to_vec() },
+            rows,
+        );
     }
 
     /// Stores feedback records for the recording session, if any.
@@ -739,10 +750,7 @@ impl Store {
             return;
         }
         let Some(session_id) = self.recording_session() else { return };
-        let writer = self.writer.lock().expect("writer");
-        if let Some(writer) = writer.as_ref() {
-            let _ = writer.send(WriteCommand::Haptics { session_id, records: records.to_vec() });
-        }
+        self.queue(WriteCommand::Haptics { session_id, records: records.to_vec() }, records.len());
     }
 
     /// Every feedback record stored for a session, in time order.
@@ -977,15 +985,15 @@ impl Store {
         }
         *last = Some(current);
         drop(last);
-        let writer = self.writer.lock().expect("writer");
-        if let Some(writer) = writer.as_ref() {
-            let _ = writer.send(WriteCommand::Status {
+        self.queue(
+            WriteCommand::Status {
                 session_id,
                 frame_index: i64::from(status.frame_index),
                 device_state: status.device_state,
                 faults: status.faults,
-            });
-        }
+            },
+            1,
+        );
     }
 
     /// Every segment of a session, in order. Empty unless it was segmented.
@@ -1160,7 +1168,7 @@ impl Store {
         let health = self.health.lock().expect("write health");
         if health.lost_rows > 0 {
             return Some(format!(
-                "{} frames and accelerometer samples of this recording could not be saved: {}",
+                "{} recorded rows (frames, samples, cycles, records) of this recording could not be saved: {}",
                 health.lost_rows,
                 health.lost_because.as_deref().unwrap_or("unknown error")
             ));
