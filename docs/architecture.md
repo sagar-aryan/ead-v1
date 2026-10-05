@@ -121,8 +121,8 @@ They take effect between frames, and the ACK reports the effective frame index.
 
 | Interface | Detail |
 |---|---|
-| I²C | 400 kHz, foot `0x68`, shank `0x69` |
-| GPIO interrupts | Foot INT → GPIO7, shank INT → GPIO8; both verified at 100 Hz (TEST-015) |
+| SPI (DEC-016) | 1 MHz; SCK 7, MISO 8, MOSI 9; CS foot 43, shank 44; shared RST 41 and WAKE 3 |
+| GPIO interrupts | Foot INT → GPIO39, shank INT → GPIO40 (DEC-016). The MPU6500 build used I²C at 400 kHz with INT on GPIO7/8 |
 | Motor GPIOs | 1, 2, 42, 4, 5, 6 (DEC-016): service-test pulses and feedback cues (DEC-023) |
 | Wi-Fi | Device AP, `ws://192.168.4.1:8080/ws`, binary frames (doc 08 header) |
 | USB | Native USB Serial/JTAG `303a:1001`: flashing, and the same binary protocol framed `00 \| COBS(msg ‖ CRC32) \| 00` |

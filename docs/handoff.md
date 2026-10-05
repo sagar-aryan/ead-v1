@@ -7,50 +7,40 @@ plus a Tauri 2 research dashboard. Contract: `ead_agent_docs_v2/`
 (authoritative, read-only).
 
 ## Current Objective
-Bring the rebuilt device (two BNO086 on SPI, DEC-016) back to a validated gait
-instrument: the firmware and the `ead --check` service view are done and verified
-over USB; what remains needs the leg (mount maps, gait thresholds, a new reference)
-and the user (motor pulses felt). The user wants engineered work only: no filler, no
+Make the device trustworthy enough for a real reference → check → evaluation walk with
+feedback. On 2026-10-05 an external code audit's findings were checked and the harmful
+ones fixed (PROB-026–035); what remains needs the user: the motors felt on battery over
+Wi-Fi, and a full workflow walk. The user wants engineered work only: no filler, no
 placeholder or fake data, no features the spec does not need.
 
-## Current State (2026-10-02)
+## Current State (2026-10-05)
 
-- **Hardware.** The XIAO (MAC 44:B1:76:AF:FB:7C) is wired to DEC-016 with
-  everything soldered: both BNO086, the separate ERM driver PCB
-  (`~/Documents/ead pcb/`) with its motors and two HT7833 rails, battery
-  (user, 2026-10-02). See `docs/hardware.md` "Current build".
-- **Product firmware, schema 5** (`5b8dd28` and later), flashed on the board:
-  our own SH-2 driver for both sensors (DEC-017), per-wire sensor check, 100 Hz
-  gyro-clocked frames, motor service pulses (DEC-018). Verified over USB: every
-  check step PASS on both sensors (TEST-047); 60 s at 100.142 Hz with 0 missing,
-  0 dropped, 0 bus errors (TEST-046).
-- **`ead --check`** opens the dashboard on the Check view: the per-wire table,
-  live rates to tell foot from shank, per-motor pulses with a "felt" answer
-  (TEST-049). All six motors are enabled (PROB-020 resolved).
-- All six motors felt at 50 %, and the foot and shank cables confirmed not swapped
-  (user, TEST-049).
-- **Not yet measured with the BNO086 sensors:** mount maps (identity for now) and gait
-  thresholds; both need the leg.
-- **On the MPU6500 build, everything M0–M6 worked and was verified:** 100 Hz
-  data-ready acquisition with 0 lost frames in 30 min (TEST-018); calibration and
-  Mahony orientation on the leg (TEST-027–029); gait and ZUPT, 6.39 m on a
-  6.00 m course (TEST-030); the reference workflow, error engine, session gate
-  and host-side segments (TEST-031–032); the full export package, checked by
-  scipy and poppler against synthetic sessions (TEST-035–037).
-- **Real-person use (2026-09-18, patient 67):** references v1 (42 cycles), v2
-  (33) and v3 (50), seven reference checks and three evaluations, in the
-  dashboard database. **All three references were built while PROB-016 split
-  strides, so none can be trusted.** The evaluations recorded no cycles; two of
-  them because of PROB-018 (fixed in code on 2026-10-02), the third (0 frames)
-  for an unknown reason. No trustworthy reference exists.
-- **Dashboard:** every doc 11 view except HAPTICS (the master switch is in the top
-  bar; cues are stored and exported), plus Check. It reads sessions of
-  both builds (configuration formats 1 and 2, store schema 10; the database on this
-  machine was migrated with a backup beside it). Known gaps against doc 11 are under
-  Next Steps.
+- **Hardware.** The XIAO (MAC 44:B1:76:AF:FB:7C) wired to DEC-016, both BNO086 on SPI,
+  the separate ERM driver PCB (`~/Documents/ead pcb/`) with six motors and two HT7833
+  rails, battery. See `docs/hardware.md`. **Battery switch never ON with USB.**
+- **Firmware `0.1.0+29c560c`, protocol schema 8, flashed:** 200 Hz frames clocked by
+  the foot gyroscope, the BNO086's own orientation and a native 250 Hz accelerometer
+  stream (DEC-021); gait events from the shank's swing (DEC-022); haptic feedback in
+  evaluations behind a master switch, off at boot (DEC-023); ACK for session commands
+  and the running session in STATUS (DEC-024); sensor faults and stale samples stop
+  feedback (PROB-026); every calibration adopted (PROB-027).
+- **Verified on the board:** 200.29 Hz, 0 dropped (TEST-064); ACK and STATUS `session`
+  (TEST-064); a device reset ends the session, a recalibration after re-strapping is
+  used (worn, TEST-065); 10 m walks over Wi-Fi at 200 Hz with 0 frames lost
+  (TEST-058). Step counting on the seven video-synced fixtures: 3 errors over 176
+  landings (TEST-059).
+- **Never done:** a cue felt during walking; anything on battery since the audit
+  fixes; a full reference → check → evaluation walk on the current firmware.
+- **No trustworthy reference profile exists.** Patient 67's v1–v3 (2026-09-18) were
+  built while PROB-016 split strides.
+- **Dashboard (`ead`, rebuilt after every change):** every doc 11 view except a
+  separate HAPTICS page, plus Check; store schema 11. The database on this machine
+  migrates to 11 when the app next opens; backup `ead.sqlite3.schema10-backup-2026-10-05`
+  beside it. Session commands wait for the device's answer; stops drain to the device's
+  boundary; save failures show in the state bar; a live session cannot be exported.
 
 ## Architecture
-See `docs/architecture.md`. In one line: INT-driven 100 Hz acquisition over SPI →
+See `docs/architecture.md`. In one line: INT-driven 200 Hz acquisition over SPI →
 portable C++ processing (`lib/ead_core`) → PSRAM message ring → Wi-Fi WebSocket
 and USB links → Rust backend with SQLite → React views and exports.
 
@@ -60,17 +50,17 @@ and USB links → Rust backend with SQLite → React views and exports.
 | `ead_agent_docs_v2/` | Contract. Never modify |
 | `docs/hardware.md` | Current DEC-016 build, previous MPU6500 build, mount maps, what is verified |
 | `docs/wiring_reference.md` | Every DEC-016 connection with its evidence; firmware rules the wiring depends on |
-| `docs/decisions.md` | DEC-001–DEC-018 |
-| `docs/problems.md` | PROB-001–PROB-022 (no PROB-008) |
-| `docs/testing.md` | TEST-001–TEST-050, with measured results |
-| `docs/protocol.md` | Wire protocol (schema 5): payloads, framing, backfill, SERVICE_TEST, enumerations |
+| `docs/decisions.md` | DEC-001–DEC-024 |
+| `docs/problems.md` | PROB-001–PROB-035 (no PROB-008) |
+| `docs/testing.md` | TEST-001–TEST-065, with measured results |
+| `docs/protocol.md` | Wire protocol (schema 8): payloads, framing, backfill, ACK, SERVICE_TEST, haptics, enumerations |
 | `docs/clinical_requirements.md` | The researcher's four requirements vs what is built |
 | `firmware/include/config_v1.h` | Fixed V1 constants, the DEC-016 pins with compile-time pin checks, BNO086 scales, mount maps |
 | `firmware/lib/ead_core/` | Portable codec, COBS, CRC-32, ring, SH-2 codec, motor guard, calibration, Mahony, gait, reference, error engine |
 | `firmware/src/` | Device services: BNO086 driver, acquisition, motors, links, calibration, orientation, gait, sessions |
 | `firmware/bench/bno086/` | BNO086 bench test on the DEC-016 pins (SparkFun library, one sensor per build) |
 | `firmware/bench/padstate/` | Pad-state and JTAG eFuse reader (TEST-041) |
-| `protocol/vectors/` | 22 golden vectors (incl. the format-1 config section); `generate.py` rebuilds them |
+| `protocol/vectors/` | 27 golden vectors (incl. the format-1 config section); `generate.py` rebuilds them |
 | `tools/eadprobe.py` | Independent host client and decoder; `check`, `pulse` |
 | `tools/replay/main.cpp` | Replays a `.eadlog` through the device's own code; how gait thresholds are changed |
 | `tools/check_mat.py`, `tools/check_pdf.py` | Independent export checkers (scipy, poppler) |
@@ -95,40 +85,36 @@ and USB links → Rust backend with SQLite → React views and exports.
   session), both verified on hardware (TEST-042); `ead` command; both BNO086 proven with the bench
   driver (TEST-043); the BNO086 product firmware, SERVICE_TEST and `ead --check`
   (DEC-017, DEC-018, TEST-045–050).
+- 2026-10-03/04: mount maps measured (TEST-051), 200 Hz feed (DEC-021), video-synced
+  walks over Wi-Fi (TEST-058), shank-swing step detection (DEC-022), haptic feedback
+  (DEC-023), schema 7 on the board (TEST-062).
+- 2026-10-05: power budget estimate (`hardware.md`); the external audit checked
+  claim by claim and fixed: PROB-026–035, DEC-024, TEST-063–065.
 
 ## Current Work
-Nothing in flight.
-
-## Milestone Plan
-1. **On the leg:** the mounting check to measure both BNO086 mount maps (as TEST-027),
-   confirm foot vs shank, calibrate, then new ground-truth walks into `recordings/` and
-   re-validate the gait thresholds by replay.
-2. **Walking validation:** a new reference, a check, an evaluation, an export read end
-   to end.
-3. **Haptic feedback** (DEC-023): built and tested on the host (TEST-060); not yet
-   flashed or felt. Bench: `eadprobe haptics on`, then an evaluation with
-   `eadprobe score --evaluate --haptics`; then worn, with the dashboard's switch.
-4. **M7**, on-device storage: needs a DEC (the default partition leaves 1.5 MB).
+Nothing in flight. The audit list's remaining items are under Next Steps.
 
 ## Known Problems
 - **No trustworthy reference profile:** v1–v3 carry the PROB-016 fault.
-- **Gait thresholds** were fitted to one 6 m walk by one person (TEST-030) and
-  to MPU6500 data; doc 05 §3 wants adaptive thresholds.
-- **PROB-015:** inversion shifted about 15° after re-wearing; root cause unknown.
-  A reference is only trustworthy within the wearing and calibration it was
-  captured in.
-- **PROB-012:** remaining +6.5 % distance error; the proper fix is a full
-  error-state Kalman filter.
-- **The device never reports REFERENCE_CAPTURE or RUNNING** in STATUS
-  (`device.cpp` `currentState`), unlike DEC-008's description.
-- `EAD_GAIT_LOWPASS_HZ` (6 Hz) is reported in CONFIG_GET but not applied. The
-  20 Hz event path is applied only to the ZUPT stillness test (DEC-019).
-- **PROB-022 (open):** still on the desk, both gyroscopes show simultaneous episodes of
-  a few °/s; a 2 s calibration was once rejected as "moved". Calibrate again.
-- On the BNO086 build: shank repeats 1.9 % of frames and the frame period sd is
-  200 µs (TEST-046); after a sensor reset one ~150 ms pause follows the first report.
-- Unknown on the DEC-016 build: whether the §13 pre-power checks were done, and
-  whether the cell has its own protection board.
+- **Distance:** slow 10 m walks read about 6.2 and 7.0 m (PROB-024, open); the
+  error-state filter is parked until floor-mark ground truth exists.
+- **Shank swing axis** is 9–14° off anatomical Y (TEST-061); functional calibration
+  deferred.
+- **PROB-015:** inversion shifted about 15° after re-wearing; root cause unknown. A
+  reference is only trustworthy within the wearing and calibration it was captured in;
+  nothing checks that a reference matches the current mounting.
+- **Per-cycle windows run late:** contact is decided up to ~0.15 s after the swing
+  reverses; the angle is taken at the impact (PROB-028), but peaks, distance and ZUPT
+  counts still run to the deciding sample.
+- **`device_state` never reports REFERENCE_CAPTURE or RUNNING** (`device.cpp`
+  `currentState`); the running session is STATUS byte 59 (schema 8).
+- `EAD_GAIT_LOWPASS_HZ` (6 Hz) is reported in CONFIG_GET but not applied.
+- **PROB-022 (open):** still on the desk, both gyroscopes show episodes of a few °/s; a
+  2 s calibration was once rejected as "moved". Calibrate again.
+- **Not yet fixed from the audit:** anyone on the access point can control the device
+  (no pairing); dependency advisories (Vite/esbuild dev server, glib, unmaintained
+  font crates); `session.mat` built in memory; the writer's command queue is
+  unbounded; reader connections do not enable foreign keys.
 
 ## Failed Approaches
 - Mount maps derived from statements or images (PROB-002). Measure on the leg;
@@ -149,6 +135,10 @@ Nothing in flight.
 - Converting replayed counts with `config_v1.h`'s constants: they describe the firmware
   being built, not the recording (TEST-050).
 - `pkill -f ead-dashboard` from the agent's shell kills the shell itself; use a PID.
+- Taking 800 ms without an ERROR as a session's acceptance (PROB-033): a late refusal
+  or an unrelated error decided wrongly. Session commands now wait for ACK or ERROR.
+- Sending backfill requests on a new connection before its HELLO is read: after a
+  reset the old boot's gaps went to the new boot (TEST-065).
 
 ## Important Decisions
 DEC-005 USB link; DEC-006 no haptic code (superseded by DEC-023); DEC-007 raw =
@@ -159,7 +149,8 @@ values (provisional); DEC-014 host-side segments; DEC-015 haptic band on the
 calf; DEC-016 final pin map, all 15 GPIOs used, GPIO39 never a motor; DEC-017 BNO086
 firmware (own SH-2 driver, Mahony kept, calibrated reports as counts); DEC-018 motor
 service-test pulses; DEC-019–021 soft footfalls, the user's decisions, the 200 Hz feed;
-DEC-022 gait events from the shank's swing; DEC-023 haptic feedback during evaluations.
+DEC-022 gait events from the shank's swing; DEC-023 haptic feedback during evaluations;
+DEC-024 session commands acknowledged, a session outlives the link but not the app.
 
 ## Environment
 - Linux (Ubuntu 24.04), node 24.13.1, npm 11.8.0, rustc/cargo 1.95.0.
@@ -208,41 +199,32 @@ DEC-022 gait events from the shank's swing; DEC-023 haptic feedback during evalu
 
 ## How To Verify
 The whole suite, before every commit:
-- `pio test -d firmware -e native` (98), `pio run -d firmware`,
+- `pio test -d firmware -e native` (101), `pio run -d firmware`,
   `pio run -d firmware/bench/bno086 -e foot -e shank`
-- `cd dashboard/src-tauri && cargo test` (73, 4 ignored) and
+- `cd dashboard/src-tauri && cargo test` (82, 4 ignored) and
   `cargo clippy --all-targets -- -D warnings`
 - `cd dashboard && npm test` (28) and `npm run build`
-- `python3 tools/eadprobe.py vectors` (26, 0 failures)
+- `python3 tools/eadprobe.py vectors` (27, 0 failures)
 
-On hardware over USB, device still: `eadprobe check` (all PASS), `eadprobe stats
---seconds 60` (100.14 Hz, 0 missing), `cargo test -- --ignored --test-threads=1` (both
-hardware tests; the second resets the board).
+On hardware over USB, battery off: `eadprobe stats --seconds 60` (200.3 Hz, 0
+dropped), `cargo test hardware -- --ignored --test-threads=1` (both hardware tests;
+the second resets the board and needs both sensors right way up, or worn standing).
 
 ## Next Steps
-0. Schema 6 (DEC-021): 200 Hz frames with the BNO086's own orientation and a native
-   250 Hz accelerometer stream; store schema 8; ZUPT gyroscope limit 30 °/s (DEC-020).
-   Verified on the board over USB on the desk (TEST-055) and on the fixtures by replay
-   (TEST-056); on the leg over Wi-Fi, barefoot, with video (TEST-058): 0 frames lost.
-   Seven video-synced fixtures in `recordings/*-2026-10-04.eadlog`; the replay needs
-   `--still-from` for them (README). Contact detection splits strides there
-   (PROB-024). Step detection now comes from the shank's swing (DEC-022, TEST-059):
-   counting error 21 → 3 over 176 landings on the fixtures; not yet flashed or
-   walked. Score any change with `python3 tools/replay/walks.py /tmp/eadreplay`.
-1. On the leg: mount maps measured and checked (TEST-051). First 10 m walks
-   (TEST-052) found PROB-023, fixed in `gait.cpp` and flashed (0.1.0+77ae282).
-   PROB-024: contacts fixed (DEC-019, TEST-053); open are slow strides reading
-   30 % short and five stances with no zero-velocity update (the 25 °/s limit
-   is the user's decision). Check any detector change with
-   `tools/replay/walks.py`; a dashboard session becomes a fixture with
-   `tools/session2eadlog.py`.
-2. Dashboard gaps against doc 11: LIVE metrics, the seven TRENDS, CYCLES → RAW and
-   the haptic column and lane are done (implementation.md, not yet seen on screen).
-   Left: symmetry proxy on LIVE, RAW cycle/error filters, PAUSE/RESUME. The "roll the
-   sole inward" step is dropped: the toes and still steps fix the foot's Y and Z,
-   and a mount map must be a proper rotation (`static_assert` in config_v1.h), so X
-   follows; a sole roll could not fail where the other two pass.
-3. M7 storage DEC, then the code.
+1. **Motors on battery, over Wi-Fi (user):** USB unplugged, switch on,
+   `eadprobe --ws ws://192.168.4.1:8080/ws pulse 4 --duty 75 --ms 250` and
+   `--duty 204`: both felt? Is 250 ms right?
+2. **The full workflow walk (user, Wi-Fi):** calibrate standing; a reference capture of
+   at least 30 valid cycles; a check; an evaluation with the switch on and deliberate
+   deviations; export, then `check_mat.py` and `check_pdf.py` on the package.
+3. **Audit remainder:** controller pairing on the access point; dependency updates;
+   `session.mat` in two passes; a bound on the writer queue; foreign keys on every
+   connection; reference/mounting compatibility.
+4. Distance (PROB-024) with floor-mark ground truth; functional calibration of the
+   shank swing axis (TEST-061).
+5. Dashboard gaps against doc 11: symmetry proxy on LIVE, RAW cycle/error filters,
+   PAUSE/RESUME.
+6. M7 storage DEC, then the code.
 
 ## Warnings
 - **Only firmware on the DEC-016 pins goes on this board** (product firmware from

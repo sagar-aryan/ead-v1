@@ -7,7 +7,19 @@ folded these into `ead_agent_docs_v2/SOURCE_REQUIREMENTS.md`; this file maps eac
 one to the specification that defines it, the code that implements it, and the
 test that proves it.
 
-**Status summary (2026-10-02):** all four are implemented. Requirements 1 and 4 are
+**Status summary (2026-10-05):** all four are implemented on the current BNO086
+build, and the vibration of requirement 2 is built (DEC-023), but **none has a
+trustworthy real-patient result yet**: no reference exists that was built without
+the PROB-016 fault, no cue has been felt during walking, and the full reference →
+check → evaluation workflow has not been walked on the current firmware. An
+external code audit on 2026-10-05 found defects in measurement and recording that
+are fixed (PROB-026–035); the earlier status below is kept as it was written.
+
+"One number per step" is, as built, one number per **right-leg gait cycle**
+(right contact to right contact, about two steps): the device has no left-leg
+sensor. Read the score that way.
+
+**Earlier status (2026-10-02):** all four are implemented. Requirements 1 and 4 are
 verified on hardware against measured ground truth. Requirements 2 and 3 ran on a
 person on 2026-09-18 (patient 67: references of 42, 33 and 50 cycles, reference
 checks, three evaluations), but every one of those references was built while
@@ -19,9 +31,9 @@ real-patient result for 2 and 3. The device is now being rebuilt around the BNO0
 | # | Requirement | Specified in | Implemented | Verified |
 |---|---|---|---|---|
 | 1 | ZUPT drift correction so speed and distance stay trustworthy for a whole session | doc 05 §6–§8 | Yes | TEST-030: 6.39 m measured on a 6.00 m course, ZUPT quality 0.22–0.29 per cycle |
-| 2 | One deviation number per step, driving vibration strength, with a hard safety limit | doc 06 §1–§5 | Yes, except the vibration itself (DEC-006, no drivers fitted) | TEST-031, hand-computed cases only |
+| 2 | One deviation number per step, driving vibration strength, with a hard safety limit | doc 06 §1–§5 | Yes, per right-leg cycle; the vibration since 2026-10-04 (DEC-023) | TEST-031 and TEST-060 on the host; motors felt as service pulses (TEST-049); no cue felt walking |
 | 3 | Compare each patient to their own baseline from a short calibration walk, saved between sessions | doc 12 §2–§3, §6 | Device builds it, dashboard versions and locks it | TEST-031 and four store tests; captured from patient 67 on 2026-09-18, but with the PROB-016 fault |
-| 4 | Export full raw accelerometer, gyroscope and orientation at native rate, timestamped per sample | doc 09 §6, doc 10 | Yes: capture with real orientation, and the whole doc 10 package | TEST-018, TEST-022, TEST-029, TEST-035, TEST-036, TEST-037 |
+| 4 | Export full raw accelerometer, gyroscope and orientation at native rate, timestamped per sample | doc 09 §6, doc 10 | Yes for both accelerometers (every sample, its own timestamp, DEC-021) and the foot gyroscope (it clocks the frames). The shank gyroscope and both rotation vectors are the sample nearest each frame, without their own timestamps | TEST-018, TEST-022, TEST-029, TEST-035, TEST-036, TEST-037 |
 
 ## 1. Drift correction (ZUPT)
 
@@ -73,7 +85,13 @@ cycle can deviate a great deal and be worth little.
 Doc 06 leaves four values undefined; they are chosen and justified in DEC-013
 rather than invented silently.
 
-**Important:** the vibration itself cannot be delivered on the current hardware —
+**Update (2026-10-04):** the drivers are fitted on the DEC-016 build and the
+vibration is built (DEC-023): one cue per scored cycle in an evaluation, its
+strength from the formula above, held to the 5 s and 50 % limits, off whenever a
+sensor faults (PROB-026). Not yet felt during walking. The paragraph below
+describes the earlier build.
+
+**Earlier (2026-09-18):** the vibration itself cannot be delivered on the current hardware —
 no ERM driver channels are fitted, which is why there is no haptic code (DEC-006,
 your decision). The dashboard states "haptics not fitted" rather than implying
 feedback is happening. The error score is still worth building without it: it is

@@ -143,13 +143,15 @@ The foot board sits about 42° off level on the instep (standing gravity
 
 ## Haptics
 
-ERM driver channels (IRLML6344 + flyback diode) are **not fitted** (user,
-2026-09-17). Firmware contains no PWM or haptic code (DEC-006); the six motor GPIOs
-are driven LOW as the first action in `setup()`.
+**Current (DEC-016 build):** the six ERM channels and motors are fitted on the
+separate driver PCB (user, 2026-10-02) and all six were felt at 50 % duty in service
+pulses (TEST-049). The firmware drives the motor GPIOs LOW first in `setup()`, then
+runs 200 Hz PWM for service pulses (DEC-018) and feedback cues during evaluations
+(DEC-023). No current or vibration amplitude has been measured, and no cue has been
+felt during walking.
 
-On the DEC-016 build the channels and motors are fitted (user, 2026-10-02); nothing
-about them has been measured. DEC-006's condition for haptic code (drivers fitted)
-is now met; lifting it is the user's decision.
+**History:** on the MPU6500 build the channels were not fitted (user, 2026-09-17), and
+DEC-006 kept all PWM and haptic code out of the firmware until they were.
 
 ## Known hardware risks
 

@@ -1823,3 +1823,8 @@ recorded schema kept as store schema 11, CSVs streamed).
 
 ### Current Status
 In progress. Board on `29c560c` (schema 8); `ead` rebuilt after each dashboard change.
+
+Docs brought to the current state (audit I15): `handoff.md` (current state, known
+problems, failed approaches, how to verify, next steps), `hardware.md` Haptics,
+`clinical_requirements.md` (status, per-cycle reading of "per step", what "native
+rate" covers), `architecture.md` interfaces (SPI). History kept and labelled.
