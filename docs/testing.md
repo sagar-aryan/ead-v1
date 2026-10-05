@@ -2339,3 +2339,39 @@ gradual heading changes) is that free walking, so about half of **v4 is not stra
 walking and should not serve as the reference**. The step-count comparison above
 holds only for the early straight lengths. A new capture (v5), the 10 m straight only
 with right-foot counts per length, replaces it.
+
+## TEST-067 — Reference v5 and an evaluation walked normally: frequent cues
+
+### Objective
+The user recaptured the reference on the 10 m straight only (v5, session
+`20261005-151103-5aad`, 64 cycles), ran a check (`-151454-9955`) and an evaluation
+(`-151612-7435`, limits 20/10, vibration on), walking normally throughout, and felt
+"vibrations a lot more even though I never walked incorrectly".
+
+### Actual
+- v5: cycle 1.31 ± 0.059 s, stance ratio 0.55 ± 0.012, inversion 20.9 ± 1.3°, stride
+  1.31 ± 0.08 m (median ± spread). Straight walking made it very consistent.
+- Check: valid-cycle medians matched (cycle 1.32 s, stance 0.55); scores median 0.27.
+- Evaluation, walked normally: cycle 1.40 s, stride 1.14 m, stance 0.58, inversion
+  18.3°, about 7 % slower than the capture. Median score 0.42; 38 of 52 valid cycles at
+  or above 0.35, 51 of 52 at or above 0.25, so an episode started almost at once and
+  rarely ended. Deviations were largest on stance ratio (often 1.0), inversion and
+  cycle timing.
+
+### Analysis
+The device behaved as designed: every feature was scored against v5's spreads, and
+those were narrow (stance 0.012) because one straight, steady capture varies little.
+The spread floors (DEC-013: 0.5°, 0.010 s, 0.005 stance, 0.020 m, 5 °/s) only prevent
+a division by zero; a 3 % change of stance between two normal walks was 2.5 spreads.
+Rescored offline from the stored cycles (the device's scores reproduced exactly,
+median difference 0.000) with floors 3°, 3°, 3°, 0.10 s, 0.03, 0.15 m, 30 °/s (about
+the change between today's normal walks):
+- this evaluation: median 0.24, 9 of 52 cycles at or above 0.35 (was 38);
+- the check: median 0.17, 0 of 14 (was 4);
+- the first evaluation (v4, with deliberate changes): all 14 cycles the device scored
+  at or above 0.6 still score at or above 0.35.
+
+### Result
+Finding, no code change yet: the reference's spreads need realistic floors, or
+normal pace changes between walks count as errors. Proposed to the user with the
+OFF-threshold change from TEST-066.
