@@ -1,0 +1,185 @@
+PASS  no vias (0 found)
+PASS  every track is on F.Cu
+PASS  every copper zone is on F.Cu
+PASS  every pad is SMD (no plated/unplated holes)
+PASS  no pad has a drill
+PASS  no pad copper on B.Cu
+PASS  all footprints on the top (copper) side
+PASS  no graphics on B.Cu
+PASS  HAPTIC_3V3_A and HAPTIC_3V3_B exist as separate nets
+PASS  U1 VOUT -> rail A, U2 VOUT -> rail B
+PASS  U1 pin1=GND pin2(VIN, tab)=SWITCHED_SYSTEM+
+PASS  U2 pin1=GND pin2(VIN, tab)=SWITCHED_SYSTEM+
+PASS  Q1 source -> GND
+PASS  Q1 drain -> M1-
+PASS  D1 cathode -> HAPTIC_3V3_A, anode -> M1-
+PASS  C9 (10 nF) across HAPTIC_3V3_A / M1-
+PASS  C15 (100 nF) HAPTIC_3V3_A to GND
+PASS  PWM1 -> R1 100R -> Q1 gate
+PASS  Q1 gate -> R7 100k -> GND
+PASS  D1 within 6.0 mm of Q1 (4.2 mm)
+PASS  C9 within 6.0 mm of Q1 (5.4 mm)
+PASS  C15 within 6.0 mm of Q1 (4.4 mm)
+PASS  R1 within 6.0 mm of Q1 (4.0 mm)
+PASS  R7 within 6.0 mm of Q1 (4.1 mm)
+PASS  Q2 source -> GND
+PASS  Q2 drain -> M2-
+PASS  D2 cathode -> HAPTIC_3V3_A, anode -> M2-
+PASS  C10 (10 nF) across HAPTIC_3V3_A / M2-
+PASS  C16 (100 nF) HAPTIC_3V3_A to GND
+PASS  PWM2 -> R2 100R -> Q2 gate
+PASS  Q2 gate -> R8 100k -> GND
+PASS  D2 within 6.0 mm of Q2 (4.2 mm)
+PASS  C10 within 6.0 mm of Q2 (5.4 mm)
+PASS  C16 within 6.0 mm of Q2 (4.4 mm)
+PASS  R2 within 6.0 mm of Q2 (4.0 mm)
+PASS  R8 within 6.0 mm of Q2 (4.1 mm)
+PASS  Q3 source -> GND
+PASS  Q3 drain -> M3-
+PASS  D3 cathode -> HAPTIC_3V3_A, anode -> M3-
+PASS  C11 (10 nF) across HAPTIC_3V3_A / M3-
+PASS  C17 (100 nF) HAPTIC_3V3_A to GND
+PASS  PWM3 -> R3 100R -> Q3 gate
+PASS  Q3 gate -> R9 100k -> GND
+PASS  D3 within 6.0 mm of Q3 (4.2 mm)
+PASS  C11 within 6.0 mm of Q3 (5.4 mm)
+PASS  C17 within 6.0 mm of Q3 (4.4 mm)
+PASS  R3 within 6.0 mm of Q3 (4.0 mm)
+PASS  R9 within 6.0 mm of Q3 (4.1 mm)
+PASS  Q4 source -> GND
+PASS  Q4 drain -> M4-
+PASS  D4 cathode -> HAPTIC_3V3_B, anode -> M4-
+PASS  C12 (10 nF) across HAPTIC_3V3_B / M4-
+PASS  C18 (100 nF) HAPTIC_3V3_B to GND
+PASS  PWM4 -> R4 100R -> Q4 gate
+PASS  Q4 gate -> R10 100k -> GND
+PASS  D4 within 6.0 mm of Q4 (4.2 mm)
+PASS  C12 within 6.0 mm of Q4 (5.4 mm)
+PASS  C18 within 6.0 mm of Q4 (4.4 mm)
+PASS  R4 within 6.0 mm of Q4 (4.0 mm)
+PASS  R10 within 6.0 mm of Q4 (4.1 mm)
+PASS  Q5 source -> GND
+PASS  Q5 drain -> M5-
+PASS  D5 cathode -> HAPTIC_3V3_B, anode -> M5-
+PASS  C13 (10 nF) across HAPTIC_3V3_B / M5-
+PASS  C19 (100 nF) HAPTIC_3V3_B to GND
+PASS  PWM5 -> R5 100R -> Q5 gate
+PASS  Q5 gate -> R11 100k -> GND
+PASS  D5 within 6.0 mm of Q5 (4.2 mm)
+PASS  C13 within 6.0 mm of Q5 (5.4 mm)
+PASS  C19 within 6.0 mm of Q5 (4.4 mm)
+PASS  R5 within 6.0 mm of Q5 (4.0 mm)
+PASS  R11 within 6.0 mm of Q5 (4.1 mm)
+PASS  Q6 source -> GND
+PASS  Q6 drain -> M6-
+PASS  D6 cathode -> HAPTIC_3V3_B, anode -> M6-
+PASS  C14 (10 nF) across HAPTIC_3V3_B / M6-
+PASS  C20 (100 nF) HAPTIC_3V3_B to GND
+PASS  PWM6 -> R6 100R -> Q6 gate
+PASS  Q6 gate -> R12 100k -> GND
+PASS  D6 within 6.0 mm of Q6 (4.2 mm)
+PASS  C14 within 6.0 mm of Q6 (5.4 mm)
+PASS  C20 within 6.0 mm of Q6 (4.4 mm)
+PASS  R6 within 6.0 mm of Q6 (4.0 mm)
+PASS  R12 within 6.0 mm of Q6 (4.1 mm)
+PASS  ESP_SW_BAT+ pad is on SWITCHED_SYSTEM+ (not a 3.3 V net)
+PASS  no BAT-named net enters the PCB
+PASS  C7 220 uF: + on rail A, - on GND
+PASS  C8 220 uF: + on rail B, - on GND
+PASS  C1 within 6 mm of U1 (3.8 mm)
+PASS  C3 within 9 mm of U1 (6.1 mm)
+PASS  C5 within 6 mm of U1 (4.1 mm)
+PASS  C7 within 10 mm of U1 (8.1 mm)
+PASS  C2 within 9 mm of U2 (3.8 mm)
+PASS  C4 within 9 mm of U2 (6.1 mm)
+PASS  C6 within 6 mm of U2 (4.1 mm)
+PASS  C8 within 10 mm of U2 (8.1 mm)
+PASS  track width GATE1: 0.5-0.5 mm (0.4-0.5)
+PASS  track width GATE2: 0.5-0.5 mm (0.4-0.5)
+PASS  track width GATE3: 0.5-0.5 mm (0.4-0.5)
+PASS  track width GATE4: 0.5-0.5 mm (0.4-0.5)
+PASS  track width GATE5: 0.5-0.5 mm (0.4-0.5)
+PASS  track width GATE6: 0.5-0.5 mm (0.4-0.5)
+PASS  track width GND: 0.8-1.0 mm (branches >= 0.8, trunk >= 1.0)
+PASS  track width HAPTIC_3V3_A: 1.0-1.0 mm (>= 1.0)
+PASS  track width HAPTIC_3V3_B: 1.0-1.0 mm (>= 1.0)
+PASS  track width M1-: 0.8-0.8 mm (>= 0.8)
+PASS  track width M2-: 0.8-0.8 mm (>= 0.8)
+PASS  track width M3-: 0.8-0.8 mm (>= 0.8)
+PASS  track width M4-: 0.8-0.8 mm (>= 0.8)
+PASS  track width M5-: 0.8-0.8 mm (>= 0.8)
+PASS  track width M6-: 0.8-0.8 mm (>= 0.8)
+PASS  track width PWM1: 0.5-0.5 mm (0.4-0.5)
+PASS  track width PWM2: 0.5-0.5 mm (0.4-0.5)
+PASS  track width PWM3: 0.5-0.5 mm (0.4-0.5)
+PASS  track width PWM4: 0.5-0.5 mm (0.4-0.5)
+PASS  track width PWM5: 0.5-0.5 mm (0.4-0.5)
+PASS  track width PWM6: 0.5-0.5 mm (0.4-0.5)
+PASS  track width SWITCHED_SYSTEM+: 0.8-1.0 mm (branches >= 0.8, trunk >= 1.0)
+PASS  18 wire pads (18 found)
+PASS  J1 SWITCHED_SYSTEM+ pad 2.5x3.0 mm >= 2.5x3.0
+PASS  J2 GND pad 2.5x3.0 mm >= 2.5x3.0
+PASS  J3 ESP_SW_BAT+ pad 2.0x2.0 mm >= 2.0x2.0
+PASS  J4 ESP_GND pad 2.0x2.0 mm >= 2.0x2.0
+PASS  J5 PWM1 pad 2.0x2.0 mm >= 2.0x2.0
+PASS  J6 PWM2 pad 2.0x2.0 mm >= 2.0x2.0
+PASS  J7 PWM3 pad 2.0x2.0 mm >= 2.0x2.0
+PASS  J8 PWM4 pad 2.0x2.0 mm >= 2.0x2.0
+PASS  J9 PWM5 pad 2.0x2.0 mm >= 2.0x2.0
+PASS  J10 PWM6 pad 2.0x2.0 mm >= 2.0x2.0
+PASS  J11 MOTOR_A+ pad 2.5x7.0 mm >= 2.5x2.5
+PASS  J12 M1- pad 2.5x2.5 mm >= 2.5x2.5
+PASS  J13 M2- pad 2.5x2.5 mm >= 2.5x2.5
+PASS  J14 M3- pad 2.5x2.5 mm >= 2.5x2.5
+PASS  J15 MOTOR_B+ pad 2.5x7.0 mm >= 2.5x2.5
+PASS  J16 M4- pad 2.5x2.5 mm >= 2.5x2.5
+PASS  J17 M5- pad 2.5x2.5 mm >= 2.5x2.5
+PASS  J18 M6- pad 2.5x2.5 mm >= 2.5x2.5
+
+Board outline (cut line): 38.91 x 29.28 mm
+
+Wire pad map (board-local mm, origin = top-left of outline):
+  J1   SWITCHED_SYSTEM+  net SWITCHED_SYSTEM+  at (  2.0, 27.5)  3.0 x 2.5 mm
+  J2   GND               net GND               at (  7.8, 27.5)  3.0 x 2.5 mm
+  J3   ESP_SW_BAT+       net SWITCHED_SYSTEM+  at (  4.9, 26.4)  2.0 x 2.0 mm
+  J4   ESP_GND           net GND               at ( 10.7, 27.8)  2.0 x 2.0 mm
+  J5   PWM1              net PWM1              at ( 14.8, 12.0)  2.0 x 2.0 mm
+  J6   PWM2              net PWM2              at ( 22.9, 12.0)  2.0 x 2.0 mm
+  J7   PWM3              net PWM3              at ( 31.1, 12.0)  2.0 x 2.0 mm
+  J8   PWM4              net PWM4              at ( 14.8, 26.4)  2.0 x 2.0 mm
+  J9   PWM5              net PWM5              at ( 22.9, 26.4)  2.0 x 2.0 mm
+  J10  PWM6              net PWM6              at ( 31.1, 26.4)  2.0 x 2.0 mm
+  J11  MOTOR_A+          net HAPTIC_3V3_A      at ( 10.2,  4.0)  2.5 x 7.0 mm
+  J12  M1-               net M1-               at ( 15.6,  7.2)  2.5 x 2.5 mm
+  J13  M2-               net M2-               at ( 23.7,  7.2)  2.5 x 2.5 mm
+  J14  M3-               net M3-               at ( 31.8,  7.2)  2.5 x 2.5 mm
+  J15  MOTOR_B+          net HAPTIC_3V3_B      at ( 10.2, 18.3)  2.5 x 7.0 mm
+  J16  M4-               net M4-               at ( 15.6, 21.6)  2.5 x 2.5 mm
+  J17  M5-               net M5-               at ( 23.7, 21.6)  2.5 x 2.5 mm
+  J18  M6-               net M6-               at ( 31.8, 21.6)  2.5 x 2.5 mm
+
+Connection summary:
+  GATE1             Q1.1 R1.2 R7.1
+  GATE2             Q2.1 R2.2 R8.1
+  GATE3             Q3.1 R3.2 R9.1
+  GATE4             Q4.1 R4.2 R10.1
+  GATE5             Q5.1 R5.2 R11.1
+  GATE6             Q6.1 R6.2 R12.1
+  GND               C1.2 C2.2 C3.2 C4.2 C5.2 C6.2 C7.2 C8.2 C15.2 C16.2 C17.2 C18.2 C19.2 C20.2 J2.1 J4.1 Q1.2 Q2.2 Q3.2 Q4.2 Q5.2 Q6.2 R7.2 R8.2 R9.2 R10.2 R11.2 R12.2 U1.1 U2.1
+  HAPTIC_3V3_A      C5.1 C7.1 C9.1 C10.1 C11.1 C15.1 C16.1 C17.1 D1.1 D2.1 D3.1 J11.1 U1.3
+  HAPTIC_3V3_B      C6.1 C8.1 C12.1 C13.1 C14.1 C18.1 C19.1 C20.1 D4.1 D5.1 D6.1 J15.1 U2.3
+  M1-               C9.2 D1.2 J12.1 Q1.3
+  M2-               C10.2 D2.2 J13.1 Q2.3
+  M3-               C11.2 D3.2 J14.1 Q3.3
+  M4-               C12.2 D4.2 J16.1 Q4.3
+  M5-               C13.2 D5.2 J17.1 Q5.3
+  M6-               C14.2 D6.2 J18.1 Q6.3
+  PWM1              J5.1 R1.1
+  PWM2              J6.1 R2.1
+  PWM3              J7.1 R3.1
+  PWM4              J8.1 R4.1
+  PWM5              J9.1 R5.1
+  PWM6              J10.1 R6.1
+  SWITCHED_SYSTEM+  C1.1 C2.1 C3.1 C4.1 J1.1 J3.1 U1.2 U2.2
+
+ALL CHECKS PASSED

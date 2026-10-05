@@ -42,3 +42,11 @@ Critical Clinical Insights.docx
 
 # Walk videos: personal footage, kept local (user, 2026-10-04)
 recrdings/
+
+# The ERM driver PCB (hardware/erm-driver-pcb): KiCad's per-user view state, lock
+# files and backups, and the purchase invoices, kept local (user, 2026-10-05)
+*.kicad_prl
+*.lck
+*-backups/
+fp-info-cache
+hardware/erm-driver-pcb/invoice*

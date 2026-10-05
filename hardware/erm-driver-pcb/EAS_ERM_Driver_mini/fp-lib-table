@@ -1,0 +1,4 @@
+(fp_lib_table
+	(version 7)
+	(lib (name "EAS")(type "KiCad")(uri "${KIPRJMOD}/EAS.pretty")(options "")(descr "EAS ERM driver project footprints"))
+)

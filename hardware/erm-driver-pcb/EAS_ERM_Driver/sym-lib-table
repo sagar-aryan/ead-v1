@@ -1,0 +1,4 @@
+(sym_lib_table
+	(version 7)
+	(lib (name "EAS")(type "KiCad")(uri "${KIPRJMOD}/EAS.kicad_sym")(options "")(descr "EAS ERM driver project symbols"))
+)

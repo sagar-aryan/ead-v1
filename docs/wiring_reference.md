@@ -155,7 +155,7 @@ little static current.
 ## 6. One motor channel — repeated six times
 
 **As built (2026-10-02):** the six channels and both haptic rails (§7) are on a
-separate ERM driver PCB, designed in `~/Documents/ead pcb/` (KiCad, with its own
+separate ERM driver PCB, designed in `hardware/erm-driver-pcb/` (KiCad, with its own
 docs). Same circuit as below, plus a 10 nF across each motor (C9–C14, fitted), a
 100 nF rail-to-GND per channel, and 10 µF at each regulator input **[PCB project
 BOM]**. Its PWM1–PWM6 pads take the motor GPIOs of §3; its `ESP+` pad feeds the

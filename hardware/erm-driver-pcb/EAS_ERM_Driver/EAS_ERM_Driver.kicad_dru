@@ -1,0 +1,17 @@
+(version 1)
+# Single-sided, drill-free toner-transfer board (handoff 05 hard requirements 1-4).
+(rule "no vias"
+	(constraint disallow via))
+(rule "no holes"
+	(constraint disallow hole))
+(rule "back copper stays empty"
+	(layer B.Cu)
+	(constraint disallow track via zone pad text graphic))
+# Handoff 04 section 2: every high-current branch at least 0.8 mm (trunks are drawn wider by build.py).
+(rule "power and motor copper width"
+	(condition "A.NetClass == 'Power' || A.NetClass == 'Rail' || A.NetClass == 'Motor'")
+	(constraint track_width (min 0.8mm)))
+# PWM and gate traces: 0.4-0.5 mm.
+(rule "signal width"
+	(condition "A.NetClass == 'Default'")
+	(constraint track_width (min 0.4mm) (max 0.5mm)))

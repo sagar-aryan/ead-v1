@@ -1860,3 +1860,14 @@ guard accepting 255.
 
 ### Current Status
 Built and tested on the host; to flash and walk.
+
+## 2026-10-05 — The ERM driver PCB into the repository
+
+The PCB project (`~/Documents/ead pcb/`, never in git) copied to
+`hardware/erm-driver-pcb/` at the user's request: four KiCad variants, generator and
+check scripts, outputs, the board's own docs, the bench firmware. Left out, also in
+`.gitignore`: the three purchase invoices (the user), KiCad `.kicad_prl` view state and
+lock files. Scanned before publishing: no email addresses, phone numbers, secrets or
+absolute paths; the PDFs carry no author. The docs keep the supplier and an order
+number as the source of the parts list. Current docs point to the new path; dated
+entries keep the old one.

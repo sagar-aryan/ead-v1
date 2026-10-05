@@ -16,7 +16,7 @@ placeholder or fake data, no features the spec does not need.
 ## Current State (2026-10-05)
 
 - **Hardware.** The XIAO (MAC 44:B1:76:AF:FB:7C) wired to DEC-016, both BNO086 on SPI,
-  the separate ERM driver PCB (`~/Documents/ead pcb/`) with six motors and two HT7833
+  the separate ERM driver PCB (`hardware/erm-driver-pcb/`) with six motors and two HT7833
   rails, battery. See `docs/hardware.md`. **Battery switch never ON with USB.**
 - **Firmware `0.1.0+29c560c`, protocol schema 8, flashed:** 200 Hz frames clocked by
   the foot gyroscope, the BNO086's own orientation and a native 250 Hz accelerometer
