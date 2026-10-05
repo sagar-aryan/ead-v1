@@ -112,7 +112,7 @@ Nothing in flight. The audit list's remaining items are under Next Steps.
 - **PROB-022 (open):** still on the desk, both gyroscopes show episodes of a few °/s; a
   2 s calibration was once rejected as "moved". Calibrate again.
 - **Not yet fixed from the audit:** anyone on the access point can control the device
-  (no pairing); dependency advisories (Vite/esbuild dev server, glib, unmaintained
+  (no pairing; left as is by the user's decision, DEC-024); dependency advisories (Vite/esbuild dev server, glib, unmaintained
   font crates, fixed for npm in PROB-036; the Rust ones wait on Tauri and krilla);
   `session.mat` built in memory.
 
@@ -217,9 +217,8 @@ the second resets the board and needs both sensors right way up, or worn standin
 2. **The full workflow walk (user, Wi-Fi):** calibrate standing; a reference capture of
    at least 30 valid cycles; a check; an evaluation with the switch on and deliberate
    deviations; export, then `check_mat.py` and `check_pdf.py` on the package.
-3. **Audit remainder:** controller ownership on the access point (the user's
-   decision, needs a Wi-Fi test); `session.mat` in two passes; reference/mounting
-   compatibility.
+3. **Audit remainder:** `session.mat` in two passes; reference/mounting compatibility.
+   Controller ownership on the access point: left as is (user, DEC-024).
 4. Distance (PROB-024) with floor-mark ground truth; functional calibration of the
    shank swing axis (TEST-061).
 5. Dashboard gaps against doc 11: symmetry proxy on LIVE, RAW cycle/error filters,

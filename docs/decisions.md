@@ -1007,3 +1007,11 @@ stop have to go, and something must own the data meanwhile.
 ### Consequences
 Every session command now waits for its answer (3 s). `eadprobe` and the vectors are
 schema 8.
+
+**Confirmed by the user (2026-10-05):** stopping the device session when the dashboard
+closes is the wanted behaviour ("it is ok this way").
+
+**Also decided by the user (2026-10-05), audit finding I12:** anyone who has the
+access point's passphrase can connect and take control, and a second client replaces
+the first. Not changed: "the wifi issue will rarely be exploited". The passphrase
+(generated per build, never committed) is the access control.
