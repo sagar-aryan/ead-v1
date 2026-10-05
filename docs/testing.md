@@ -2290,3 +2290,44 @@ have stayed at 8.4°.
 ### Result
 PASS. The re-strap moved the sensor 8.4° (asked for 20–30°), enough to separate the
 outcomes. Not checked worn: anything with the battery, motors, Wi-Fi or walking.
+
+## TEST-066 — First full workflow on the current firmware, worn, battery and Wi-Fi
+
+### Objective
+Calibration → reference capture → check → evaluation with feedback → export, on
+`0.1.0+29c560c` (schema 8), patient 67 (the user), as a real session would run.
+
+### Environment
+Worn (foot, shank, band on the calf), battery on, USB unplugged, Wi-Fi, `ead` with store
+schema 11. A 10 m straight walked back and forth. Sessions `20261005-145503-1e0a`
+(capture), `-145842-ef93` (check), `-150036-b00f` (evaluation, limits 20/10).
+
+### Actual
+- **Link:** 0 frames missing in all three (41,780, 6,610 and 29,900 frames; 6.5 min on
+  battery over Wi-Fi); no faults; nothing odd reported by the user.
+- **Reference v4:** built from 64 cycles (the builder's ring), locked. Capture: 115
+  cycles, 107 valid, mean cycle 1.49 s, stance ratio 0.565.
+- **Step count:** the user counted about 8 right-foot landings per 10 m. Split at
+  sharp heading changes (turns take two steps of 40–75°), the runs were 9, 9, 8, 7, 7,
+  9, 9, 11 cycles; later turns were too gradual to split. Consistent; no per-length
+  count to compare exactly.
+- **Check:** 16 valid cycles, median score 0.23; 44 % at or above 0.25, 6 % at or above
+  0.35.
+- **Evaluation:** 56 cycles, 44 valid; 38 haptic records, 29 cues run, duty 69–177 of
+  255 (mean 116, 45 %), 250 ms each. Episodes started on deliberate deviations (scores
+  0.41–0.92) and ended by `below_threshold` or `invalid_step` (the long cycles at
+  turns and pauses, 4–7 s). Classes: mostly timing (M1/M4 in turn), eversion (M2+M3),
+  overall.
+- **User:** cues "not felt that much"; detection "ok"; "it took more than 1 correct
+  step to turn off the buzzing".
+
+### Result
+PASS for the workflow, the link on battery and the logging. Two findings:
+1. **Cue strength.** At a mean 45 % duty for 250 ms the cues were weak to the wearer.
+   The 250 ms is this project's provisional choice (DEC-023); the duty range and
+   formula are doc 06 §10's.
+2. **Episodes linger by construction.** A normal step scores about 0.23 against its own
+   reference: each feature's typical deviation is 0.67 robust SD, which `d = z / 3`
+   makes 0.22. Doc 06 §11's OFF threshold (0.25) sits at that level, so nearly half of
+   normal steps keep an episode going, as the user felt. Not a defect in the code;
+   a property of the thresholds.
