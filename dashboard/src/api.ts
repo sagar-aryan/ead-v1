@@ -432,6 +432,8 @@ export const api = {
   recordingSession: () => invoke<string | null>("recording_session"),
   /** The session a device restart ended, until another starts (PROB-019). */
   endedByRestart: () => invoke<string | null>("ended_by_restart"),
+  /** Recorded data the database could not take, if any (PROB-029). */
+  writeProblem: () => invoke<string | null>("write_problem"),
   sessions: () => invoke<Session[]>("sessions"),
   session: (sessionId: string) => invoke<Session>("session", { sessionId }),
   cycles: (sessionId: string) => invoke<Cycle[]>("cycles", { sessionId }),

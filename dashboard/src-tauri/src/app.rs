@@ -85,7 +85,11 @@ impl App {
     pub fn shutdown(&self) {
         let _ = self.shutdown.send(true);
         self.disconnect();
-        self.store.flush();
+        // Nowhere left to show it: the window is closing. Data still held for a
+        // retry is lost with the process.
+        if let Err(e) = self.store.flush() {
+            eprintln!("store: at shutdown, {e}");
+        }
     }
 
     fn connect(self: &Arc<Self>, target: LinkTarget) {
@@ -673,4 +677,10 @@ pub fn service_tests(
 #[tauri::command]
 pub fn ended_by_restart(app: tauri::State<'_, Arc<App>>) -> Option<String> {
     app.store.ended_by_restart()
+}
+
+/// Recorded data the database could not take, if any (PROB-029).
+#[tauri::command]
+pub fn write_problem(app: tauri::State<'_, Arc<App>>) -> Option<String> {
+    app.store.write_problem()
 }

@@ -79,6 +79,7 @@ fn main() {
             app::record_motor_felt,
             app::service_tests,
             app::ended_by_restart,
+            app::write_problem,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

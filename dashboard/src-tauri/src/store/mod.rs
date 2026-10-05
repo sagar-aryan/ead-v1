@@ -23,6 +23,11 @@ pub use raw::{RawWindow, SignalGroup};
 
 /// At most this long between a frame arriving and being durable.
 const COMMIT_INTERVAL: Duration = Duration::from_millis(250);
+/// Frames and accelerometer samples held for retry while commits fail: five
+/// minutes of a recording (200 frames and 500 samples a second), about 30 MB.
+/// Past it the oldest are dropped and counted, rather than memory growing until
+/// the app dies and takes everything with it.
+const MAX_RETAINED_ROWS: usize = 5 * 60 * 700;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -311,8 +316,20 @@ enum WriteCommand {
     Stop,
 }
 
+/// What the writer could not store (PROB-029). Shared with the writer thread.
+#[derive(Default)]
+struct WriteHealth {
+    /// The last commit's error while commits are failing; cleared by a success.
+    failing: Option<String>,
+    /// Frames and accelerometer samples dropped for good since the recording
+    /// started, and the error that cost them.
+    lost_rows: usize,
+    lost_because: Option<String>,
+}
+
 pub struct Store {
     path: PathBuf,
+    health: Arc<Mutex<WriteHealth>>,
     /// The last (state, faults) written, so only changes are stored.
     last_status: Mutex<Option<(u8, u16)>>,
     writer: Mutex<Option<mpsc::Sender<WriteCommand>>>,
@@ -334,13 +351,16 @@ impl Store {
         close_orphaned_sessions(&connection)?;
 
         let (tx, rx) = mpsc::channel::<WriteCommand>();
+        let health = Arc::new(Mutex::new(WriteHealth::default()));
+        let writer_health = health.clone();
         std::thread::Builder::new()
             .name("store-writer".into())
-            .spawn(move || writer_loop(connection, rx))
+            .spawn(move || writer_loop(connection, rx, writer_health))
             .expect("spawn store writer");
 
         Ok(Arc::new(Self {
             path,
+            health,
             last_status: Mutex::new(None),
             writer: Mutex::new(Some(tx)),
             recording: Mutex::new(None),
@@ -538,6 +558,11 @@ impl Store {
         }
         *self.last_status.lock().expect("last status") = None;
         *self.ended_by_restart.lock().expect("restart notice") = None;
+        {
+            let mut health = self.health.lock().expect("write health");
+            health.lost_rows = 0;
+            health.lost_because = None;
+        }
         *recording = Some(session_id.clone());
         drop(recording);
         self.session(&session_id)
@@ -572,7 +597,8 @@ impl Store {
             Some(id) => id,
             None => return Ok(None),
         };
-        self.flush();
+        // The session closes whatever the flush says; a failure is reported after.
+        let flushed = self.flush();
         let connection = self.reader()?;
         connection.execute(
             "UPDATE sessions SET stopped_at = ?2 WHERE session_id = ?1",
@@ -583,6 +609,9 @@ impl Store {
              WHERE session_id = ?1 AND closed_at IS NULL",
             (&session_id, now_utc(), closed_by),
         )?;
+        flushed.map_err(|e| {
+            StoreError::Rejected(format!("session {session_id} stopped, but {e}"))
+        })?;
         Ok(Some(session_id))
     }
 
@@ -1074,14 +1103,45 @@ impl Store {
         Ok(())
     }
 
-    /// Blocks until every queued write is committed.
-    pub fn flush(&self) {
-        let writer = self.writer.lock().expect("writer");
-        let Some(writer) = writer.as_ref() else { return };
-        let (tx, rx) = mpsc::channel();
-        if writer.send(WriteCommand::Flush(tx)).is_ok() {
-            let _ = rx.recv_timeout(Duration::from_secs(10));
+    /// Blocks until every queued write is committed. An error when they were
+    /// not: a commit is failing, data was lost, or the writer did not answer.
+    pub fn flush(&self) -> Result<()> {
+        {
+            let guard = self.writer.lock().expect("writer");
+            let Some(writer) = guard.as_ref() else { return Ok(()) };
+            let (tx, rx) = mpsc::channel();
+            if writer.send(WriteCommand::Flush(tx)).is_err() {
+                return Err(StoreError::Rejected("the database writer has stopped".into()));
+            }
+            // Not held while waiting: recording threads queue through it.
+            drop(guard);
+            if rx.recv_timeout(Duration::from_secs(10)).is_err() {
+                return Err(StoreError::Rejected(
+                    "the database writer did not finish within 10 s".into(),
+                ));
+            }
         }
+        match self.write_problem() {
+            Some(problem) => Err(StoreError::Rejected(problem)),
+            None => Ok(()),
+        }
+    }
+
+    /// Why recorded data is not (all) in the database, if it is not: commits
+    /// failing now, or rows dropped since the recording started.
+    pub fn write_problem(&self) -> Option<String> {
+        let health = self.health.lock().expect("write health");
+        if health.lost_rows > 0 {
+            return Some(format!(
+                "{} frames and accelerometer samples of this recording could not be saved: {}",
+                health.lost_rows,
+                health.lost_because.as_deref().unwrap_or("unknown error")
+            ));
+        }
+        health
+            .failing
+            .as_ref()
+            .map(|e| format!("saving to the database is failing, data is held and retried: {e}"))
     }
 
     /// Decimated signal window for the raw view, in anatomical physical units
@@ -1182,170 +1242,207 @@ fn session_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
     })
 }
 
-fn writer_loop(mut connection: Connection, rx: mpsc::Receiver<WriteCommand>) {
-    let mut pending: Vec<(String, Vec<RawFrame>)> = Vec::new();
-    let mut pending_accel: Vec<(String, Vec<AccelSample>)> = Vec::new();
-    let mut pending_gait: PendingGait = Vec::new();
-    let mut pending_status: Vec<(String, i64, u8, u16)> = Vec::new();
-    let mut pending_haptics: Vec<(String, Vec<HapticRecord>)> = Vec::new();
+/// Writes waiting for the next commit.
+#[derive(Default)]
+struct Pending {
+    frames: Vec<(String, Vec<RawFrame>)>,
+    accel: Vec<(String, Vec<AccelSample>)>,
+    gait: Vec<(String, Vec<GaitCycle>, Vec<GaitEvent>)>,
+    status: Vec<(String, i64, u8, u16)>,
+    haptics: Vec<(String, Vec<HapticRecord>)>,
+}
+
+impl Pending {
+    fn is_empty(&self) -> bool {
+        self.frames.is_empty()
+            && self.accel.is_empty()
+            && self.gait.is_empty()
+            && self.status.is_empty()
+            && self.haptics.is_empty()
+    }
+
+    fn rows(&self) -> usize {
+        self.frames.iter().map(|(_, f)| f.len()).sum::<usize>()
+            + self.accel.iter().map(|(_, a)| a.len()).sum::<usize>()
+    }
+
+    /// Drops the oldest frame and accelerometer batches until at most `limit`
+    /// rows remain; returns how many rows went. Cycles, events, status and
+    /// haptics are a few rows a second and are kept.
+    fn trim(&mut self, limit: usize) -> usize {
+        let mut dropped = 0;
+        while self.rows() > limit {
+            // From the longer queue, so both streams keep their most recent data.
+            if !self.frames.is_empty() && self.frames.len() >= self.accel.len() {
+                dropped += self.frames.remove(0).1.len();
+            } else if !self.accel.is_empty() {
+                dropped += self.accel.remove(0).1.len();
+            } else {
+                break;
+            }
+        }
+        dropped
+    }
+}
+
+fn writer_loop(
+    mut connection: Connection,
+    rx: mpsc::Receiver<WriteCommand>,
+    health: Arc<Mutex<WriteHealth>>,
+) {
+    let mut pending = Pending::default();
     let mut last_commit = Instant::now();
     loop {
         match rx.recv_timeout(COMMIT_INTERVAL) {
             Ok(WriteCommand::Haptics { session_id, records }) => {
-                pending_haptics.push((session_id, records));
+                pending.haptics.push((session_id, records));
                 if last_commit.elapsed() < COMMIT_INTERVAL {
                     continue;
                 }
             }
             Ok(WriteCommand::Gait { session_id, cycles, events }) => {
-                pending_gait.push((session_id, cycles, events));
+                pending.gait.push((session_id, cycles, events));
                 if last_commit.elapsed() < COMMIT_INTERVAL {
                     continue;
                 }
             }
             Ok(WriteCommand::Frames { session_id, frames }) => {
-                pending.push((session_id, frames));
+                pending.frames.push((session_id, frames));
                 if last_commit.elapsed() < COMMIT_INTERVAL {
                     continue;
                 }
             }
             Ok(WriteCommand::Accel { session_id, samples }) => {
-                pending_accel.push((session_id, samples));
+                pending.accel.push((session_id, samples));
                 if last_commit.elapsed() < COMMIT_INTERVAL {
                     continue;
                 }
             }
             Ok(WriteCommand::Status { session_id, frame_index, device_state, faults }) => {
-                pending_status.push((session_id, frame_index, device_state, faults));
+                pending.status.push((session_id, frame_index, device_state, faults));
                 if last_commit.elapsed() < COMMIT_INTERVAL {
                     continue;
                 }
             }
             Ok(WriteCommand::Flush(done)) => {
-                commit(&mut connection, &mut pending, &mut pending_accel, &mut pending_gait, &mut pending_status, &mut pending_haptics);
+                commit(&mut connection, &mut pending, &health);
                 last_commit = Instant::now();
                 let _ = done.send(());
                 continue;
             }
             Ok(WriteCommand::Stop) => {
-                commit(&mut connection, &mut pending, &mut pending_accel, &mut pending_gait, &mut pending_status, &mut pending_haptics);
+                commit(&mut connection, &mut pending, &health);
                 return;
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
-                commit(&mut connection, &mut pending, &mut pending_accel, &mut pending_gait, &mut pending_status, &mut pending_haptics);
+                commit(&mut connection, &mut pending, &health);
                 return;
             }
         }
-        commit(&mut connection, &mut pending, &mut pending_accel, &mut pending_gait, &mut pending_status, &mut pending_haptics);
+        commit(&mut connection, &mut pending, &health);
         last_commit = Instant::now();
     }
 }
 
-type PendingGait = Vec<(String, Vec<GaitCycle>, Vec<GaitEvent>)>;
-
-fn commit(
-    connection: &mut Connection,
-    pending: &mut Vec<(String, Vec<RawFrame>)>,
-    pending_accel: &mut Vec<(String, Vec<AccelSample>)>,
-    pending_gait: &mut PendingGait,
-    pending_status: &mut Vec<(String, i64, u8, u16)>,
-    pending_haptics: &mut Vec<(String, Vec<HapticRecord>)>,
-) {
-    if pending.is_empty()
-        && pending_accel.is_empty()
-        && pending_gait.is_empty()
-        && pending_status.is_empty()
-        && pending_haptics.is_empty()
-    {
+/// Commits everything pending in one transaction. On failure nothing is lost
+/// yet: the batches stay pending and the next commit retries them (the
+/// transaction rolled back, so a retry writes each row once). Until 2026-10-05 a
+/// failure was printed to stderr and the batches thrown away (PROB-029).
+fn commit(connection: &mut Connection, pending: &mut Pending, health: &Mutex<WriteHealth>) {
+    if pending.is_empty() {
         return;
     }
-    let result = (|| -> rusqlite::Result<()> {
-        let transaction = connection.transaction()?;
-        {
-            let mut insert = transaction.prepare_cached(schema::INSERT_FRAME)?;
-            for (session_id, frames) in pending.iter() {
-                for frame in frames {
-                    // INSERT OR IGNORE: a backfilled frame may already be stored.
-                    schema::insert_frame(&mut insert, session_id, frame)?;
-                }
+    let result = write_pending(connection, pending);
+    let mut health = health.lock().expect("write health");
+    match result {
+        Ok(()) => {
+            *pending = Pending::default();
+            health.failing = None;
+        }
+        Err(err) => {
+            let dropped = pending.trim(MAX_RETAINED_ROWS);
+            if dropped > 0 {
+                health.lost_rows += dropped;
+                health.lost_because = Some(err.to_string());
             }
-            let mut insert = transaction.prepare_cached(schema::INSERT_ACCEL)?;
-            for (session_id, samples) in pending_accel.iter() {
-                for sample in samples {
-                    schema::insert_accel(&mut insert, session_id, sample)?;
-                }
+            health.failing = Some(err.to_string());
+        }
+    }
+}
+
+fn write_pending(connection: &mut Connection, pending: &Pending) -> rusqlite::Result<()> {
+    let transaction = connection.transaction()?;
+    {
+        let mut insert = transaction.prepare_cached(schema::INSERT_FRAME)?;
+        for (session_id, frames) in pending.frames.iter() {
+            for frame in frames {
+                // INSERT OR IGNORE: a backfilled frame may already be stored.
+                schema::insert_frame(&mut insert, session_id, frame)?;
             }
         }
-        {
-            let mut cycle = transaction.prepare_cached(schema::INSERT_CYCLE)?;
-            let mut event = transaction.prepare_cached(schema::INSERT_EVENT)?;
-            for (session_id, cycles, events) in pending_gait.iter() {
-                for c in cycles {
-                    let segment = roll_segment(&transaction, session_id, c)?;
-                    // OR REPLACE: a backfilled cycle is the same measurement.
-                    cycle.execute(rusqlite::params![
-                        session_id, c.start_frame, c.end_frame, c.start_us as i64,
-                        c.cycle_time_s, c.stance_time_s, c.swing_time_s, c.stance_ratio,
-                        c.swing_ratio, c.cadence_steps_per_min, c.peak_shank_rate_dps,
-                        c.peak_dorsiflexion_deg, c.contact_sagittal_deg, c.peak_inversion_deg,
-                        c.distance_m, c.speed_mps, c.zupt_quality, c.valid as i64,
-                        c.error_score, c.confidence, c.active_classes as i64,
-                        c.primary_class as i64,
-                        serde_json::to_string(&c.confidence_subscores).unwrap_or_default(),
-                        serde_json::to_string(&c.deviations).unwrap_or_default(),
-                        segment,
-                    ])?;
-                }
-                for e in events {
-                    event.execute(rusqlite::params![
-                        session_id, e.frame_index, e.timestamp_us as i64, e.event_type.name(),
-                    ])?;
-                }
+        let mut insert = transaction.prepare_cached(schema::INSERT_ACCEL)?;
+        for (session_id, samples) in pending.accel.iter() {
+            for sample in samples {
+                schema::insert_accel(&mut insert, session_id, sample)?;
             }
         }
-        {
-            let mut insert = transaction.prepare_cached(schema::INSERT_HAPTIC)?;
-            for (session_id, records) in pending_haptics.iter() {
-                for h in records {
-                    let motor = |i: usize| h.motors.get(i).copied().unwrap_or((0, 0));
-                    let (motor_a, duty_a) = motor(0);
-                    let (motor_b, duty_b) = motor(1);
-                    insert.execute(rusqlite::params![
-                        session_id, h.device_time_us as i64, h.event, h.cycle_start_frame,
-                        h.reason, motor_a, duty_a, motor_b, duty_b, h.duration_ms,
-                        h.error_class, h.error_score, h.confidence,
-                    ])?;
-                }
+    }
+    {
+        let mut cycle = transaction.prepare_cached(schema::INSERT_CYCLE)?;
+        let mut event = transaction.prepare_cached(schema::INSERT_EVENT)?;
+        for (session_id, cycles, events) in pending.gait.iter() {
+            for c in cycles {
+                let segment = roll_segment(&transaction, session_id, c)?;
+                // OR REPLACE: a backfilled cycle is the same measurement.
+                cycle.execute(rusqlite::params![
+                    session_id, c.start_frame, c.end_frame, c.start_us as i64,
+                    c.cycle_time_s, c.stance_time_s, c.swing_time_s, c.stance_ratio,
+                    c.swing_ratio, c.cadence_steps_per_min, c.peak_shank_rate_dps,
+                    c.peak_dorsiflexion_deg, c.contact_sagittal_deg, c.peak_inversion_deg,
+                    c.distance_m, c.speed_mps, c.zupt_quality, c.valid as i64,
+                    c.error_score, c.confidence, c.active_classes as i64,
+                    c.primary_class as i64,
+                    serde_json::to_string(&c.confidence_subscores).unwrap_or_default(),
+                    serde_json::to_string(&c.deviations).unwrap_or_default(),
+                    segment,
+                ])?;
             }
-        }
-        {
-            let mut status = transaction.prepare_cached(schema::INSERT_STATUS_CHANGE)?;
-            for (session_id, frame_index, device_state, faults) in pending_status.iter() {
-                status.execute(rusqlite::params![
-                    session_id,
-                    frame_index,
-                    now_utc(),
-                    i64::from(*device_state),
-                    i64::from(*faults),
+            for e in events {
+                event.execute(rusqlite::params![
+                    session_id, e.frame_index, e.timestamp_us as i64, e.event_type.name(),
                 ])?;
             }
         }
-        transaction.commit()
-    })();
-    if let Err(err) = result {
-        // Losing raw research data silently is not acceptable; surface it.
-        eprintln!(
-            "store: commit failed, {} frame and {} accelerometer batches dropped: {err}",
-            pending.len(),
-            pending_accel.len()
-        );
     }
-    pending.clear();
-    pending_accel.clear();
-    pending_gait.clear();
-    pending_status.clear();
-    pending_haptics.clear();
+    {
+        let mut insert = transaction.prepare_cached(schema::INSERT_HAPTIC)?;
+        for (session_id, records) in pending.haptics.iter() {
+            for h in records {
+                let motor = |i: usize| h.motors.get(i).copied().unwrap_or((0, 0));
+                let (motor_a, duty_a) = motor(0);
+                let (motor_b, duty_b) = motor(1);
+                insert.execute(rusqlite::params![
+                    session_id, h.device_time_us as i64, h.event, h.cycle_start_frame,
+                    h.reason, motor_a, duty_a, motor_b, duty_b, h.duration_ms,
+                    h.error_class, h.error_score, h.confidence,
+                ])?;
+            }
+        }
+    }
+    {
+        let mut status = transaction.prepare_cached(schema::INSERT_STATUS_CHANGE)?;
+        for (session_id, frame_index, device_state, faults) in pending.status.iter() {
+            status.execute(rusqlite::params![
+                session_id,
+                frame_index,
+                now_utc(),
+                i64::from(*device_state),
+                i64::from(*faults),
+            ])?;
+        }
+    }
+    transaction.commit()
 }
 
 /// Closes sessions left open when the app last exited mid-recording.

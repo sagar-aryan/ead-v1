@@ -53,7 +53,7 @@ fn frames_round_trip_with_exact_values() {
 
     let frames: Vec<RawFrame> = (0..250).map(frame).collect();
     store.record_frames(&frames);
-    store.flush();
+    store.flush().unwrap();
 
     assert_eq!(store.frame_count(&session.session_id).unwrap(), 250);
     let connection = store.reader().unwrap();
@@ -88,10 +88,10 @@ fn accel_samples_round_trip_once_and_only_while_recording() {
     store.record_accel(&samples);
     // A backfill can deliver samples the live stream already stored.
     store.record_accel(&samples);
-    store.flush();
+    store.flush().unwrap();
     store.stop_session().unwrap();
     store.record_accel(&[accel(12_000, 0, 1)]);
-    store.flush();
+    store.flush().unwrap();
 
     assert_eq!(store.accel_count(&session.session_id).unwrap(), 3);
     let mut read = Vec::new();
@@ -112,7 +112,7 @@ fn repeated_frames_do_not_duplicate() {
     store.record_frames(&frames);
     // A backfill can deliver frames the live stream already stored.
     store.record_frames(&frames);
-    store.flush();
+    store.flush().unwrap();
     assert_eq!(store.frame_count(&session.session_id).unwrap(), 10);
 }
 
@@ -127,7 +127,7 @@ fn session_reports_gaps_from_missing_frame_indices() {
     let frames: Vec<RawFrame> =
         (0..20).filter(|i| !(5..10).contains(i)).map(frame).collect();
     store.record_frames(&frames);
-    store.flush();
+    store.flush().unwrap();
 
     let session = store.session(&started.session_id).unwrap();
     assert_eq!(session.frames_stored, 15);
@@ -149,13 +149,13 @@ fn only_one_session_records_at_a_time() {
 
     // Frames are only stored while a session is recording.
     store.record_frames(&[frame(0)]);
-    store.flush();
+    store.flush().unwrap();
     let stopped = store.stop_session().unwrap().unwrap();
     assert_eq!(stopped.session_id, first.session_id);
     assert!(stopped.stopped_at.is_some());
 
     store.record_frames(&[frame(1)]);
-    store.flush();
+    store.flush().unwrap();
     assert_eq!(store.frame_count(&first.session_id).unwrap(), 1);
     assert!(store.stop_session().unwrap().is_none());
 }
@@ -250,7 +250,7 @@ fn raw_window_returns_every_frame_when_the_range_is_small() {
         store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
     let frames: Vec<RawFrame> = (0..300).map(frame).collect();
     store.record_frames(&frames);
-    store.flush();
+    store.flush().unwrap();
 
     let window = store
         .raw_window(&session.session_id, &[SignalGroup::FootAccel], 0, 299, 1000)
@@ -280,7 +280,7 @@ fn decimation_preserves_a_single_sample_transient() {
     frames[12_345].foot[0] = 30_000;
     frames[12_345].status = 0x0008; // foot accel saturated
     store.record_frames(&frames);
-    store.flush();
+    store.flush().unwrap();
 
     let window = store
         .raw_window(&session.session_id, &[SignalGroup::FootAccel], 0, 19_999, 500)
@@ -342,7 +342,7 @@ fn raw_window_query_time_on_an_hour_of_data() {
         store.record_frames(&frames);
     }
     let write_start = std::time::Instant::now();
-    store.flush();
+    store.flush().unwrap();
     println!("wrote {total} frames, flush took {} ms", write_start.elapsed().as_millis());
 
     for (label, first, last) in [
@@ -445,7 +445,7 @@ fn raw_window_reads_several_signals_on_one_time_base() {
         })
         .collect();
     store.record_frames(&frames);
-    store.flush();
+    store.flush().unwrap();
 
     let groups = [SignalGroup::ShankGyro, SignalGroup::FootAccel, SignalGroup::ShankGyro];
     let window = store.raw_window(&session.session_id, &groups, 0, 299, 1000).unwrap();
@@ -507,7 +507,7 @@ fn gait_cycles_and_events_round_trip() {
     store.record_gait(&[cycle], &events);
     // A backfilled batch repeats what was already stored.
     store.record_gait(&[cycle], &events);
-    store.flush();
+    store.flush().unwrap();
 
     let stored = store.cycles(&session.session_id).unwrap();
     assert_eq!(stored.len(), 1, "a repeated cycle must not duplicate");
@@ -558,7 +558,7 @@ fn gait_is_only_stored_while_recording() {
             timestamp_us: 0,
         }],
     );
-    store.flush();
+    store.flush().unwrap();
     assert!(store.cycles(&session.session_id).unwrap().is_empty());
     assert!(store.events(&session.session_id).unwrap().is_empty());
 }
@@ -574,7 +574,7 @@ fn schema_upgrades_from_version_2_keeping_frames() {
             .start_session("P-OLD", SessionKind::Recording, &DeviceIdentity::default(), None, None)
             .unwrap();
         store.record_frames(&[frame(0), frame(1)]);
-        store.flush();
+        store.flush().unwrap();
         let connection = store.reader().unwrap();
         // Pretend this store predates the gait tables: undo everything schemas
         // 3 to 9 added, so it really looks like a v2 store.
@@ -632,7 +632,7 @@ fn schema_upgrades_from_version_7_keeping_frames_without_rotation_vectors() {
             .start_session("P-OLD", SessionKind::Recording, &DeviceIdentity::default(), None, None)
             .unwrap();
         store.record_frames(&[frame(0), frame(1)]);
-        store.flush();
+        store.flush().unwrap();
         store.stop_session().unwrap();
         // Undo schemas 8 to 10, so it really looks like a v7 store.
         store
@@ -679,7 +679,7 @@ fn schema_upgrades_from_version_7_keeping_frames_without_rotation_vectors() {
         .unwrap();
     store.record_frames(&[frame(5)]);
     store.record_accel(&[accel(25_000, 1, 3)]);
-    store.flush();
+    store.flush().unwrap();
     let mut read = Vec::new();
     store.for_each_frame(&session.session_id, |f| read.push(*f)).unwrap();
     assert_eq!(read, vec![frame(5)]);
@@ -826,7 +826,7 @@ fn segments_close_on_whichever_limit_comes_first() {
     );
     // A classified cycle nobody may be shown does not count as an error.
     store.record_gait(&[scored_cycle(6, true, 1, 0.2)], &[]);
-    store.flush();
+    store.flush().unwrap();
 
     let segments = store.segments(&session.session_id).unwrap();
     assert_eq!(segments.len(), 3, "two closed segments and the one now open");
@@ -855,7 +855,7 @@ fn a_recording_has_no_segments() {
         .start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None)
         .unwrap();
     store.record_gait(&[scored_cycle(0, true, 1, 0.9)], &[]);
-    store.flush();
+    store.flush().unwrap();
     assert!(store.segments(&session.session_id).unwrap().is_empty());
     assert_eq!(store.cycles(&session.session_id).unwrap()[0].segment_index, 0);
 }
@@ -934,7 +934,7 @@ fn exportable_session() -> (Arc<Store>, tempdir::TempDir, String) {
         faults: 1,
         ..Default::default()
     });
-    store.flush();
+    store.flush().unwrap();
     let id = session.session_id.clone();
     (store, dir, id)
 }
@@ -1028,7 +1028,7 @@ fn an_unscored_session_exports_empty_cells_not_zeroes() {
         .start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None)
         .unwrap();
     store.record_gait(&[scored_cycle(0, true, 0, 0.0), scored_cycle(1, true, 0, 0.0)], &[]);
-    store.flush();
+    store.flush().unwrap();
     let target = dir.path().join("package");
     crate::export::export_session(&store, &session.session_id, &target).unwrap();
 
@@ -1076,7 +1076,7 @@ fn a_session_left_open_by_a_crash_is_closed_at_the_next_start() {
             .unwrap();
         // Frames 0 and 200 are 1.000 s apart in device time (5 ms each).
         store.record_frames(&[frame(0), frame(200)]);
-        store.flush();
+        store.flush().unwrap();
         session.session_id
         // Dropped without stop_session: the app exited mid-recording.
     };
@@ -1156,7 +1156,7 @@ fn native_accel_export_scales_by_the_session_configuration() {
     };
     let session = store.start_session("P-001", SessionKind::Recording, &identity, None, None).unwrap();
     store.record_accel(&[accel(4_000, 1, 3)]);
-    store.flush();
+    store.flush().unwrap();
     let target = dir.path().join("package");
     crate::export::export_session(&store, &session.session_id, &target).unwrap();
 
@@ -1164,4 +1164,46 @@ fn native_accel_export_scales_by_the_session_configuration() {
     // map; expected values from numpy with the same f32 scale.
     let accel = std::fs::read_to_string(target.join("accel_native.csv")).unwrap();
     assert_eq!(accel.lines().nth(1), Some("4000,shank,3,2510,-1,-32768,0.999800,-0.000398,-13.052367"));
+}
+
+#[test]
+fn a_failed_commit_is_retried_and_reported_not_dropped() {
+    // PROB-029: a commit that failed was printed to stderr and its batches thrown
+    // away, while the recording carried on looking healthy.
+    let (store, dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let session =
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
+    let blocker = Connection::open(dir.path().join("ead.sqlite3")).unwrap();
+    blocker
+        .execute_batch(
+            "CREATE TRIGGER refuse BEFORE INSERT ON raw_frames
+             BEGIN SELECT RAISE(ABORT, 'disk refused'); END;",
+        )
+        .unwrap();
+
+    store.record_frames(&(0..10).map(frame).collect::<Vec<_>>());
+    let failed = store.flush();
+    assert!(matches!(&failed, Err(StoreError::Rejected(m)) if m.contains("disk refused")), "{failed:?}");
+    assert!(store.write_problem().unwrap().contains("held and retried"));
+    assert_eq!(store.frame_count(&session.session_id).unwrap(), 0);
+
+    // The fault clears: the held frames are written, once, and the warning goes.
+    blocker.execute_batch("DROP TRIGGER refuse;").unwrap();
+    store.flush().unwrap();
+    assert_eq!(store.frame_count(&session.session_id).unwrap(), 10);
+    assert!(store.write_problem().is_none());
+    store.stop_session().unwrap();
+}
+
+#[test]
+fn retention_drops_the_oldest_batches_of_the_longer_stream() {
+    let mut pending = Pending::default();
+    pending.frames.push(("s".into(), (0..6).map(frame).collect()));
+    pending.frames.push(("s".into(), (6..10).map(frame).collect()));
+    pending.accel.push(("s".into(), vec![accel(1, 0, 1); 3]));
+    // Oldest first, from the longer queue: the first frame batch goes.
+    assert_eq!(pending.trim(8), 6);
+    assert_eq!(pending.rows(), 7);
+    assert_eq!(pending.frames[0].1[0].frame_index, 6);
 }

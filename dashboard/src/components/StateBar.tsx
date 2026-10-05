@@ -57,6 +57,7 @@ export function StateBar({
   vocabulary,
   recording,
   endedByRestart,
+  writeProblem,
 }: {
   snapshot: Snapshot | null;
   config: DeviceConfig | null;
@@ -64,6 +65,8 @@ export function StateBar({
   recording: string | null;
   /** A session a device restart ended (PROB-019), until another starts. */
   endedByRestart: string | null;
+  /** Recorded data the database could not take (PROB-029). */
+  writeProblem: string | null;
 }) {
   const state = snapshot?.link_state === "connected" ? snapshot.device_state : "disconnected";
   const label = state.replace(/_/g, " ");
@@ -135,6 +138,7 @@ export function StateBar({
           ) : (
             <span className="absent">idle</span>
           )}
+          {writeProblem && <span className="fault-list"> {writeProblem}</span>}
         </span>
       </div>
 

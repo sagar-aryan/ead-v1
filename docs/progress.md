@@ -1801,5 +1801,10 @@ session_service,telemetry}`, `test/test_{feed,gait}`.
 ### Verification
 TEST-063.
 
+### Changes (dashboard)
+PROB-029 (failed commits kept and retried, reported in the state bar; `flush` returns
+a result). Files: `dashboard/src-tauri/src/{store/mod.rs,store/tests.rs,app.rs,main.rs,
+hardware_tests.rs}`, `dashboard/src/{api.ts,App.tsx,components/StateBar.tsx}`.
+
 ### Current Status
 In progress: host-side findings next.

@@ -36,6 +36,7 @@ export default function App() {
   const [view, setView] = useState<View>("Device");
   const [recording, setRecording] = useState<string | null>(null);
   const [endedByRestart, setEndedByRestart] = useState<string | null>(null);
+  const [writeProblem, setWriteProblem] = useState<string | null>(null);
   const [checkMode, setCheckMode] = useState(false);
   // Set when another view opens RAW on a range; plain navigation clears it.
   const [rawFocus, setRawFocus] = useState<RawFocus | null>(null);
@@ -60,6 +61,7 @@ export default function App() {
     const poll = () => {
       api.recordingSession().then(setRecording).catch(() => undefined);
       api.endedByRestart().then(setEndedByRestart).catch(() => undefined);
+      api.writeProblem().then(setWriteProblem).catch(() => undefined);
     };
     poll();
     const timer = setInterval(poll, 1000);
@@ -81,6 +83,7 @@ export default function App() {
         vocabulary={device.vocabulary}
         recording={recording}
         endedByRestart={endedByRestart}
+        writeProblem={writeProblem}
       />
       <div className="body">
         <nav>

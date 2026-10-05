@@ -1478,3 +1478,45 @@ engine ("Expected -20 Was 0") and passes.
 A backdated event must carry every value measured at its time. Remaining: the other
 per-cycle quantities still run to the deciding sample (docs/implementation.md, "Gait
 event detection", Limitations).
+
+## PROB-029 — A failed database commit threw the recording's data away
+
+**Status:** Resolved (2026-10-05)
+
+### Symptoms
+Audit finding I01, confirmed in the code: when a commit failed, `commit` printed the
+error to stderr and cleared every pending batch. `Store::flush` returned nothing and
+ignored its own 10 s timeout, so a stop or an export went ahead as if all was saved.
+The audit reproduced it with an SQLite trigger refusing one frame insert. No such
+failure has been seen on the user's machine.
+
+### Root cause
+The writer's error path, from its first version (`317b67f`): failure was logged, not
+handled.
+
+### Resolution
+`dashboard/src-tauri/src/store/mod.rs`:
+- `commit` keeps the batches when the transaction fails (it rolled back, so a retry
+  writes each row once) and retries at the next interval.
+- Frames and accelerometer samples held for retry are capped at
+  `MAX_RETAINED_ROWS` (five minutes of recording, about 30 MB); past it the oldest
+  batches of the longer stream are dropped and counted (`Pending::trim`).
+- `WriteHealth`, shared with the writer: the current failure, and rows lost since
+  the recording started. `Store::write_problem` words it; the state bar shows it
+  beside the recording (`write_problem` command).
+- `flush` returns an error for a failing commit, lost rows, a stopped writer or the
+  timeout, and no longer holds the writer lock while it waits. `close_recording`
+  closes the session and then returns that error, so stopping reports it.
+
+### Verification
+`a_failed_commit_is_retried_and_reported_not_dropped`: the audit's trigger; flush
+reports "disk refused", nothing is stored; the trigger is dropped and the next flush
+stores all 10 frames and clears the warning.
+`retention_drops_the_oldest_batches_of_the_longer_stream`. The first cannot compile
+against the old `flush`, which returned nothing; the behaviour it checks is the one
+the audit reproduced.
+
+### Limitations
+Lost rows are reported while the app runs, not stored with the session: a later
+reader sees them only as gaps in `frame_index`. Data still held for retry when the
+app closes is lost with the process (stderr says so).

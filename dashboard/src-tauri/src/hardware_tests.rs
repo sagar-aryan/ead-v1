@@ -279,7 +279,7 @@ fn a_device_reset_ends_the_session_and_its_calibration() {
         .start_session("HW-RESET", SessionKind::Recording, &DeviceIdentity::default(), None, None)
         .expect("start session");
     wait_for(Duration::from_secs(5), "frames stored", || {
-        store.flush();
+        store.flush().unwrap();
         store.frame_count(&session.session_id).unwrap() > 0
     });
 

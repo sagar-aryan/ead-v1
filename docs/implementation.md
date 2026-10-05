@@ -90,7 +90,10 @@ Receive, verify and store the device's data, and serve the UI.
   for anything missing.
 - `store/` writes raw frames through a single writer thread, batched into
   transactions every 250 ms, with `INSERT OR IGNORE` so a backfilled frame cannot
-  duplicate a live one. WAL mode keeps UI queries off the writer's path.
+  duplicate a live one. WAL mode keeps UI queries off the writer's path. A failed
+  transaction keeps its batches for the next attempt (frames and samples capped at
+  five minutes, the excess counted as lost), and `flush` and the state bar report
+  it (PROB-029).
 - `live.rs` aggregates the 100 Hz stream into 20 Hz updates for the UI (doc 11 §3).
 
 ### Important files
