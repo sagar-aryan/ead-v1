@@ -1828,3 +1828,8 @@ Docs brought to the current state (audit I15): `handoff.md` (current state, know
 problems, failed approaches, how to verify, next steps), `hardware.md` Haptics,
 `clinical_requirements.md` (status, per-cycle reading of "per step", what "native
 rate" covers), `architecture.md` interfaces (SPI). History kept and labelled.
+
+PROB-036 (audit I14): Vite 5 → 8 and its React plugin 4 → 6, `npm audit` clean; the
+Rust notices all come through Tauri's GTK3 stack and krilla's newest release, so they
+wait on upstream. The release app was launched against an empty data folder and
+renders (screenshot).

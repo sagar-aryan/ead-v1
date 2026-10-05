@@ -1734,3 +1734,32 @@ the code:
 ### Limitations
 `session.mat` is still built in memory: MAT level 5 needs each array's size before
 its data. An hour is about 720,000 frames; writing it in two passes would bound it.
+
+## PROB-036 — Dependency advisories
+
+**Status:** Resolved for the JavaScript side (2026-10-05); the Rust notices wait on upstream
+
+### Symptoms
+Audit finding I14. `npm audit`: esbuild ≤0.24.2 (moderate, GHSA-67mh-4wv8-2f99) and
+Vite ≤6.4.2 (high) through it. Both concern Vite's development server (`npx tauri dev`,
+localhost:1420); the `ead` the user runs is built to static files and does not run it.
+OSV over `Cargo.lock`: `glib` 0.18.5 (unsound iterator, RUSTSEC-2024-0429),
+`rustybuzz` 0.20.1 and `ttf-parser` 0.25.1 (unmaintained), `proc-macro-error` and five
+`unic-*` crates (unmaintained).
+
+### Investigation
+`npm audit fix` without `--force` had no fix: it needs Vite 8. `cargo tree -i`: `glib`
+and `proc-macro-error` come from Tauri's GTK3 stack (gtk 0.18 via muda/tauri 2.11.5),
+`unic-*` from `tauri-utils` (urlpattern), `rustybuzz`/`ttf-parser` from `krilla` 0.8.2,
+the newest release. None is called directly by this project.
+
+### Resolution
+Vite 5.4.21 → 8.3.2 and `@vitejs/plugin-react` 4.7.0 → 6.1.2 (devDependencies only);
+`npm audit`: 0 vulnerabilities. Rust: nothing to change until Tauri leaves GTK3's
+gtk-rs 0.18 and krilla replaces rustybuzz; maintenance notices, no known exploit path
+here.
+
+### Verification
+`npm run build` (no warnings), `npm test` (28), the dev server answers on 1420 (HTTP
+200), `npx tauri build --no-bundle`, and the release app launched against an empty
+data directory renders the Device view (screenshot), creating its database.

@@ -135,7 +135,7 @@ They take effect between frames, and the ACK reports the effective frame index.
 |---|---|---|
 | Firmware | PlatformIO 6.2.0, `espressif32 @ 7.1.3` (Arduino-ESP32 2.0.17, ESP-IDF 4.4) | DEC-001 |
 | Firmware | No external libraries | IMU driver is register-level; WebSocket via ESP-IDF `esp_http_server` (DEC-010) |
-| Dashboard | Tauri 2.11, React 18, TypeScript 5, Vite 5 | Doc 11 |
+| Dashboard | Tauri 2.11, React 18, TypeScript 5, Vite 8 (5 until PROB-036) | Doc 11 |
 | Dashboard | rusqlite, tokio-tungstenite, serialport, uPlot, krilla | DEC-011; each added in the milestone that first uses it |
 | Verification | Python 3 with pyserial, numpy, scipy | Independent protocol decoder, reference maths, `.mat` reader |
 
