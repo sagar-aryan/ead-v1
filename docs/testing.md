@@ -2375,3 +2375,22 @@ the change between today's normal walks):
 Finding, no code change yet: the reference's spreads need realistic floors, or
 normal pace changes between walks count as errors. Proposed to the user with the
 OFF-threshold change from TEST-066.
+
+## TEST-068 — DEC-025 firmware on the board (USB)
+
+### Objective
+Flash `c2a15de` and confirm the device reports DEC-025's settings.
+
+### Environment
+USB, battery switch off, device on the desk.
+
+### Actual
+`eadprobe hello`: schema 8, `0.1.0+c2a15de`. `eadprobe config` (hash verified, matches
+HELLO): `haptic_on` 0.35, `haptic_off` 0.35, `min_duty` 255, `max_duty` 255, rolling
+limit 0.5 in 10 s. `eadprobe stats --seconds 10`: 200.27 Hz, 0 dropped, no faults.
+No motor was driven: over USB the motor rails are live with the switch off, so motor
+tests run on battery over Wi-Fi only.
+
+### Result
+PASS for what USB can show. The cue's strength and length, and quiet normal walking,
+are for the user's next walk.
