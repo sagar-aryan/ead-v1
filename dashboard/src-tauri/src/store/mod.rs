@@ -523,6 +523,27 @@ impl Store {
             return Err(StoreError::Rejected(format!("session {open} is already recording")));
         }
         let connection = self.reader()?;
+        if let Some(reference_id) = reference_id {
+            // A patient is judged against their own walking only (doc 12 §2). The
+            // UI lists the patient's references, but the store did not check, so
+            // any caller could pair a patient with another's (PROB-032).
+            let owner: Option<String> = connection
+                .query_row(
+                    "SELECT patient_id FROM reference_profiles WHERE reference_id = ?1",
+                    [reference_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            match owner {
+                None => return Err(StoreError::Rejected(format!("no reference {reference_id}"))),
+                Some(owner) if owner != patient_id => {
+                    return Err(StoreError::Rejected(format!(
+                        "reference {reference_id} belongs to patient {owner}, not {patient_id}"
+                    )))
+                }
+                Some(_) => {}
+            }
+        }
         let session_id = new_session_id(&connection)?;
         connection.execute(
             "INSERT INTO sessions

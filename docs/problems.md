@@ -1577,3 +1577,32 @@ delivered.
 `gait_batches_are_durable_and_reach_the_sink` and
 `accel_batches_are_durable_and_reach_the_sink` fail without the check (cycles 4 not
 2; frames `[100, 101, 100, 101, 101]`) and pass with it.
+
+## PROB-032 — A session could be scored against another patient's reference
+
+**Status:** Resolved (2026-10-05)
+
+### Symptoms
+Audit finding I07, confirmed in the code: `start_scored_session` and
+`Store::start_session` checked that a reference was selected, not whose it was. The
+Sessions view lists only the selected patient's references, but its list request had
+no cancellation, so a slow answer for the previous patient could land after a switch.
+
+### Root cause
+Ownership was enforced only by what the UI offered.
+
+### Resolution
+- `Store::start_session` refuses a reference that does not exist or belongs to
+  another patient, for every caller.
+- `session_blockers` names the same problem before the start button is pressed.
+- `views/Sessions.tsx` ignores a reference list that arrives for a patient no longer
+  selected.
+
+### Verification
+`a_session_cannot_use_another_patients_reference`: refused with "belongs to patient
+P-002", an unknown reference refused, nothing left recording, the owner's own start
+accepted. With the store check disabled the start succeeds and the test fails.
+
+### Limitations
+Reference compatibility beyond ownership (same mounting, same firmware configuration)
+is not checked.

@@ -44,7 +44,15 @@ function Evaluation({
       setReferences([]);
       return;
     }
-    api.references(patientId).then(setReferences).catch((e) => setError(String(e)));
+    // A slow answer for the previous patient must not land after this one's.
+    let current = true;
+    api
+      .references(patientId)
+      .then((list) => current && setReferences(list))
+      .catch((e) => current && setError(String(e)));
+    return () => {
+      current = false;
+    };
   }, [patientId]);
 
   useEffect(() => {

@@ -1207,3 +1207,22 @@ fn retention_drops_the_oldest_batches_of_the_longer_stream() {
     assert_eq!(pending.rows(), 7);
     assert_eq!(pending.frames[0].1[0].frame_index, 6);
 }
+
+#[test]
+fn a_session_cannot_use_another_patients_reference() {
+    // PROB-032, audit I07: an evaluation for one patient was accepted with
+    // another's reference.
+    let (store, _dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    store.create_patient("P-002", "Another").unwrap();
+    let theirs = store.add_reference("P-002", None, &sample_profile(34)).unwrap();
+    let limits = Some(SegmentLimits { max_cycles: 20, max_errors: 5 });
+    let start = |patient: &str, reference: &str| {
+        store.start_session(patient, SessionKind::Evaluation, &DeviceIdentity::default(), Some(reference), limits)
+    };
+    let refused = start("P-001", &theirs.reference_id);
+    assert!(matches!(&refused, Err(StoreError::Rejected(m)) if m.contains("belongs to patient P-002")), "{refused:?}");
+    assert!(matches!(start("P-001", "no-such-reference"), Err(StoreError::Rejected(_))));
+    assert!(store.recording_session().is_none());
+    start("P-002", &theirs.reference_id).unwrap();
+}

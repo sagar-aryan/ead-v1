@@ -1809,5 +1809,7 @@ hardware_tests.rs}`, `dashboard/src/{api.ts,App.tsx,components/StateBar.tsx}`.
 PROB-030 (tracker kept between connections) and PROB-031 (repeats dropped):
 `dashboard/src-tauri/src/device.rs`.
 
+PROB-032 (reference ownership): `store/mod.rs`, `app.rs`, `views/Sessions.tsx`.
+
 ### Current Status
 In progress: host-side findings next.

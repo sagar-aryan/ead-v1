@@ -327,6 +327,13 @@ reflash the firmware"
     let scored = kind == SessionKind::ReferenceCheck || kind == SessionKind::Evaluation;
     if scored && reference_id.is_empty() {
         blockers.push("no reference profile is selected".into());
+    } else if scored {
+        match app.store.reference(&reference_id) {
+            Ok(r) if r.patient_id != patient_id => blockers
+                .push(format!("the selected reference belongs to patient {}", r.patient_id)),
+            Ok(_) => {}
+            Err(e) => blockers.push(e.to_string()),
+        }
     }
     match snapshot.calibration {
         Some(record) if record.usable() => {}
