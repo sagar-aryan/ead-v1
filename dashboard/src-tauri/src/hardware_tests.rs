@@ -137,6 +137,7 @@ fn records_a_session_from_a_real_device() {
             .map(|d| d.iter().map(|b| format!("{b:02x}")).collect()),
         mac: snapshot.mac.clone(),
         boot_id: snapshot.boot_id,
+        payload_schema: snapshot.schema,
         config_section: device.config_section(),
     };
     let session = store

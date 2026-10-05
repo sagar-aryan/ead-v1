@@ -31,6 +31,33 @@ pub enum ExportError {
 
 type Result<T> = std::result::Result<T, ExportError>;
 
+/// Writes a CSV row by row: `rows` calls its argument once per row's text. The
+/// raw and accelerometer files of an hour's session are hundreds of MB, and
+/// were built whole in memory first (PROB-035).
+fn write_rows(
+    dir: &Path,
+    name: &str,
+    header: &str,
+    rows: impl FnOnce(&mut dyn FnMut(&str)) -> Result<usize>,
+) -> Result<usize> {
+    use std::io::Write;
+    let path = dir.join(name);
+    let io = |source| ExportError::Io { path: path.clone(), source };
+    let mut out = std::io::BufWriter::new(std::fs::File::create(&path).map_err(io)?);
+    out.write_all(header.as_bytes()).map_err(io)?;
+    let mut failed = None;
+    let count = rows(&mut |text| {
+        if failed.is_none() {
+            failed = out.write_all(text.as_bytes()).err();
+        }
+    })?;
+    if let Some(source) = failed {
+        return Err(io(source));
+    }
+    out.flush().map_err(io)?;
+    Ok(count)
+}
+
 fn write(dir: &Path, name: &str, contents: impl AsRef<[u8]>) -> Result<PathBuf> {
     let path = dir.join(name);
     std::fs::write(&path, contents).map_err(|source| ExportError::Io { path: path.clone(), source })?;
@@ -51,6 +78,14 @@ pub struct ExportSummary {
 
 /// Writes the whole package for one session into `directory`.
 pub fn export_session(store: &Store, session_id: &str, directory: &Path) -> Result<ExportSummary> {
+    // A session still recording changes between the reads below, and its files
+    // disagreed with one another (metadata 10,000 frames, CSV 10,300: PROB-035).
+    // A stopped one does not change.
+    if store.recording_session().as_deref() == Some(session_id) {
+        return Err(ExportError::Store(crate::store::StoreError::Rejected(format!(
+            "session {session_id} is still recording; stop it, then export"
+        ))));
+    }
     std::fs::create_dir_all(directory)
         .map_err(|source| ExportError::Io { path: directory.to_path_buf(), source })?;
 
@@ -65,19 +100,29 @@ pub fn export_session(store: &Store, session_id: &str, directory: &Path) -> Resu
         None => None,
     };
 
-    // raw.csv is built by streaming, so an hour-long session never lands in
-    // memory twice.
-    let mut raw = String::from(csv::raw_header());
-    let frames = store.for_each_frame(session_id, |frame| csv::raw_rows(&mut raw, frame))?;
+    let mut files = Vec::new();
+    let mut line = String::new();
+    let frames = write_rows(directory, "raw.csv", csv::raw_header(), |emit| {
+        Ok(store.for_each_frame(session_id, |frame| {
+            line.clear();
+            csv::raw_rows(&mut line, frame);
+            emit(&line);
+        })?)
+    })?;
+    files.push("raw.csv".to_string());
 
     let lsb_per_g = store
         .session_config(session_id)?
         .and_then(|section| section.parse().ok())
         .map(|config| config.imu.accel_lsb_per_g);
-    let mut accel = String::from(csv::accel_header());
-    let accel_rows = store.for_each_accel(session_id, |sample| {
-        csv::accel_row(&mut accel, sample, lsb_per_g);
+    let accel_rows = write_rows(directory, "accel_native.csv", csv::accel_header(), |emit| {
+        Ok(store.for_each_accel(session_id, |sample| {
+            line.clear();
+            csv::accel_row(&mut line, sample, lsb_per_g);
+            emit(&line);
+        })?)
     })?;
+    files.push("accel_native.csv".to_string());
 
     let gait = csv::gait(&session, &cycles, &crate::protocol::ERROR_CLASSES);
     let event_csv = csv::events(&session, &cycles, &events, &status);
@@ -85,10 +130,7 @@ pub fn export_session(store: &Store, session_id: &str, directory: &Path) -> Resu
         metadata_json(store, &session, &reference, &segments, frames, accel_rows, &cycles)?;
     let haptic_csv = csv::haptics(&session, &cycles, &haptics);
 
-    let mut files = Vec::new();
     for (name, contents) in [
-        ("raw.csv", raw.as_str()),
-        ("accel_native.csv", accel.as_str()),
         ("gait.csv", gait.as_str()),
         ("events.csv", event_csv.as_str()),
         ("haptics.csv", haptic_csv.as_str()),
@@ -180,7 +222,8 @@ fn metadata_json(
         "device": {
             "firmware_version": session.firmware,
             "protocol_version": crate::protocol::PROTOCOL_VERSION,
-            "payload_schema": crate::protocol::SCHEMA_VERSION,
+            // The schema the device recorded at, not this app's (PROB-035).
+            "payload_schema": session.payload_schema,
             "hardware_identifier": session.device_mac,
             "boot_id": session.boot_id,
             "config_sha256": session.config_sha256,

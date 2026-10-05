@@ -195,6 +195,9 @@ pub struct Session {
     pub max_errors_per_segment: Option<i64>,
     /// The name the user gave the session, if any.
     pub label: Option<String>,
+    /// The device's payload schema when it recorded (HELLO); null for sessions
+    /// stored before store schema 11, when it was not kept.
+    pub payload_schema: Option<i64>,
 }
 
 /// Device identity recorded with a session, so every dataset carries the
@@ -209,6 +212,8 @@ pub struct DeviceIdentity {
     pub config_sha256: Option<String>,
     pub mac: Option<String>,
     pub boot_id: Option<u32>,
+    /// The payload schema the device declared in HELLO.
+    pub payload_schema: Option<u16>,
     /// The device's configuration section, stored so a recording of raw counts
     /// is self-describing (`docs/protocol.md` §5.5).
     pub config_section: Option<crate::protocol::ConfigSection>,
@@ -549,8 +554,8 @@ impl Store {
             "INSERT INTO sessions
                (session_id, patient_id, kind, started_at, firmware, config_sha256, device_mac,
                 boot_id, config_section, config_format, reference_id,
-                max_cycles_per_segment, max_errors_per_segment, calibration)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                max_cycles_per_segment, max_errors_per_segment, calibration, payload_schema)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             rusqlite::params![
                 &session_id,
                 patient_id,
@@ -566,6 +571,7 @@ impl Store {
                 limits.map(|l| i64::from(l.max_cycles)),
                 limits.map(|l| i64::from(l.max_errors)),
                 &identity.calibration,
+                identity.payload_schema.map(i64::from),
             ],
         )?;
         // A segmented session always has a first segment open, so the UI has
@@ -660,7 +666,7 @@ impl Store {
                     s.stopped_at, s.firmware, s.config_sha256, s.device_mac, s.boot_id,
                     MIN(f.frame_index), MAX(f.frame_index), COUNT(f.frame_index),
                     s.reference_id, s.max_cycles_per_segment, s.max_errors_per_segment,
-                    s.label
+                    s.label, s.payload_schema
              FROM sessions s
              LEFT JOIN patients p ON p.patient_id = s.patient_id
              LEFT JOIN raw_frames f ON f.session_id = s.session_id
@@ -678,7 +684,7 @@ impl Store {
                     s.stopped_at, s.firmware, s.config_sha256, s.device_mac, s.boot_id,
                     MIN(f.frame_index), MAX(f.frame_index), COUNT(f.frame_index),
                     s.reference_id, s.max_cycles_per_segment, s.max_errors_per_segment,
-                    s.label
+                    s.label, s.payload_schema
              FROM sessions s
              LEFT JOIN patients p ON p.patient_id = s.patient_id
              LEFT JOIN raw_frames f ON f.session_id = s.session_id
@@ -1260,6 +1266,7 @@ fn session_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
         max_cycles_per_segment: row.get(14)?,
         max_errors_per_segment: row.get(15)?,
         label: row.get(16)?,
+        payload_schema: row.get(17)?,
     })
 }
 

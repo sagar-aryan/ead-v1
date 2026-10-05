@@ -7,7 +7,7 @@ use rusqlite::{Connection, Result};
 
 use crate::protocol::{AccelSample, RawFrame};
 
-pub const SCHEMA_VERSION: i32 = 10;
+pub const SCHEMA_VERSION: i32 = 11;
 
 pub fn migrate(connection: &mut Connection) -> Result<()> {
     // WAL keeps readers (UI queries) from blocking the writer thread.
@@ -45,6 +45,7 @@ pub fn migrate(connection: &mut Connection) -> Result<()> {
             7 => transaction.execute_batch(MIGRATE_7_TO_8)?,
             8 => transaction.execute_batch(MIGRATE_8_TO_9)?,
             9 => transaction.execute_batch(MIGRATE_9_TO_10)?,
+            10 => transaction.execute_batch(MIGRATE_10_TO_11)?,
             other => unreachable!("no migration from schema {other}"),
         }
         version += 1;
@@ -287,6 +288,20 @@ CREATE TABLE haptics (
   confidence        REAL NOT NULL,
   PRIMARY KEY (session_id, device_time_us, event)
 ) WITHOUT ROWID;
+
+-- Schema 11 (device schema 8): the payload schema of the device that recorded
+-- the session, from its HELLO. Exports said whatever schema the exporting app
+-- spoke, so a session recorded at one schema was labelled with a later one
+-- (PROB-035). NULL for sessions recorded before this column existed: unknown.
+ALTER TABLE sessions ADD COLUMN payload_schema INTEGER;
+"#;
+
+const MIGRATE_10_TO_11: &str = r#"
+-- Schema 11 (device schema 8): the payload schema of the device that recorded
+-- the session, from its HELLO. Exports said whatever schema the exporting app
+-- spoke, so a session recorded at one schema was labelled with a later one
+-- (PROB-035). NULL for sessions recorded before this column existed: unknown.
+ALTER TABLE sessions ADD COLUMN payload_schema INTEGER;
 "#;
 
 const MIGRATE_9_TO_10: &str = r#"

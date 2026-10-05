@@ -468,7 +468,14 @@ Motor 0 is none; duty 0 is a cue the motor guard refused. Empty when no cue ran.
                 "protocol_version",
                 doubles("", 1, 1, &[f64::from(crate::protocol::PROTOCOL_VERSION)]),
             ),
-            ("payload_schema", doubles("", 1, 1, &[f64::from(crate::protocol::SCHEMA_VERSION)])),
+            // Empty when the session predates store schema 11 (PROB-035).
+            (
+                "payload_schema",
+                match session.payload_schema {
+                    Some(schema) => doubles("", 1, 1, &[schema as f64]),
+                    None => doubles("", 0, 0, &[]),
+                },
+            ),
             ("frames_stored", doubles("", 1, 1, &[session.frames_stored as f64])),
             ("frames_missing", doubles("", 1, 1, &[session.frames_missing as f64])),
             (

@@ -135,6 +135,7 @@ impl App {
             config_sha256: self.config_hash(),
             mac: snapshot.mac,
             boot_id: snapshot.boot_id,
+            payload_schema: snapshot.schema,
             config_section: self.device.config_section(),
         }
     }

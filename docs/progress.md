@@ -1816,6 +1816,10 @@ dashboard waits for answers, drains to the stop's boundary, stops a session at c
 or when nothing records it): firmware `src/{link,device}.cpp`, `ead_core` protocol,
 vectors, `eadprobe`, dashboard `device.rs`, `app.rs`, `protocol/`, `api.ts`.
 
+Flashed and checked on the board, worn over USB (TEST-064, TEST-065); the reset test
+found the old boot's backfill being requested from the new one, fixed (PROB-030
+update). PROB-034 (export checkers), PROB-035 (exports: live sessions refused, the
+recorded schema kept as store schema 11, CSVs streamed).
+
 ### Current Status
-In progress. Schema 8 is not on the board yet (not connected); the installed `ead` is
-still the schema-7 build, so the two still match until both are updated.
+In progress. Board on `29c560c` (schema 8); `ead` rebuilt after each dashboard change.

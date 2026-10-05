@@ -78,6 +78,8 @@ pub struct Snapshot {
     pub capabilities: Vec<&'static str>,
     pub boot_id: Option<u32>,
     pub schema_mismatch: bool,
+    /// The payload schema the device declared in HELLO.
+    pub schema: Option<u16>,
     /// Durable messages the host has not yet recovered.
     pub missing_messages: u32,
     /// Corrupted byte runs on the link, cumulative (USB only).
@@ -212,6 +214,7 @@ impl Device {
                 .unwrap_or_default(),
             boot_id: state.hello.as_ref().map(|h| h.boot_id),
             schema_mismatch: state.schema_mismatch,
+            schema: state.hello.as_ref().map(|h| h.schema),
             missing_messages: state.missing_messages,
             rejected_frames: state.rejected_frames,
             frames_received: state.frames_received,

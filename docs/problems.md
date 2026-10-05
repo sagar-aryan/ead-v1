@@ -1695,3 +1695,42 @@ derives the expected "Haptics: N cues ran in M episodes; K refused" line from
 ### Verification
 Both pass on `target/export-sample`; with one duty and one reason changed in a copy
 of `haptics.csv`, `check_mat.py` reports 2 failures and `check_pdf.py` 1.
+
+## PROB-035 — Exports: files of a live session disagreed, the schema label was the app's, CSVs built in memory
+
+**Status:** Resolved (2026-10-05), except the MAT file (Limitations)
+
+### Symptoms
+Audit findings I08 and the export-memory part of its performance review, confirmed in
+the code:
+1. A session still recording could be exported (the Export page said so). Each file
+   read the database at its own moment, so they disagreed: the audit saw metadata at
+   10,000 frames and a CSV at 10,300. (Correction to the audit: `metadata.json` takes
+   its count from the same pass as `raw.csv`; the MAT file's second pass is what can
+   differ.)
+2. `metadata.json` and the MAT file gave `payload_schema` as the exporting app's
+   `SCHEMA_VERSION`, so an old session re-exported after an upgrade claimed a schema
+   it was never recorded at.
+3. `raw.csv` and `accel_native.csv` were built whole in a `String` before writing,
+   despite a comment saying they streamed: hundreds of MB for an hour's session.
+
+### Resolution
+1. `export_session` refuses the session that is recording ("stop it, then export");
+   the Export page says so. A stopped session does not change (PROB-033's floor keeps
+   late messages out of it).
+2. Store schema 11: `sessions.payload_schema`, from the device's HELLO when the
+   session started (`DeviceIdentity::payload_schema`, `Snapshot::schema`). Exports
+   write it; null in JSON and an empty array in MAT for sessions stored before, since
+   it was not kept and is not guessed. The user's database was backed up first:
+   `ead.sqlite3.schema10-backup-2026-10-05` (integrity ok, 34 sessions).
+3. `write_rows` streams both CSVs through a `BufWriter`, one row at a time.
+
+### Verification
+`a_session_still_recording_is_not_exported` (refused, nothing written; after stopping,
+20 rows), `session_records_the_device_configuration` (schema 8 kept), the export test
+(null for a session with no identity), both upgrade tests (through schema 11),
+`check_mat.py` and `check_pdf.py` 0 failures on the sample export.
+
+### Limitations
+`session.mat` is still built in memory: MAT level 5 needs each array's size before
+its data. An hour is about 720,000 frames; writing it in two passes would bound it.

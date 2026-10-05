@@ -231,6 +231,7 @@ fn session_records_the_device_configuration() {
         config_sha256: Some("abc123".into()),
         mac: Some("44:B1:76:AF:FB:7C".into()),
         boot_id: Some(7),
+        payload_schema: Some(8),
         config_section: Some(ConfigSection { format: 2, bytes: vec![1, 2, 3, 4] }),
     };
     let session = store.start_session("P-001", SessionKind::Recording, &identity, None, None).unwrap();
@@ -240,6 +241,8 @@ fn session_records_the_device_configuration() {
         Some(ConfigSection { format: 2, bytes: vec![1, 2, 3, 4] })
     );
     assert_eq!(store.session(&session.session_id).unwrap().firmware.as_deref(), Some("0.1.0+test"));
+    // The schema the device recorded at, kept with the session (PROB-035).
+    assert_eq!(store.session(&session.session_id).unwrap().payload_schema, Some(8));
 }
 
 #[test]
@@ -580,7 +583,8 @@ fn schema_upgrades_from_version_2_keeping_frames() {
         // 3 to 9 added, so it really looks like a v2 store.
         connection
             .execute_batch(
-                "DROP TABLE haptics;
+                "ALTER TABLE sessions DROP COLUMN payload_schema;
+                 DROP TABLE haptics;
                  ALTER TABLE sessions DROP COLUMN label;
                  DROP TABLE raw_accel;
                  ALTER TABLE raw_frames DROP COLUMN rfw;
@@ -639,7 +643,8 @@ fn schema_upgrades_from_version_7_keeping_frames_without_rotation_vectors() {
             .reader()
             .unwrap()
             .execute_batch(
-                "DROP TABLE haptics;
+                "ALTER TABLE sessions DROP COLUMN payload_schema;
+                 DROP TABLE haptics;
                  ALTER TABLE sessions DROP COLUMN label;
                  DROP TABLE raw_accel;
                  ALTER TABLE raw_frames DROP COLUMN rfw;
@@ -935,6 +940,8 @@ fn exportable_session() -> (Arc<Store>, tempdir::TempDir, String) {
         ..Default::default()
     });
     store.flush().unwrap();
+    // Only a stopped session exports (PROB-035).
+    store.stop_session().unwrap();
     let id = session.session_id.clone();
     (store, dir, id)
 }
@@ -1008,7 +1015,9 @@ fn the_export_package_matches_the_database() {
     assert_eq!(metadata["device"]["firmware_version"], serde_json::json!("0.1.0+test"));
     assert_eq!(metadata["segmentation"]["max_valid_cycles_per_segment"], serde_json::json!(2));
     assert_eq!(metadata["session"]["accel_samples_stored"], serde_json::json!(3));
-    assert_eq!(metadata["device"]["payload_schema"], serde_json::json!(crate::protocol::SCHEMA_VERSION));
+    // No device identity was stored with this session: its schema is unknown,
+    // not this app's (PROB-035).
+    assert_eq!(metadata["device"]["payload_schema"], serde_json::Value::Null);
 
     assert!(target.join("session.mat").metadata().unwrap().len() > 256);
 
@@ -1029,6 +1038,7 @@ fn an_unscored_session_exports_empty_cells_not_zeroes() {
         .unwrap();
     store.record_gait(&[scored_cycle(0, true, 0, 0.0), scored_cycle(1, true, 0, 0.0)], &[]);
     store.flush().unwrap();
+    store.stop_session().unwrap();
     let target = dir.path().join("package");
     crate::export::export_session(&store, &session.session_id, &target).unwrap();
 
@@ -1099,6 +1109,7 @@ fn service_tests_are_logged_and_a_pulse_gets_its_answer() {
         config_sha256: None,
         mac: Some("44:B1:76:AF:FB:7C".into()),
         boot_id: Some(9),
+        payload_schema: None,
         config_section: None,
     };
     let check = store.record_sensor_check(&identity, "{\"foot\":{}}").unwrap();
@@ -1157,6 +1168,7 @@ fn native_accel_export_scales_by_the_session_configuration() {
     let session = store.start_session("P-001", SessionKind::Recording, &identity, None, None).unwrap();
     store.record_accel(&[accel(4_000, 1, 3)]);
     store.flush().unwrap();
+    store.stop_session().unwrap();
     let target = dir.path().join("package");
     crate::export::export_session(&store, &session.session_id, &target).unwrap();
 
@@ -1225,4 +1237,24 @@ fn a_session_cannot_use_another_patients_reference() {
     assert!(matches!(start("P-001", "no-such-reference"), Err(StoreError::Rejected(_))));
     assert!(store.recording_session().is_none());
     start("P-002", &theirs.reference_id).unwrap();
+}
+
+#[test]
+fn a_session_still_recording_is_not_exported() {
+    // PROB-035, audit I08: the files of a live session were read at different
+    // moments and disagreed (metadata 10,000 frames, CSV 10,300).
+    let (store, dir) = temp_store();
+    store.create_patient("P-001", "Reference Walker").unwrap();
+    let session =
+        store.start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None).unwrap();
+    store.record_frames(&(0..10).map(frame).collect::<Vec<_>>());
+    store.flush().unwrap();
+    let target = dir.path().join("package");
+    let refused = crate::export::export_session(&store, &session.session_id, &target);
+    assert!(matches!(&refused, Err(e) if e.to_string().contains("still recording")), "{refused:?}");
+    assert!(!target.exists(), "nothing written");
+    store.stop_session().unwrap();
+    let summary = crate::export::export_session(&store, &session.session_id, &target).unwrap();
+    assert_eq!(summary.raw_rows, 20);
+    assert_eq!(std::fs::read_to_string(target.join("raw.csv")).unwrap().lines().count(), 21);
 }

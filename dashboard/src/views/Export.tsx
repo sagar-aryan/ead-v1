@@ -100,7 +100,8 @@ export function Export() {
             {session.frames_stored.toLocaleString()} frames stored
             {session.frames_missing > 0 &&
               `, ${session.frames_missing.toLocaleString()} never arrived`}
-            . A session still recording exports what it has so far.
+            . A session still recording cannot be exported: stop it first, so every file
+            describes the same data.
           </p>
         )}
         {error && <p className="error">{error}</p>}
