@@ -4,8 +4,8 @@ A single-sided, SMD-only, drill-free driver board for six 3 V ERM vibration moto
 
 **In the EAD V1 repository since 2026-10-05** (`hardware/erm-driver-pcb/`), copied from
 `~/Documents/ead pcb/` without the purchase invoices and KiCad's per-user files. The
-tight variant was selected (`progress.md`, 2026-09-23); which variant is on the worn
-device is not recorded here. The device as a whole is described in `../../../docs/`
+**tight variant** (`EAS_ERM_Driver_tight/`, 36.07 × 27.60 mm) is the board fitted on
+the device (user, 2026-10-05). The device as a whole is described in `../../../docs/`
 (`hardware.md`, `wiring_reference.md`); the notes below are this board's own record,
 as written.
 
