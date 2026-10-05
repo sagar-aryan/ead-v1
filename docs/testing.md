@@ -2227,3 +2227,34 @@ Both pass (100 native tests). Test 2 on the previous `gait.cpp`/`gait.h`: "Expec
 
 ### Result
 PASS on the host. Not run on hardware.
+
+## TEST-064 — Schema 8 and the audit fixes on the board (USB)
+
+### Objective
+Flash `29c560c` (PROB-026–033) and check what can be checked over USB, battery off.
+
+### Environment
+XIAO ESP32-S3 on USB, both BNO086 on the desk, battery switch off; `eadprobe`, the
+hardware tests, a probe script for the ACK.
+
+### Procedure and actual
+1. `pio run -d firmware -t upload`; `eadprobe hello`: schema 8, `0.1.0+29c560c`,
+   haptics fitted.
+2. `eadprobe stats --seconds 20`: 200.29 Hz, 0 frames dropped, 0 faults, `foot_rv_missing`
+   and `shank_rv_missing` 0: the 50 ms age limit on rotation vectors (PROB-026) does
+   not trip on healthy sensors.
+3. SESSION_START capture → ACK {cmd 2, type 0x04, kind 2}; STATUS `session` capture.
+   SESSION_STOP → ACK {kind 2}, then ERROR Rejected (fewer than 30 cycles); STATUS
+   `session` none. A second stop → ACK {kind 0}.
+4. `cargo test hardware -- --ignored --test-threads=1`: `records_a_session_from_a_real_
+   device` PASS. `a_device_reset_ends_the_session_and_its_calibration` FAIL: its three
+   calibrations were each started and acknowledged, then rejected "gravity was not
+   upward". `eadprobe calibrate`: foot tilt 147°, the foot board was lying upside down
+   on the desk. Placement, not code; to be rerun with the boards upright.
+5. Both gyroscopes read exactly 0 at rest, as recorded in TEST-043/046 (the part's own
+   zero-rate removal); not a fault.
+6. The release dashboard rebuilt (`npx tauri build --no-bundle`), schema 8.
+
+### Result
+PARTIAL. ACK and STATUS `session` verified on the board; the reset test, the
+recalibration check (PROB-027) and anything with motors are still to do.
