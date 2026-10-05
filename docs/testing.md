@@ -2331,3 +2331,11 @@ PASS for the workflow, the link on battery and the logging. Two findings:
    makes 0.22. Doc 06 §11's OFF threshold (0.25) sits at that level, so nearly half of
    normal steps keep an episode going, as the user felt. Not a defect in the code;
    a property of the thresholds.
+
+**Correction (user, 2026-10-05):** the capture was not only the 10 m straight: the user
+also walked freely around the room, at times without turns. The device keeps the last
+64 valid cycles, and the late part of the capture (a run of 29 cycles with only
+gradual heading changes) is that free walking, so about half of **v4 is not straight
+walking and should not serve as the reference**. The step-count comparison above
+holds only for the early straight lengths. A new capture (v5), the 10 m straight only
+with right-foot counts per length, replaces it.

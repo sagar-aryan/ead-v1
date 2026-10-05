@@ -31,8 +31,9 @@ placeholder or fake data, no features the spec does not need.
   landings (TEST-059).
 - **Never done:** a cue felt during walking; anything on battery since the audit
   fixes; a full reference → check → evaluation walk on the current firmware.
-- **No trustworthy reference profile exists.** Patient 67's v1–v3 (2026-09-18) were
-  built while PROB-016 split strides.
+- **No trustworthy reference profile exists yet.** Patient 67's v1–v3 (2026-09-18) were
+  built while PROB-016 split strides; v4 (2026-10-05, TEST-066) is half free walking
+  around a room. Next: v5 from the 10 m straight only, with counts per length.
 - **Dashboard (`ead`, rebuilt after every change):** every doc 11 view except a
   separate HAPTICS page, plus Check; store schema 11. The database on this machine
   migrates to 11 when the app next opens; backup `ead.sqlite3.schema10-backup-2026-10-05`
