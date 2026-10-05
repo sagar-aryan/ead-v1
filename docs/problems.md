@@ -1378,3 +1378,103 @@ Both are decoded in `on_durable`, after the sequence bookkeeping, like raw and
 accelerometer batches. Test `gait_batches_are_durable_and_reach_the_sink`: a live event
 (51) and step batch (52) after a raw batch (3) leave exactly 4–50 missing, and a step batch
 arriving by backfill reaches the sink.
+
+## PROB-026 — Feedback kept running on a dead or frozen sensor; OFF could miss a motor
+
+**Status:** Resolved in code (2026-10-05); not exercised on hardware
+
+### Symptoms
+Found by an external code audit on 2026-10-05 (finding I10), confirmed by reading the
+code at `982a350`; no failure was observed on the device.
+1. A sensor that stopped sending left its last rotation vector in the acquisition
+   history. `History::nearest` had no age limit, so every later frame carried it as
+   current, orientation stayed valid and nothing called `feedback::fault`.
+2. Device-level faults (no data from a sensor, frozen data, acquisition stalled) only
+   lowered the sensor-quality subscore (weight 0.30). An episode continues down to
+   confidence 0.50, so it could carry on. Doc 06 §12: any sensor fault or stale sample
+   turns every motor off.
+3. `motors::run` wrote the PWM outputs before recording which were active. A
+   `stopAll` from the link task in between read the old set, missed the new outputs,
+   and they ran to the end of the cue (250 ms).
+4. `session::stop` built the reference after releasing its lock, while the processing
+   task, which had read the session as active, could still be adding a cycle to the
+   builder; `consume` returned a pointer to a score a new `start` could reset.
+
+### Root cause
+1–2: the fault path covered frame-level failures only (read failure, frame gap, no
+orientation). 3–4: shared state between the link and processing tasks protected for
+the flags but not for the objects they guard.
+
+### Resolution
+- `ead::feedbackFault` (`lib/ead_core/src/ead/feed.{h,cpp}`) is the one rule:
+  read failure, missing rotation vector, no orientation, a gap, or any device fault.
+  Saturation and held or repeated samples are not faults: a heel strike can saturate.
+  `gait::consume` stops feedback on such a frame and runs no cue for a cycle that
+  closes on one. A rotation vector more than `kMaxSampleAgeUs` (50 ms, ten frame
+  periods) from its frame is reported missing.
+- `motors.cpp`: one FreeRTOS mutex around every output change (cue, OFF, stop timer).
+  A stop-timer callback that waited behind a newer cue leaves it alone (end time
+  check with a 1 ms margin); a cue whose stop timer fails to start is turned off and
+  refused.
+- `session_service.cpp`: one mutex around start, stop and consume; the score is
+  returned by copy. The unused `capturedCycles` was removed.
+
+### Verification
+Native test `test_a_sensor_fault_of_any_kind_stops_feedback` (test_feed). The motor
+and session changes are concurrency fixes in device code with no host test; the
+firmware builds. Not exercised on hardware: unplugging a sensor during a cue needs
+the battery and Wi-Fi.
+
+### Lessons
+A safety rule written in one place (doc 06 §12) has to be one function in the code,
+not a list of conditions repeated at each call site.
+
+## PROB-027 — A second calibration was accepted and ignored
+
+**Status:** Resolved in code (2026-10-05); not verified on hardware
+
+### Symptoms
+Audit finding I03, confirmed in the code: after the first accepted calibration, a
+new one was reported to the dashboard as accepted, but orientation and the gait
+engine kept the first record's alignment and gyroscope bias until a reboot.
+
+### Root cause
+`processingTask` called `orientation::adopt()` only while orientation was invalid,
+which it never is again after the first adoption. `gait::consume` cached the record
+behind `s_haveCalibration`, which `gait::reset()` did not clear.
+
+### Resolution
+`calibration::consume` returns true on the frame that completes a window; the
+processing task adopts every completion. `gait::reset` clears `s_haveCalibration`.
+`orientation::valid`, now unused, was removed.
+
+### Verification
+Firmware builds; device code with no host test. To verify on the board: calibrate,
+tilt the foot sensor about 20° and hold it, calibrate again, and check that the
+foot's sagittal angle reads near 0 again.
+
+## PROB-028 — The initial-contact angle was read after the foot was flat
+
+**Status:** Resolved (2026-10-05)
+
+### Symptoms
+Audit finding I04: a contact at −20° followed by a flat foot reported 0°.
+
+### Root cause
+The detector keeps the strongest impact's time and frame and decides the contact up
+to `kContactSearchS` (0.15 s) after the swing rate crosses zero, but passed the angle
+of the deciding sample to `claimContact`. Present since `a4ab310` (the old engine's
+confirm window had the same pattern) and kept by DEC-022.
+
+### Resolution
+`bestImpactSagittalDeg_` is stored with the impact and passed to `claimContact`. The
+field's meaning is unchanged: the angle of the landing that closes the cycle.
+
+### Verification
+`test_the_contact_angle_is_the_one_at_the_impact` (test_gait) fails on the previous
+engine ("Expected -20 Was 0") and passes.
+
+### Lessons
+A backdated event must carry every value measured at its time. Remaining: the other
+per-cycle quantities still run to the deciding sample (docs/implementation.md, "Gait
+event detection", Limitations).

@@ -285,10 +285,15 @@ is not 1 g, when gravity is not upward, or when too few frames were collected.
   request.
 - A host that stops sending keepalives stops the stream, and with it the record;
   the 1 Hz keepalive is part of the protocol, not an optimisation.
+- Every window that completes is adopted on the frame that completes it
+  (`calibration::consume` returns true; `orientation::adopt`, which resets the gait
+  engine and makes it re-read the record). Until 2026-10-05 only the first was: a
+  recalibration was reported accepted and ignored (PROB-027). A rejected window
+  leaves no orientation, which is what the dashboard's "last calibration was
+  rejected" blocker says.
 
 ### Limitations
-The record lives in RAM and is lost on reset (no flash storage until M7). Nothing
-consumes it yet — orientation is the next step.
+The record lives in RAM and is lost on reset (no flash storage until M7).
 
 ### Verification
 Seven native unit tests, golden-vector tests in firmware and Rust, and TEST-028
@@ -354,10 +359,16 @@ integration and cycle features are unchanged.
   impact so far, then `Stance` (PROB-023).
 - A swing with no downward zero crossing within `kMaxSwingS` (1 s): dropped.
 - The first stride from standing has no contact before it, so it opens no cycle.
-- Events are emitted up to 0.15 s after the time they carry.
+- Events are emitted up to 0.15 s after the time they carry. The contact's sagittal
+  angle is taken at the impact sample, not when the contact is decided, by which
+  time the foot is flat (PROB-028). It is the angle of the landing that closes the
+  cycle, the one after its swing, as it has been since `a4ab310`.
 
 ### Limitations
-Right leg only (the sign). Thresholds from one healthy wearer (TEST-059). A swing
+Right leg only (the sign). Thresholds from one healthy wearer (TEST-059). The other
+per-cycle quantities (peaks, distance, ZUPT samples) still run until the contact is
+decided, so each cycle's window is shifted later by that delay (up to about 0.15 s
+after the zero crossing); a peak inside that interval lands in the closing cycle. A swing
 below 100 °/s, such as a very short first step or a shuffle, is not a stride.
 
 ### Verification
@@ -632,8 +643,15 @@ dashboard (CONFIG_SET, STATUS `haptics`, HAPTIC_BATCH).
   held to every limit; history 256 entries).
 - `src/feedback.{h,cpp}`: the switch (atomic, off at boot), the engine on the
   processing task, the log, `publish()`. `src/motors.cpp`: `cue()`, `stopAll()`.
-- `src/gait_service.cpp`: calls `feedback::onCycle` after scoring, `fault` on a read
-  failure, a frame gap or no orientation, `poll` every frame, `publish` per batch.
+- `src/gait_service.cpp`: calls `feedback::fault` on any frame `ead::feedbackFault`
+  flags (a read failure, a missing or stale rotation vector, no orientation, a frame
+  gap, or any device fault such as a silent or frozen sensor) and runs no cue for a
+  cycle that closes on such a frame; `poll` every frame, `publish` per batch
+  (PROB-026). A rotation vector more than `kMaxSampleAgeUs` (50 ms) from the frame is
+  reported missing (`src/acquisition.cpp`).
+- `src/motors.cpp`: one mutex owns the outputs, so an OFF cannot interleave with a cue
+  being written; a stop-timer callback that waited behind a newer cue leaves it alone;
+  a cue whose stop timer fails to start is turned off and refused.
 - `src/link.cpp`: CONFIG_SET. `src/device.cpp`: STATUS `haptics`, capability bit 0.
 - Dashboard: `protocol::{haptic_switch_request, parse_haptic_batch}`,
   `Device::set_haptic_feedback`, the `haptics` table and `Store::{record_haptics,

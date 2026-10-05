@@ -67,11 +67,11 @@ void processingTask(void*) {
   for (;;) {
     xQueueReceive(s_frames, &batch[count], portMAX_DELAY);
     drainAccel();
-    calibration::consume(batch[count]);
-    // A window that just completed becomes the estimator's starting point.
-    if (calibration::state() == ead::CalibrationState::Ready && !orientation::valid()) {
-      orientation::adopt();
-    }
+    // Every window that completes is adopted, the second as much as the first: a
+    // recalibration after re-strapping was reported accepted and then ignored,
+    // because this waited for the orientation to be invalid (audit I03). A
+    // rejected one leaves no orientation, as the dashboard says.
+    if (calibration::consume(batch[count])) orientation::adopt();
     orientation::process(&batch[count]);
     gait::consume(batch[count]);
     if (++count < EAD_SAMPLE_BATCH_FRAMES) continue;

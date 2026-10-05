@@ -323,6 +323,7 @@ void GaitEngine::update(const GaitSample& sample) {
           bestImpact_ = impact;
           bestImpactUs_ = now;
           bestImpactFrame_ = sample.frameIndex;
+          bestImpactSagittalDeg_ = sagittal;
         }
         if (zeroCrossUs_ == 0 && swingRate < 0.0f) zeroCrossUs_ = now;
       }
@@ -330,13 +331,13 @@ void GaitEngine::update(const GaitSample& sample) {
           zeroCrossUs_ != 0 && float(now - zeroCrossUs_) / 1e6f >= config_.contactSearchS;
       if (searched) {
         state_ = GaitState::ContactTransition;
-        claimContact(bestImpactUs_, bestImpactFrame_, sagittal);
+        claimContact(bestImpactUs_, bestImpactFrame_, bestImpactSagittalDeg_);
       } else if (stillMs_ >= kZuptHoldMs + kZuptEntryHysteresisMs) {
         // A foot still for as long as a zero-velocity window needs is on the
         // ground. Staying in swing locked the zero-velocity update out while the
         // integrator ran on, and 17 s of standing became 29 m (PROB-023).
         state_ = GaitState::Stance;
-        if (descending_) claimContact(bestImpactUs_, bestImpactFrame_, sagittal);
+        if (descending_) claimContact(bestImpactUs_, bestImpactFrame_, bestImpactSagittalDeg_);
       } else if (float(now - midSwingUs_) / 1e6f >= kMaxSwingS) {
         state_ = GaitState::Stance;  // no landing seen: not a stride
       }

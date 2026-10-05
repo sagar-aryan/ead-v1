@@ -1772,3 +1772,34 @@ Completed on the host. Not flashed, not felt.
 
 ### Next Steps
 Flash; bench test with the motors visible; then worn.
+
+## 2026-10-05 — Fixing the external audit's findings
+
+### Objective
+An external code audit of `982a350` (pasted by the user) reported 8 reproduced defects
+and more. The user asked whether it was correct, then to fix the list in order of
+harm; power wiring and battery runtime are out of scope by the user's decision.
+
+### Investigation
+Each claim was checked against the code. Confirmed as stated: I01 (writer drops
+batches on a failed commit), I02 (reconnect forgets backfill progress), I03
+(recalibration ignored), I04 (contact angle read late), I06 (duplicates counted
+twice), I07 (reference ownership not checked), I09 (session acceptance inferred from
+800 ms of silence), I11 (stale export checkers), I15 (stale handoff). Corrected:
+I10's frame-level faults did stop feedback, the gap was device-level faults and stale
+rotation vectors; the motor race is bounded by the 250 ms cue; I08's 10,000 vs
+10,300 cannot be metadata against raw.csv (same pass), the MAT pass can differ; I05's
+realistic effect is the tail dropped at stop, since I02 stops any cross-reconnect
+backfill.
+
+### Changes (firmware)
+PROB-026 (feedback faults, motor and session races), PROB-027 (recalibration),
+PROB-028 (contact angle). Files: `lib/ead_core/src/ead/{feed,gait}.{h,cpp}`,
+`src/{acquisition,calibration_service,device,gait_service,main,motors,orientation,
+session_service,telemetry}`, `test/test_{feed,gait}`.
+
+### Verification
+TEST-063.
+
+### Current Status
+In progress: host-side findings next.

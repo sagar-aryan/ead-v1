@@ -9,6 +9,7 @@
 #include "ead/calibration.h"
 #include "ead/feed.h"
 #include "ead/mahony.h"
+#include "ead/protocol.h"
 
 void setUp() {}
 void tearDown() {}
@@ -113,6 +114,24 @@ static void test_the_accelerometer_is_interpolated_to_the_frame_time() {
   TEST_ASSERT_EQUAL_INT16(0, out[2]);
 }
 
+static void test_a_sensor_fault_of_any_kind_stops_feedback() {
+  // Doc 06 §12. A clean frame with orientation does not.
+  const uint16_t ok = ead::kRawOrientationValid;
+  TEST_ASSERT_FALSE(ead::feedbackFault(ok, false, 0));
+  // Measurement conditions are flagged, not faults: a heel strike can saturate.
+  TEST_ASSERT_FALSE(ead::feedbackFault(ok | ead::kRawFootAccelSaturated | ead::kRawShankRepeated |
+                                           ead::kRawFootAccelHeld, false, 0));
+  TEST_ASSERT_TRUE(ead::feedbackFault(ok | ead::kRawFootReadFail, false, 0));
+  TEST_ASSERT_TRUE(ead::feedbackFault(ok | ead::kRawShankRvMissing, false, 0));
+  TEST_ASSERT_TRUE(ead::feedbackFault(0, false, 0));  // no orientation
+  TEST_ASSERT_TRUE(ead::feedbackFault(ok, true, 0));  // frames lost before this one
+  // A sensor that went silent or froze is a device fault, with clean-looking
+  // frames: before 2026-10-05 it only lowered confidence, and an episode could
+  // carry on (audit I10).
+  TEST_ASSERT_TRUE(ead::feedbackFault(ok, false, ead::kFaultShankNoDataReady));
+  TEST_ASSERT_TRUE(ead::feedbackFault(ok, false, ead::kFaultFootFrozen));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_the_mount_quaternion_rotates_like_the_map);
@@ -120,5 +139,6 @@ int main() {
   RUN_TEST(test_segment_orientation_maps_gravity_like_the_measurements);
   RUN_TEST(test_a_rotation_vector_becomes_a_unit_quaternion);
   RUN_TEST(test_the_accelerometer_is_interpolated_to_the_frame_time);
+  RUN_TEST(test_a_sensor_fault_of_any_kind_stops_feedback);
   return UNITY_END();
 }

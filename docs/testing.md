@@ -2201,3 +2201,29 @@ Release dashboard rebuilt; the user's database backed up first as
 
 ### Result
 PASS. No cue has run: cues need scored steps in an evaluation.
+
+## TEST-063 — Audit fixes: feedback faults, contact angle, recalibration (host)
+
+### Objective
+Regression tests for PROB-026 and PROB-028; build check for PROB-027.
+
+### Environment
+Host, `pio test -d firmware -e native`; firmware build for the XIAO ESP32-S3.
+
+### Procedure
+1. `test_a_sensor_fault_of_any_kind_stops_feedback` (test_feed): each fault kind,
+   including a device fault on an otherwise clean frame, stops feedback; saturation,
+   held and repeated samples do not.
+2. `test_the_contact_angle_is_the_one_at_the_impact` (test_gait): landings 20°
+   plantarflexed, flat by the time the contact is decided.
+3. The whole suite.
+
+### Expected
+Both pass; test 2 fails on the previous engine.
+
+### Actual
+Both pass (100 native tests). Test 2 on the previous `gait.cpp`/`gait.h`: "Expected
+-20 Was 0". Whole suite: cargo 73 (4 ignored), clippy, npm test and build, 26 vectors.
+
+### Result
+PASS on the host. Not run on hardware.

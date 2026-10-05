@@ -69,7 +69,8 @@ struct GaitCycle {
   float peakShankRateDps;
   /// Most dorsiflexed the foot gets during swing, relative to the shank.
   float peakDorsiflexionDeg;
-  /// Sagittal angle at initial contact; negative is plantarflexion-related.
+  /// Sagittal angle at the initial contact that closes the cycle, the landing
+  /// after its swing; negative is plantarflexion-related.
   float contactSagittalDeg;
   float peakInversionDeg;
   /// Estimated cycle distance. Only meaningful when `zuptQuality` is adequate.
@@ -198,6 +199,9 @@ class GaitEngine {
   float bestImpact_ = 0.0f;
   uint64_t bestImpactUs_ = 0;
   uint32_t bestImpactFrame_ = 0;
+  /// The ankle's sagittal angle at that impact. The contact is decided up to
+  /// kContactSearchS later, by when the foot is flat (audit I04).
+  float bestImpactSagittalDeg_ = 0.0f;
 
   // Current cycle in progress.
   bool cycleOpen_ = false;

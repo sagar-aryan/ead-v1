@@ -57,6 +57,7 @@ uint16_t stackFree(TaskRole role) {
 
 void raiseFault(uint16_t faults) { s_faults.fetch_or(faults); }
 void clearFault(uint16_t faults) { s_faults.fetch_and(uint16_t(~faults)); }
+uint16_t faults() { return s_faults.load(); }
 
 void setLinkActive(uint8_t linkFlag, bool active) {
   if (active) {

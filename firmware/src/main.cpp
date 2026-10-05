@@ -11,6 +11,7 @@
 #include "link_usb.h"
 #include "link_wifi.h"
 #include "motors.h"
+#include "session_service.h"
 #include "telemetry.h"
 
 static const uint8_t kMotorGpios[EAD_MOTOR_COUNT] = {
@@ -44,6 +45,7 @@ void setup() {
   device::captureIdentity(acquisition::sensorAnswered(0) ? ead::kSensorAnswered : 0,
                           acquisition::sensorAnswered(1) ? ead::kSensorAnswered : 0, psramRing,
                           motorTest);
+  session::begin();
   telemetry::startProcessing(frames, accelSamples);
   startUsbLink();
   startWifiLink();

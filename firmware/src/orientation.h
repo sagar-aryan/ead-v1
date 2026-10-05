@@ -22,7 +22,4 @@ void adopt();
 /// Writes the frame's segment orientations from its rotation vectors.
 void process(ead::RawFrame* frame);
 
-/// True once a calibration record is in use.
-bool valid();
-
 }  // namespace orientation

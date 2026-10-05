@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "ead/mahony.h"
+#include "ead/protocol.h"
 
 namespace ead {
 
@@ -78,6 +79,13 @@ bool interpolateAccel(const AccelPoint* points, size_t count, int64_t t, int16_t
   }
   for (int k = 0; k < 3; ++k) out[k] = nearest->v[k];
   return false;
+}
+
+bool feedbackFault(uint16_t frameStatus, bool gap, uint16_t deviceFaults) {
+  constexpr uint16_t kFault = kRawFootReadFail | kRawShankReadFail | kRawFootRvMissing |
+                              kRawShankRvMissing;
+  return gap || deviceFaults != 0 || (frameStatus & kFault) != 0 ||
+         (frameStatus & kRawOrientationValid) == 0;
 }
 
 }  // namespace ead

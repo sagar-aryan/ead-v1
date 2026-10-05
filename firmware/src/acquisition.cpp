@@ -148,7 +148,8 @@ bool accelReached(const SensorState& s, int64_t us) {
 
 void setRv(const SensorState& s, int64_t us, int16_t out[4], uint16_t missingBit,
            uint16_t* status) {
-  if (const Rv* rv = s.rv.nearest(us)) {
+  const Rv* rv = s.rv.nearest(us);
+  if (rv != nullptr && std::llabs(rv->us - us) <= ead::kMaxSampleAgeUs) {
     std::copy(rv->v, rv->v + 4, out);
   } else {
     out[0] = kQ14One;  // identity: real first

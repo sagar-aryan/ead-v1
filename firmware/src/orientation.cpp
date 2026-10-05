@@ -58,11 +58,4 @@ void process(ead::RawFrame* frame) {
   frame->status |= uint16_t(ead::kRawOrientationValid);
 }
 
-bool valid() {
-  portENTER_CRITICAL(&s_mux);
-  const bool value = s_calibrated;
-  portEXIT_CRITICAL(&s_mux);
-  return value;
-}
-
 }  // namespace orientation

@@ -23,6 +23,19 @@ void segmentOrientation(const float qChip[4], const float mount[4], const float 
 /// quaternion (w, x, y, z).
 void rotationVectorToQuaternion(const int16_t rv[4], float q[4]);
 
+/// The furthest a sample may be from the frame that uses it. A sensor that stops
+/// leaves its last sample behind, and nearest-in-time would carry it into every
+/// later frame as current; past this it is reported missing instead (doc 06 §12,
+/// "stale sample"). Ten frame periods: well beyond the timing jitter, and well
+/// inside the 250 ms after which the sensor is flagged as giving no data.
+constexpr int64_t kMaxSampleAgeUs = 50000;
+
+/// Doc 06 §12: whether a frame stops feedback. A failed read, a missing or stale
+/// rotation vector, no orientation, a gap before the frame (`gap`), or any device
+/// fault; saturation and held or repeated samples are measurement conditions,
+/// flagged in the frame but not faults.
+bool feedbackFault(uint16_t frameStatus, bool gap, uint16_t deviceFaults);
+
 struct AccelPoint {
   int64_t us;
   int16_t v[3];

@@ -49,18 +49,18 @@ void cancel() {
   portEXIT_CRITICAL(&s_mux);
 }
 
-void consume(const ead::RawFrame& frame) {
+bool consume(const ead::RawFrame& frame) {
   portENTER_CRITICAL(&s_mux);
   const bool collecting = s_state == ead::CalibrationState::Collecting;
   portEXIT_CRITICAL(&s_mux);
-  if (!collecting) return;
+  if (!collecting) return false;
 
   // A frame whose sensor read failed, repeated or held a stale accelerometer
   // sample says nothing new about stillness.
   constexpr uint16_t kUnusable = ead::kRawFootReadFail | ead::kRawShankReadFail |
                                  ead::kRawFootAccelHeld | ead::kRawShankAccelHeld |
                                  ead::kRawShankRepeated;
-  if ((frame.status & kUnusable) != 0) return;
+  if ((frame.status & kUnusable) != 0) return false;
 
   float accel[3];
   float gyro[3];
@@ -77,7 +77,7 @@ void consume(const ead::RawFrame& frame) {
   portENTER_CRITICAL(&s_mux);
   s_samples = collected;
   portEXIT_CRITICAL(&s_mux);
-  if (collected < s_wanted) return;
+  if (collected < s_wanted) return false;
 
   ead::CalibrationRecord finished{};
   finished.samples = collected;
@@ -90,6 +90,7 @@ void consume(const ead::RawFrame& frame) {
   s_reject = finished.reject;
   s_state = finished.reject == 0 ? ead::CalibrationState::Ready : ead::CalibrationState::Rejected;
   portEXIT_CRITICAL(&s_mux);
+  return true;
 }
 
 ead::CalibrationState state() {

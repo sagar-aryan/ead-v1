@@ -94,11 +94,11 @@ struct Run {
 
   /// The impact feature at initial contact: three frames of a hard spike, as
   /// the shank's forward swing reverses.
-  void contact() {
+  void contact(const float relative[4] = kIdentity) {
     const float gyro[3] = {0.0f, 60.0f, 0.0f};
     for (int i = 0; i < 3; ++i) {
       const float accel[3] = {0.0f, 0.0f, 1.0f + (i == 1 ? 1.4f : 0.7f)};
-      push(accel, gyro, -80.0f);
+      push(accel, gyro, -80.0f, relative);
     }
   }
 
@@ -380,6 +380,24 @@ static void test_a_timing_gap_restarts_the_engine() {
   TEST_ASSERT_EQUAL_UINT8(uint8_t(ead::GaitState::Init), uint8_t(run.engine.state()));
 }
 
+static void test_the_contact_angle_is_the_one_at_the_impact() {
+  // The foot lands 20 degrees plantarflexed and is flat by the time the contact
+  // is decided. The angle reported was the flat one, 0 (audit I04).
+  const float plantarflexed[4] = {std::cos(0.5f * 20.0f * 0.0174533f), 0.0f,
+                                  std::sin(0.5f * 20.0f * 0.0174533f), 0.0f};
+  Run run;
+  run.still(1.0f);
+  for (int i = 0; i < 4; ++i) {
+    run.contact(plantarflexed);
+    run.stance(0.57f);
+    run.swing(0.40f);
+  }
+  run.contact(plantarflexed);
+  run.stance(0.3f);
+  TEST_ASSERT_TRUE(run.cycles.size() >= 3);
+  for (const auto& c : run.cycles) TEST_ASSERT_FLOAT_WITHIN(0.5f, -20.0f, c.contactSagittalDeg);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_a_still_foot_produces_a_zupt_and_no_cycles);
@@ -395,5 +413,6 @@ int main() {
   RUN_TEST(test_distance_matches_a_known_motion);
   RUN_TEST(test_a_foot_that_turns_without_translating_travels_nowhere);
   RUN_TEST(test_a_timing_gap_restarts_the_engine);
+  RUN_TEST(test_the_contact_angle_is_the_one_at_the_impact);
   return UNITY_END();
 }

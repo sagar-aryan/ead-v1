@@ -22,8 +22,9 @@ bool start(uint16_t durationMs);
 /// Cancels a running window, discarding the partial record.
 void cancel();
 
-/// Feeds one acquired frame. Called from the processing task.
-void consume(const ead::RawFrame& frame);
+/// Feeds one acquired frame. Called from the processing task. True on the frame
+/// that completes a window, accepted or rejected.
+bool consume(const ead::RawFrame& frame);
 
 ead::CalibrationState state();
 uint32_t samples();

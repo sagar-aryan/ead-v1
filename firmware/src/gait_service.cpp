@@ -5,6 +5,8 @@
 #include "anatomical.h"
 #include "calibration_service.h"
 #include "config_v1.h"
+#include "device.h"
+#include "ead/feed.h"
 #include "ead/gait.h"
 #include "feedback.h"
 #include "ead/mahony.h"
@@ -42,20 +44,20 @@ void fromQ15(const int16_t q[4], float out[4]) {
 void reset() {
   portENTER_CRITICAL(&s_mux);
   s_engine.reset();
+  // Read the record again on the next frame: it is what changed (audit I03).
+  s_haveCalibration = false;
   s_eventCount = 0;
   s_cycleCount = 0;
   portEXIT_CRITICAL(&s_mux);
 }
 
 void consume(const ead::RawFrame& frame) {
-  // Doc 06 §12: a failed read, a lost frame or no orientation stops feedback.
+  // Doc 06 §12: any sensor fault stops feedback, and no cue runs while it lasts.
   const bool gap = s_haveFrame && frame.frame_index != s_lastFrame + 1;
   s_lastFrame = frame.frame_index;
   s_haveFrame = true;
-  if (gap || (frame.status & (ead::kRawFootReadFail | ead::kRawShankReadFail)) != 0 ||
-      (frame.status & ead::kRawOrientationValid) == 0) {
-    feedback::fault(frame.timestamp_us);
-  }
+  const bool faulted = ead::feedbackFault(frame.status, gap, device::faults());
+  if (faulted) feedback::fault(frame.timestamp_us);
   feedback::poll(frame.timestamp_us);
   if ((frame.status & ead::kRawOrientationValid) == 0) return;
   if (!s_haveCalibration) {
@@ -95,15 +97,12 @@ void consume(const ead::RawFrame& frame) {
   while (s_engine.takeCycle(&cycle)) {
     // The session decides what a cycle means: a capture collects it, a check or
     // an evaluation scores it against the locked reference.
-    const ead::ErrorResult* score = session::consume(cycle);
-    feedback::onCycle(cycle, score);
+    ead::ErrorResult score{};
+    const bool scored = session::consume(cycle, &score);
+    if (!faulted) feedback::onCycle(cycle, scored ? &score : nullptr);
     if (s_cycleCount < ead::kMaxCyclesPerBatch) {
-      if (score != nullptr) {
-        s_scores[s_cycleCount] = *score;
-        s_scored = true;
-      } else {
-        s_scores[s_cycleCount] = ead::ErrorResult{};
-      }
+      s_scores[s_cycleCount] = score;
+      s_scored |= scored;
       s_cycles_[s_cycleCount++] = cycle;
     }
     portENTER_CRITICAL(&s_mux);

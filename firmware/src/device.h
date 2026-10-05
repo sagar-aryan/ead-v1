@@ -26,6 +26,7 @@ extern Counters counters;
 
 void raiseFault(uint16_t faults);
 void clearFault(uint16_t faults);
+uint16_t faults();
 void setLinkActive(uint8_t linkFlag, bool active);
 void setWifiStackFree(uint16_t bytes);
 

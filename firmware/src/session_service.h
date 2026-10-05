@@ -19,6 +19,9 @@
 
 namespace session {
 
+/// Before any task that uses the session starts.
+void begin();
+
 /// Begins a session. `reference` is required for a check or an evaluation and
 /// ignored otherwise. Returns false when one is already running.
 bool start(ead::SessionKind kind, const ead::ReferenceProfile* reference);
@@ -27,12 +30,11 @@ bool start(ead::SessionKind kind, const ead::ReferenceProfile* reference);
 /// at least thirty valid cycles were collected.
 bool stop(ead::ReferenceProfile* profile, bool* wasCapture);
 
-/// Feeds a completed cycle. Returns the score when a reference is loaded.
-const ead::ErrorResult* consume(const ead::GaitCycle& cycle);
+/// Feeds a completed cycle. Fills `score` and returns true when a reference is
+/// loaded: a copy, so a session starting on another task cannot change it.
+bool consume(const ead::GaitCycle& cycle, ead::ErrorResult* score);
 
 ead::SessionKind kind();
 bool active();
-/// Valid cycles collected in a reference capture so far.
-uint16_t capturedCycles();
 
 }  // namespace session
