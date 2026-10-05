@@ -8,6 +8,7 @@ output, it is not on the page.
 
 Run:  python3 tools/check_pdf.py <export directory>
 """
+import csv
 import pathlib
 import subprocess
 import sys
@@ -32,7 +33,6 @@ SECTIONS = [
     "Event timeline",
     "Segments",
     "Data quality",
-    "Haptics: no ERM drivers are fitted",
 ]
 
 # The seven trend plots doc 10 §8 requires.
@@ -67,6 +67,16 @@ def main(directory):
     ).stdout
     for section in SECTIONS:
         check(section in text, f"section present: {section!r}")
+
+    # The haptics line counts what haptics.csv holds (DEC-023). Until 2026-10-05
+    # this expected "no ERM drivers are fitted" (DEC-006).
+    with open(pathlib.Path(directory) / "haptics.csv", newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    ran = sum(1 for r in rows if r["event"] != "off" and r["pwm"] and int(r["pwm"].split(";")[0]) > 0)
+    episodes = sum(1 for r in rows if r["event"] == "on")
+    refused = sum(1 for r in rows if r["reason"] == "refused")
+    expected = f"Haptics: {ran} cues ran in {episodes} episodes; {refused} refused"
+    check(expected in " ".join(text.split()), f"haptics line agrees with haptics.csv: {expected!r}")
 
     # The trend page is page 2; every plot must be titled on it.
     page_two = text.split("\f")[1] if "\f" in text else text

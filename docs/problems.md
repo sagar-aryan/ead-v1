@@ -1672,3 +1672,26 @@ STATUS vector. Not yet flashed: the board was not connected.
 A message at or below a closed boundary is dropped from storage, not routed to the
 recording it belonged to; the drain makes that rare. The start boundary is not used:
 frames that were in flight when a recording started are stored in it, as before.
+
+## PROB-034 — The independent export checkers still expected no haptics
+
+**Status:** Resolved (2026-10-05)
+
+### Symptoms
+Audit finding I11: `tools/check_mat.py` failed twice ("haptics carries the reason it
+is empty", "haptics has no rows") and `tools/check_pdf.py` once ("Haptics: no ERM
+drivers are fitted") on every export since DEC-023, so the independent check of the
+MAT and PDF files had silently stopped being run to a pass.
+
+### Root cause
+DEC-023 changed the export; the checkers kept DEC-006's expectation.
+
+### Resolution
+`check_mat.py` compares the MAT `haptics` struct record by record with `haptics.csv`
+(time, motors, duties, length, score, confidence, event, reason); `check_pdf.py`
+derives the expected "Haptics: N cues ran in M episodes; K refused" line from
+`haptics.csv`.
+
+### Verification
+Both pass on `target/export-sample`; with one duty and one reason changed in a copy
+of `haptics.csv`, `check_mat.py` reports 2 failures and `check_pdf.py` 1.

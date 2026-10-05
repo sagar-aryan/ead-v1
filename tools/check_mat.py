@@ -95,10 +95,32 @@ def main(directory):
     check(int(field(meta, "protocol_version")[0, 0]) == js["device"]["protocol_version"],
           "protocol_version matches")
 
-    # ---- haptics: empty, and saying why ------------------------------------
-    note = text(field(mat["haptics"], "note"))
-    check("no ERM drivers are fitted" in note, "haptics carries the reason it is empty")
-    check(field(mat["haptics"], "values").size == 0, "haptics has no rows")
+    # ---- haptics: the same records haptics.csv has (DEC-023) ---------------
+    # Until 2026-10-05 this expected the empty, "no ERM drivers are fitted" struct
+    # of DEC-006, and failed on every export after the drivers were fitted.
+    haptics = mat["haptics"]
+    hvalues = field(haptics, "values")
+    hcolumns = [text(c) for c in field(haptics, "columns").ravel()]
+    with open(directory / "haptics.csv", newline="") as fh:
+        hrows = list(csv.DictReader(fh))
+    count = hvalues.shape[0] if hvalues.size else 0
+    check(count == len(hrows), f"haptics rows {count} == haptics.csv {len(hrows)}")
+    for i, row in enumerate(hrows[:count]):
+        mrow = dict(zip(hcolumns, hvalues[i]))
+        motors = [int(m) for m in row["motor_ids"].split(";") if m]
+        duties = [int(d) for d in row["pwm"].split(";") if d]
+        check(mrow["timestamp_us"] == int(row["timestamp_us"])
+              and [m for m in (mrow["motor_a"], mrow["motor_b"]) if m] == motors
+              and [d for d in (mrow["duty_a"], mrow["duty_b"]) if d] == duties
+              and mrow["duration_ms"] == int(row["duration_ms"]),
+              f"haptic record {i}: time, motors, duties and length match haptics.csv")
+        scores = field(haptics, "scores")[i]
+        check(abs(scores[0] - float(row["error_score"])) < 1e-6
+              and abs(scores[1] - float(row["confidence"])) < 1e-6,
+              f"haptic record {i}: score and confidence match")
+        check(text(field(haptics, "event").ravel()[i]) == row["event"]
+              and text(field(haptics, "reason").ravel()[i]) == row["reason"],
+              f"haptic record {i}: event and reason match")
 
     print(f"\n{len(failures)} failures")
     return 1 if failures else 0
