@@ -966,3 +966,44 @@ choices doc 06 leaves open. Nothing here has been felt yet.
 ### Consequences
 Protocol schema 7, store schema 10, `haptics.csv` filled. The service test is still
 refused during a session (doc 06 §12). A left-leg device would need the map mirrored.
+
+## DEC-024 — Session commands acknowledged; a session outlives the link but not the app
+
+**Date:** 2026-10-05
+
+**Status:** Accepted
+
+### Context
+An external audit (PROB-033) confirmed that session acceptance was inferred from 800 ms
+of silence, that STATUS did not report the running session, that closing the dashboard
+left the device scoring and vibrating, and that recordings were bounded by arrival time
+at the host. Doc 08 §5 requires gait processing and haptics to continue when Wi-Fi is
+lost. The user was asked whether a session should survive the dashboard closing and had
+not answered when this was built.
+
+### Options Considered
+1. Keep the silence rule, lengthen the window.
+2. Report the session in STATUS only; the host polls it after each command.
+3. ACK for accepted session commands (the reserved 0x0D), its header sequence as the
+   session's boundary in the durable stream; STATUS `session` as the device's account.
+4. End the device session when the link drops.
+
+### Decision
+Option 3 (protocol schema 8). A link drop does not end a session (doc 08 §5); closing
+the dashboard does, and a session nobody records for more than 1 s (the app crashed or
+was closed and reopened) is stopped with a notice.
+
+### Reason
+An explicit answer removes the timing guess in both directions, and the boundary
+sequence comes free with it, because every non-durable message already carries the
+latest durable sequence. Stopping on close is the safe default for a device that
+vibrates: nothing should drive the motors with no one recording or watching.
+
+### Trade-offs
+A reflash is required (schema 8 dashboards refuse schema 7 devices). If the user wants
+a session to run on with the dashboard closed, both the shutdown stop and the orphan
+stop have to go, and something must own the data meanwhile.
+
+### Consequences
+Every session command now waits for its answer (3 s). `eadprobe` and the vectors are
+schema 8.

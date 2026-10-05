@@ -21,6 +21,14 @@ const RECONNECT_MIN: Duration = Duration::from_millis(500);
 const RECONNECT_MAX: Duration = Duration::from_secs(5);
 /// Bound on a single backfill request, so one gap cannot monopolise the link.
 const MAX_BACKFILL_SPAN: u32 = 2000;
+/// How long a session command waits for the device's ACK or ERROR.
+const REPLY_TIMEOUT: Duration = Duration::from_secs(3);
+/// Numbers for commands that expect a reply, apart from the link task's own
+/// (keepalive, HELLO, backfill), which count up from 1.
+const FIRST_COMMAND_SEQ: u32 = 0x8000_0000;
+/// How long the device must report a session no recording owns before it is
+/// stopped: longer than a STATUS sent before a stop takes to arrive.
+const ORPHAN_AFTER: Duration = Duration::from_secs(1);
 
 /// Where decoded telemetry goes. Implemented by the session store (M2) and by
 /// tests.
@@ -37,6 +45,12 @@ pub trait Sink: Send + Sync + 'static {
     /// the operator must be told, if anything (PROB-019).
     fn device_restarted(&self) -> Option<String> {
         None
+    }
+    /// Whether a recording is open to receive what a device session produces.
+    /// A session nobody records (the app was closed or crashed while it ran) is
+    /// stopped (PROB-033).
+    fn owns_session(&self) -> bool {
+        true
     }
 }
 
@@ -101,9 +115,8 @@ struct State {
     calibration: Option<protocol::Calibration>,
     /// The profile from the last completed capture, until it is saved.
     reference: Option<protocol::ReferenceProfile>,
-    /// The session this host started, as the host understands it. The device
-    /// does not report its session kind in STATUS, so this is the command that
-    /// was sent, not an echo: it goes stale if the device faults out of it.
+    /// The session this host started and the device acknowledged. STATUS
+    /// `session` (schema 8) is the device's own account.
     session_kind: Option<u8>,
     /// Valid cycles seen since the session started. During a capture this is
     /// the same rule the device's builder applies, so it tracks the count the
@@ -121,6 +134,18 @@ struct State {
     config: Option<Arc<DeviceConfigSection>>,
     config_sha256: Option<[u8; 32]>,
     config_section: Option<protocol::ConfigSection>,
+    /// Answers to numbered commands, oldest first: the ACK's boundary sequence or
+    /// the ERROR's text (schema 8).
+    replies: std::collections::VecDeque<(u32, std::result::Result<u32, String>)>,
+    /// Every durable message up to this sequence has arrived (or is gone).
+    received_through: u32,
+    /// Messages up to this sequence belonged to a recording already closed; any
+    /// that turn up late are not handed on (PROB-033).
+    floor: Option<u32>,
+    /// Since when STATUS has shown a device session no recording owns.
+    orphan_since: Option<Instant>,
+    /// A stop for that session is due on the link task.
+    stop_orphan: bool,
 }
 
 pub struct Device {
@@ -129,6 +154,7 @@ pub struct Device {
     sink: Arc<dyn Sink>,
     /// The last connection's receive progress, between connections.
     tracker: Mutex<Option<Tracker>>,
+    next_command: std::sync::atomic::AtomicU32,
 }
 
 impl Device {
@@ -138,6 +164,7 @@ impl Device {
             commands: Mutex::new(None),
             sink,
             tracker: Mutex::new(None),
+            next_command: std::sync::atomic::AtomicU32::new(FIRST_COMMAND_SEQ),
         }
     }
 
@@ -217,20 +244,21 @@ impl Device {
     /// The device's own configuration, once CONFIG_GET has been answered.
     /// Asks the device to start a still window. The record arrives later as a
     /// SESSION_STOP message; progress is visible in STATUS meanwhile.
-    pub fn start_calibration(&self, duration_ms: u16) -> Result<(), String> {
+    pub async fn start_calibration(&self, duration_ms: u16) -> Result<(), String> {
         let payload = protocol::session_start(protocol::SESSION_KIND_CALIBRATION, duration_ms);
-        self.send_now(MsgType::SessionStart, &payload)
+        self.command(MsgType::SessionStart, &payload).await.map(|_| ())
     }
 
     /// Cancels a running window; the partial record is discarded.
-    pub fn cancel_calibration(&self) -> Result<(), String> {
-        self.send_now(MsgType::SessionStop, &[])
+    pub async fn cancel_calibration(&self) -> Result<(), String> {
+        self.command(MsgType::SessionStop, &[]).await.map(|_| ())
     }
 
-    /// Starts collecting valid cycles for a new reference profile.
-    pub fn start_reference_capture(&self) -> Result<(), String> {
+    /// Starts collecting valid cycles for a new reference profile, once the
+    /// device has accepted it.
+    pub async fn start_reference_capture(&self) -> Result<(), String> {
         let payload = protocol::session_start(protocol::SESSION_KIND_REFERENCE_CAPTURE, 0);
-        self.send_now(MsgType::SessionStart, &payload)?;
+        self.command(MsgType::SessionStart, &payload).await?;
         self.note_session(Some(protocol::SESSION_KIND_REFERENCE_CAPTURE));
         Ok(())
     }
@@ -245,7 +273,7 @@ impl Device {
     /// Starts a check or an evaluation against a locked profile. The profile
     /// travels with the command, so the device judges against the one the
     /// operator chose rather than whatever it saw last.
-    pub fn start_scored_session(
+    pub async fn start_scored_session(
         &self,
         check: bool,
         profile: &protocol::ReferenceProfile,
@@ -256,17 +284,80 @@ impl Device {
             protocol::SESSION_KIND_EVALUATION
         };
         let payload = protocol::session_start_with_reference(kind, profile);
-        self.send_now(MsgType::SessionStart, &payload)?;
+        self.command(MsgType::SessionStart, &payload).await?;
         self.note_session(Some(kind));
         Ok(())
     }
 
-    /// Ends the running session. A capture answers with its profile, which
-    /// arrives later and is collected with `take_reference`.
-    pub fn stop_session(&self) -> Result<(), String> {
-        self.send_now(MsgType::SessionStop, &[])?;
+    /// Ends the running session. Returns the boundary: the last durable message
+    /// the session produced. A capture's profile follows, collected with
+    /// `take_reference`.
+    pub async fn stop_session(&self) -> Result<u32, String> {
+        let boundary = self.command(MsgType::SessionStop, &[]).await;
         self.note_session(None);
-        Ok(())
+        boundary
+    }
+
+    /// Stops the device session from a thread that cannot await, as the app
+    /// closes: the device would otherwise go on scoring, and vibrating, with
+    /// nothing recording it (PROB-033). Waits up to `timeout` for the ACK.
+    pub fn stop_session_blocking(&self, timeout: Duration) -> Result<(), String> {
+        let seq = self.send_command(MsgType::SessionStop, &[])?;
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            if let Some(reply) = self.take_reply(seq) {
+                return reply.map(|_| ());
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        Err("the device did not confirm the stop".into())
+    }
+
+    /// Waits until every durable message up to `boundary` has arrived, or
+    /// `timeout`; true when they all did. Then closes the stream there: anything
+    /// up to it that arrives later is not handed on, so it cannot land in the
+    /// next recording (PROB-033).
+    pub async fn drain_through(&self, boundary: u32, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let drained = loop {
+            if self.state.lock().expect("device state").received_through >= boundary {
+                break true;
+            }
+            if Instant::now() >= deadline {
+                break false;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
+        let mut state = self.state.lock().expect("device state");
+        state.floor = Some(state.floor.map_or(boundary, |f| f.max(boundary)));
+        drained
+    }
+
+    /// Sends a session command and waits for the device's answer: the boundary
+    /// sequence of its ACK, or its ERROR as the error. Until schema 8 the device
+    /// answered only refusals, and 800 ms of silence was taken as acceptance
+    /// (PROB-033).
+    async fn command(&self, msg_type: MsgType, payload: &[u8]) -> Result<u32, String> {
+        let seq = self.send_command(msg_type, payload)?;
+        let deadline = Instant::now() + REPLY_TIMEOUT;
+        loop {
+            if let Some(reply) = self.take_reply(seq) {
+                return reply;
+            }
+            if Instant::now() >= deadline {
+                return Err(format!(
+                    "the device did not answer within {} s",
+                    REPLY_TIMEOUT.as_secs()
+                ));
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    fn take_reply(&self, seq: u32) -> Option<std::result::Result<u32, String>> {
+        let mut state = self.state.lock().expect("device state");
+        let at = state.replies.iter().position(|(s, _)| *s == seq)?;
+        state.replies.remove(at).map(|(_, reply)| reply)
     }
 
     /// Asks for the sensor check. With `rerun` the device resets both sensors
@@ -318,16 +409,23 @@ impl Device {
         self.state.lock().expect("device state").reference.take()
     }
 
-    /// Queues one command on the link task. Commands carry sequence 0: only
-    /// backfill and HELLO need a sequence the device echoes.
+    /// Queues one command on the link task.
     fn send_now(&self, msg_type: MsgType, payload: &[u8]) -> Result<(), String> {
+        self.send_command(msg_type, payload).map(|_| ())
+    }
+
+    /// Queues one command under its own sequence number, which the device
+    /// echoes in an ACK or ERROR; returns the number.
+    fn send_command(&self, msg_type: MsgType, payload: &[u8]) -> Result<u32, String> {
+        let seq = self.next_command.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let commands = self.commands.lock().expect("commands");
         let Some(sender) = commands.as_ref() else {
             return Err("not connected".into());
         };
         sender
-            .try_send(protocol::encode(msg_type, 0, 0, payload))
-            .map_err(|_| "the device link is busy".to_string())
+            .try_send(protocol::encode(msg_type, seq, 0, payload))
+            .map_err(|_| "the device link is busy".to_string())?;
+        Ok(seq)
     }
 
     pub fn config(&self) -> Option<Arc<DeviceConfigSection>> {
@@ -434,6 +532,12 @@ async fn connection(
                 if device.config().is_none() && device.snapshot().firmware.is_some() {
                     command_seq += 1;
                     if send(&commands, MsgType::ConfigGet, command_seq, &[]).await.is_err() {
+                        return false;
+                    }
+                }
+                if std::mem::take(&mut device.state.lock().expect("device state").stop_orphan) {
+                    command_seq += 1;
+                    if send(&commands, MsgType::SessionStop, command_seq, &[]).await.is_err() {
                         return false;
                     }
                 }
@@ -567,8 +671,15 @@ impl Tracker {
                     }
                 }
             }
+            MsgType::Ack => match protocol::parse_ack(payload) {
+                Ok(ack) => self.reply(ack.cmd_seq, Ok(header.sequence)),
+                Err(e) => self.note_error(format!("ACK: {e}")),
+            },
             MsgType::Error => {
                 if let Ok(error) = protocol::parse_device_error(payload) {
+                    if error.cmd_seq != 0 {
+                        self.reply(error.cmd_seq, Err(error.to_string()));
+                    }
                     let mut state = self.state.lock().expect("device state");
                     state.last_error = Some(error.to_string());
                 }
@@ -587,6 +698,8 @@ impl Tracker {
             self.highest_seq = None;
             self.missing.clear();
             let mut state = self.state.lock().expect("device state");
+            state.received_through = 0;
+            state.floor = None;
             state.config = None;
             state.config_sha256 = None;
             state.config_section = None;
@@ -652,6 +765,16 @@ impl Tracker {
         }
     }
 
+    fn reply(&self, cmd_seq: u32, reply: std::result::Result<u32, String>) {
+        let mut state = self.state.lock().expect("device state");
+        // Unclaimed answers (a timed-out wait, a capture's refusal after its
+        // ACK) would otherwise pile up.
+        if state.replies.len() == 16 {
+            state.replies.pop_front();
+        }
+        state.replies.push_back((cmd_seq, reply));
+    }
+
     fn note_error(&self, message: String) {
         self.state.lock().expect("device state").last_error = Some(message);
     }
@@ -661,7 +784,20 @@ impl Tracker {
         self.oldest_stored = status.oldest_seq;
         self.forget_evicted();
         self.sink.status(&status);
+        let orphaned = status.session != 0 && !self.sink.owns_session();
         let mut state = self.state.lock().expect("device state");
+        if !orphaned {
+            state.orphan_since = None;
+        } else if state.orphan_since.is_none() {
+            state.orphan_since = Some(Instant::now());
+        } else if state.orphan_since.is_some_and(|t| t.elapsed() >= ORPHAN_AFTER) {
+            state.orphan_since = None;
+            state.stop_orphan = true;
+            state.last_error = Some(format!(
+                "the device was running a {} that no recording owns, and has been stopped",
+                protocol::SESSION_KINDS.get(status.session as usize).copied().unwrap_or("session")
+            ));
+        }
         state.status = Some(status);
         state.status_at = Some(Instant::now());
         state.missing_messages = self.missing.len() as u32;
@@ -678,6 +814,14 @@ impl Tracker {
         }
         self.missing.remove(&sequence);
         self.highest_seq = Some(self.highest_seq.map_or(sequence, |h| h.max(sequence)));
+        {
+            let mut state = self.state.lock().expect("device state");
+            let highest = self.highest_seq.unwrap_or(0);
+            state.received_through = self.missing.first().map_or(highest, |m| m - 1);
+            if state.floor.is_some_and(|floor| sequence <= floor) {
+                return;
+            }
+        }
 
         if msg_type == MsgType::RawSampleBatch as u8 {
             if let Ok(frames) = protocol::parse_raw_batch(payload) {
@@ -1011,4 +1155,106 @@ mod tests {
         connect(&device).handle(&hello(0xA1B2_C3D4));
         assert!(device.snapshot().calibration.is_some_and(|c| c.usable()));
     }
+
+    /// A device on the other end of `device.commands`: the command it was sent.
+    fn linked(device: &Device) -> mpsc::Receiver<Vec<u8>> {
+        let (tx, rx) = mpsc::channel(8);
+        *device.commands.lock().unwrap() = Some(tx);
+        rx
+    }
+
+    fn ack(cmd_seq: u32, cmd_type: MsgType, kind: u8, boundary: u32) -> Vec<u8> {
+        let mut payload = cmd_seq.to_le_bytes().to_vec();
+        payload.extend_from_slice(&[cmd_type as u8, kind]);
+        protocol::encode(MsgType::Ack, boundary, 0, &payload)
+    }
+
+    fn error_for(cmd_seq: u32) -> Vec<u8> {
+        let mut payload = cmd_seq.to_le_bytes().to_vec();
+        payload.push(MsgType::SessionStart as u8);
+        payload.extend_from_slice(&4u16.to_le_bytes());
+        payload.push(7);
+        payload.extend_from_slice(b"running");
+        protocol::encode(MsgType::Error, 0, 0, &payload)
+    }
+
+    // PROB-033, audit I09: a session counted as started when 800 ms passed
+    // without an error. Now the device's ACK or ERROR for that command decides.
+    #[tokio::test]
+    async fn a_session_command_waits_for_its_own_answer() {
+        let device = Arc::new(Device::new(Arc::new(NoSink)));
+        let mut sent = linked(&device);
+        let mut tracker = connect(&device);
+        let waiting = tokio::spawn({
+            let device = device.clone();
+            async move { device.stop_session().await }
+        });
+        let command = sent.recv().await.unwrap();
+        let (header, _) = protocol::parse(&command).unwrap();
+        assert!(header.sequence >= FIRST_COMMAND_SEQ);
+        // Someone else's answer is not this one's.
+        tracker.handle(&ack(header.sequence + 1000, MsgType::SessionStop, 4, 99));
+        tracker.handle(&ack(header.sequence, MsgType::SessionStop, 4, 120));
+        assert_eq!(waiting.await.unwrap(), Ok(120));
+
+        let waiting = tokio::spawn({
+            let device = device.clone();
+            async move { device.start_reference_capture().await }
+        });
+        let (header, _) = protocol::parse(&sent.recv().await.unwrap()).unwrap();
+        tracker.handle(&error_for(header.sequence));
+        assert!(waiting.await.unwrap().unwrap_err().contains("running"));
+        assert_eq!(device.snapshot().session_kind, None, "a refused start is not a session");
+    }
+
+    // PROB-033, audit I05: the recording closes once the stop's data is in, and
+    // what turns up later from before the stop is not handed on.
+    #[tokio::test]
+    async fn a_stop_drains_to_its_boundary_and_closes_the_stream_there() {
+        let sink = Arc::new(Collect::default());
+        let device = Device::new(sink.clone());
+        let mut tracker = connect(&device);
+        tracker.handle(&hello_holding(7, 1, 0));
+        tracker.handle(&resequenced("raw_batch.hex", 1));
+        tracker.handle(&resequenced("raw_batch.hex", 3)); // 2 is missing
+        assert!(!device.drain_through(3, Duration::from_millis(50)).await, "2 never came");
+        // 2 arrives by backfill after the recording closed: it is not handed on.
+        let before = sink.0.lock().unwrap().0.len();
+        tracker.handle(&backfill(&[resequenced("raw_batch.hex", 2)]));
+        assert_eq!(sink.0.lock().unwrap().0.len(), before);
+        // After the boundary, everything flows.
+        tracker.handle(&resequenced("raw_batch.hex", 4));
+        assert_eq!(sink.0.lock().unwrap().0.len(), before + 2);
+        assert!(device.drain_through(4, Duration::from_millis(50)).await);
+    }
+
+    /// Owns no recording: as the store after the app restarted.
+    struct Unowned;
+    impl Sink for Unowned {
+        fn raw_frames(&self, _: &[RawFrame]) {}
+        fn raw_accel(&self, _: &[AccelSample]) {}
+        fn status(&self, _: &Status) {}
+        fn gait(&self, _: &[protocol::GaitCycle], _: &[protocol::GaitEvent]) {}
+        fn owns_session(&self) -> bool {
+            false
+        }
+    }
+
+    // PROB-033: an evaluation the closed app left running is stopped, but only
+    // after it has been reported for longer than a stale STATUS could explain.
+    #[test]
+    fn a_device_session_no_recording_owns_is_stopped() {
+        let device = Device::new(Arc::new(Unowned));
+        let mut tracker = connect(&device);
+        tracker.handle(&hello(0xA1B2_C3D4));
+        let status = vector("status.hex"); // an evaluation running
+        tracker.handle(&status);
+        tracker.handle(&status);
+        assert!(!device.state.lock().unwrap().stop_orphan);
+        std::thread::sleep(ORPHAN_AFTER + Duration::from_millis(50));
+        tracker.handle(&status);
+        assert!(device.state.lock().unwrap().stop_orphan);
+        assert!(device.last_error().unwrap().contains("no recording owns"));
+    }
+
 }

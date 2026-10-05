@@ -129,7 +129,9 @@ void Link::onMessage(const uint8_t* msg, size_t len, int64_t nowUs) {
         if (!calibration::start(durationMs)) {
           queueError(h.sequence, h.type, ErrorCode::InvalidState, "a calibration window is running",
                      nowUs);
+          return;
         }
+        queueAck(h.sequence, h.type, kind, nowUs);
         return;
       }
       if (sessionKind != ead::SessionKind::ReferenceCapture &&
@@ -155,7 +157,9 @@ void Link::onMessage(const uint8_t* msg, size_t len, int64_t nowUs) {
       if (!session::start(sessionKind, needsReference ? &reference : nullptr)) {
         queueError(h.sequence, h.type, ErrorCode::InvalidState, "a session is already running",
                    nowUs);
+        return;
       }
+      queueAck(h.sequence, h.type, kind, nowUs);
       return;
     }
     case MsgType::SessionStop: {
@@ -164,10 +168,20 @@ void Link::onMessage(const uint8_t* msg, size_t len, int64_t nowUs) {
                    nowUs);
         return;
       }
+      // What the stop ended, for the ACK: a session, a calibration window, or
+      // nothing (a stop is accepted either way).
+      uint8_t stopped = 0;
+      if (session::active()) {
+        stopped = uint8_t(session::kind());
+      } else if (calibration::state() == ead::CalibrationState::Collecting) {
+        stopped = uint8_t(ead::SessionKind::Calibration);
+      }
       calibration::cancel();
       ead::ReferenceProfile profile{};
       bool wasCapture = false;
       const bool built = session::stop(&profile, &wasCapture);
+      // Ahead of the profile or the refusal: the session has ended either way.
+      queueAck(h.sequence, h.type, stopped, nowUs);
       if (wasCapture) {
         if (!built) {
           queueError(h.sequence, h.type, ErrorCode::Rejected,
@@ -285,6 +299,12 @@ void Link::queueReply(MsgType type, const uint8_t* payload, size_t len, int64_t 
   if (n == 0) return;
   r.len = uint16_t(n);
   replyCount_++;
+}
+
+void Link::queueAck(uint32_t cmdSeq, uint8_t cmdType, uint8_t kind, int64_t nowUs) {
+  uint8_t body[ead::kAckPayloadSize];
+  queueReply(MsgType::Ack, body, ead::encodeAckPayload(cmdSeq, cmdType, kind, body, sizeof body),
+             nowUs);
 }
 
 void Link::queueSensorCheck(int64_t nowUs) {

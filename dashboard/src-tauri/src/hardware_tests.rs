@@ -258,7 +258,7 @@ fn a_device_reset_ends_the_session_and_its_calibration() {
     // (PROB-022); an operator would simply calibrate again, and so does this.
     let mut record = None;
     for _ in 0..3 {
-        device.start_calibration(2000).expect("start calibration");
+        runtime.block_on(device.start_calibration(2000)).expect("start calibration (ACK)");
         std::thread::sleep(Duration::from_millis(2500));
         wait_for(Duration::from_secs(5), "calibration record", || {
             device.snapshot().status.is_some_and(|s| s.calibration_state != 1)

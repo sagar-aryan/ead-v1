@@ -1606,3 +1606,62 @@ accepted. With the store check disabled the start succeeds and the test fails.
 ### Limitations
 Reference compatibility beyond ownership (same mounting, same firmware configuration)
 is not checked.
+
+## PROB-033 — Session start and stop were inferred, not confirmed; recordings had no boundary
+
+**Status:** Resolved in code (2026-10-05, protocol schema 8); not yet on the board
+
+### Symptoms
+Audit findings I09 and I05, confirmed in the code:
+1. The device answered a refused SESSION_START or SESSION_STOP with ERROR and an
+   accepted one with nothing. The dashboard took 800 ms without an error as
+   acceptance (`confirm_device_accepted`, PROB-014's workaround), so a refusal that
+   arrived later, or an unrelated error inside the window, decided wrongly. Commands
+   were sent with sequence 0, so an ERROR could not be tied to its command.
+2. STATUS did not say which session the device was running.
+3. Closing the dashboard left the device session running: a check or evaluation went
+   on scoring, and with the switch on vibrating, with nothing recording it.
+4. Stopping closed the recording the moment the command was queued. Frames still in
+   flight were dropped; anything from before the stop that arrived later (a backfill)
+   was stored in whatever recording was open next.
+
+### Root cause
+The protocol had no positive answer for session commands (ACK was reserved, "not
+emitted"), and recordings were bounded by when messages arrived at the host, not by
+where the device's stream was when the session ended.
+
+### Resolution
+DEC-024. Protocol schema 8 (`docs/protocol.md` §5.18, §5.3):
+- Firmware (`src/link.cpp`): ACK {cmd_seq, cmd_type, kind} for every accepted
+  SESSION_START (calibration included) and SESSION_STOP; its header sequence is the
+  latest durable message, the session's boundary. STATUS byte 59 `session`
+  (`src/device.cpp`).
+- Dashboard (`src-tauri/src/device.rs`): commands that expect an answer are numbered
+  from 0x80000000; `Device::command` waits up to 3 s for that number's ACK or ERROR.
+  `start_*`, `stop_session`, calibration start and cancel await it; a refused start
+  stops the recording again and says why. `confirm_device_accepted` was removed.
+- Stop (`app.rs` `stop_device_then_recording`, `finish_reference_capture`):
+  `drain_through(boundary, 2 s)` waits until every message up to the boundary has
+  arrived (`State::received_through`), then sets a floor: nothing at or below it is
+  handed to the store again. The recording closes after; a drain that timed out or a
+  stop the device did not confirm is reported, not hidden.
+- `App::shutdown` stops a running device session (waits 0.5 s for the ACK).
+- A session STATUS reports for over 1 s while no recording is open (the app was
+  closed or crashed while it ran) is stopped on the next keepalive, with a notice.
+  Doc 08 §5 keeps a session running through a dropped link, so a disconnect alone
+  does not stop it.
+- `eadprobe`: schema 8, `decode_ack`, STATUS `session`. Vectors: `ack.hex`, STATUS 60
+  bytes (27 vectors).
+
+### Verification
+Host: `a_session_command_waits_for_its_own_answer` (another command's ACK is ignored;
+an ERROR fails the start and leaves no session), `a_stop_drains_to_its_boundary_and_
+closes_the_stream_there` (a gap times the drain out; the missing message arriving
+later is not handed on; later messages flow), `a_device_session_no_recording_owns_is_
+stopped`, `ack_decodes_with_its_boundary_in_the_header`, firmware `test_ack` and the
+STATUS vector. Not yet flashed: the board was not connected.
+
+### Limitations
+A message at or below a closed boundary is dropped from storage, not routed to the
+recording it belonged to; the drain makes that rare. The start boundary is not used:
+frames that were in flight when a recording started are stored in it, as before.

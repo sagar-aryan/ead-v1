@@ -21,7 +21,7 @@ ROOT = HERE.parent.parent
 CONFIG_JSON = ROOT / "ead_agent_docs_v2" / "CONFIG_V1.json"
 
 PROTOCOL_VERSION = 1
-SCHEMA = 7
+SCHEMA = 8
 
 # Message types (doc 08 §3).
 HELLO, CONFIG_GET, STATUS, ERROR = 0x01, 0x02, 0x0C, 0x0E
@@ -31,6 +31,8 @@ SESSION_START, SESSION_STOP = 0x04, 0x05
 EVENT_BATCH, STEP_BATCH = 0x09, 0x0A
 SERVICE_TEST = 0x12
 CONFIG_SET, HAPTIC_BATCH = 0x03, 0x0B
+ACK = 0x0D
+SESSION_EVALUATION = 4
 
 # Calibration states and reject bits (docs/protocol.md §5.3, §6.5).
 CALIB_READY = 2
@@ -223,16 +225,18 @@ def main():
           message(HELLO, hello_info_payload, seq=42, time_us=123456789))
 
     status_payload = struct.pack(
-        "<BBHIIIIIIIbBIHHHHBIHBIB", STATE_READY, LINK_USB_ACTIVE,
+        "<BBHIIIIIIIbBIHHHHBIHBIBB", STATE_READY, LINK_USB_ACTIVE,
         FAULT_SHANK_FROZEN | FAULT_ACQUISITION_STALLED, 123456, 3, 17, 2, 1, 1, 42, -47, 1, 201000,
-        1500, 2600, 3100, 4200, CALIB_READY, 500, 0, GAIT_FOOT_FLAT, 37, HAPTICS_SWITCH_ON)
-    assert len(status_payload) == 59
+        1500, 2600, 3100, 4200, CALIB_READY, 500, 0, GAIT_FOOT_FLAT, 37, HAPTICS_SWITCH_ON,
+        SESSION_EVALUATION)
+    assert len(status_payload) == 60
     write("status.hex",
           "Device STATUS: READY, USB link active, faults 0x0300 (shank frozen + acquisition\n"
           "stalled), frame 123456, dropped 3, shank repeated 17, bus errors 2, reinits 1,\n"
           "sequence window 1..42, RSSI -47 dBm, 1 station, heap min 201000,\n"
           "stack free 1500/2600/3100/4200, calibration ready from 500 samples,\n"
-          "gait FOOT_FLAT_ZV with 37 cycles completed, haptic switch on, no episode.\n"
+          "gait FOOT_FLAT_ZV with 37 cycles completed, haptic switch on, no episode,\n"
+          "an EVALUATION running (schema 8).\n"
           "Header sequence 42, time 987654321.",
           message(STATUS, status_payload, seq=42, time_us=987654321))
 
@@ -386,6 +390,12 @@ def main():
           message(SERVICE_TEST, struct.pack("<BBBBH", 2, 4, 128, 0, 1000), seq=42,
                   time_us=6_000_000))
 
+    write("ack.hex",
+          "Device ACK (schema 8): command sequence 13, SESSION_STOP (0x05) accepted, it\n"
+          "ended an EVALUATION (4). Header sequence 42: the session's last durable message.\n"
+          "Time 9000000.",
+          message(ACK, struct.pack("<IBB", 13, SESSION_STOP, SESSION_EVALUATION), seq=42,
+                  time_us=9_000_000))
     write("config_set_request.hex",
           "Host CONFIG_SET: key 1 (haptic_feedback) = 1, the master switch on.\n"
           "Command sequence 12.",

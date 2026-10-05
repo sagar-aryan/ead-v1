@@ -32,6 +32,7 @@ class Link {
   enum class Source : uint8_t { None, Reply, Status, Live, Backfill };
 
   void queueReply(ead::MsgType type, const uint8_t* payload, size_t len, int64_t nowUs);
+  void queueAck(uint32_t cmdSeq, uint8_t cmdType, uint8_t kind, int64_t nowUs);
   void queueError(uint32_t cmdSeq, uint8_t cmdType, ead::ErrorCode code, const char* detail,
                   int64_t nowUs);
   void queueSensorCheck(int64_t nowUs);

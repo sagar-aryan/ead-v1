@@ -1811,5 +1811,11 @@ PROB-030 (tracker kept between connections) and PROB-031 (repeats dropped):
 
 PROB-032 (reference ownership): `store/mod.rs`, `app.rs`, `views/Sessions.tsx`.
 
+PROB-033 (protocol schema 8: ACK for session commands, STATUS `session`; the
+dashboard waits for answers, drains to the stop's boundary, stops a session at close
+or when nothing records it): firmware `src/{link,device}.cpp`, `ead_core` protocol,
+vectors, `eadprobe`, dashboard `device.rs`, `app.rs`, `protocol/`, `api.ts`.
+
 ### Current Status
-In progress: host-side findings next.
+In progress. Schema 8 is not on the board yet (not connected); the installed `ead` is
+still the schema-7 build, so the two still match until both are updated.

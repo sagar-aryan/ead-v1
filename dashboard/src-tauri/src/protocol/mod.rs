@@ -17,7 +17,7 @@ pub use config::ConfigSection;
 pub const PROTOCOL_VERSION: u16 = 1;
 use std::cmp::Ordering;
 
-pub const SCHEMA_VERSION: u16 = 7;
+pub const SCHEMA_VERSION: u16 = 8;
 pub const HEADER_SIZE: usize = 20;
 pub const RAW_FRAME_SIZE: usize = 70;
 pub const ACCEL_RECORD_SIZE: usize = 16;
@@ -234,7 +234,7 @@ pub fn hello_request() -> Vec<u8> {
 
 // ---- STATUS ----------------------------------------------------------------
 
-pub const STATUS_PAYLOAD_SIZE: usize = 59;
+pub const STATUS_PAYLOAD_SIZE: usize = 60;
 /// STATUS `haptics` bit 0: the master switch is on (off at every boot).
 pub const STATUS_HAPTICS_SWITCH_ON: u8 = 1 << 0;
 /// STATUS `haptics` bit 1: a feedback episode is running.
@@ -269,6 +269,9 @@ pub struct Status {
     pub cycles_completed: u32,
     /// `STATUS_HAPTICS_*` bits (schema 7).
     pub haptics: u8,
+    /// The capture, check or evaluation the device is running (a
+    /// `SESSION_KIND_*`), 0 when none (schema 8).
+    pub session: u8,
 }
 
 pub fn parse_status(payload: &[u8]) -> Result<Status> {
@@ -300,6 +303,7 @@ pub fn parse_status(payload: &[u8]) -> Result<Status> {
         gait_state: r.u8()?,
         cycles_completed: r.u32()?,
         haptics: r.u8()?,
+        session: r.u8()?,
     })
 }
 
@@ -805,6 +809,25 @@ impl std::fmt::Display for DeviceError {
             self.cmd_seq, self.cmd_type, self.detail
         )
     }
+}
+
+/// ACK (schema 8): the device accepted a SESSION_START or SESSION_STOP. The
+/// message's header sequence, the latest durable message when the command took
+/// effect, is the session's boundary in the stream (docs/protocol.md §5.18).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ack {
+    pub cmd_seq: u32,
+    pub cmd_type: u8,
+    /// The session kind started or stopped; 0 for a stop with nothing running.
+    pub kind: u8,
+}
+
+pub fn parse_ack(payload: &[u8]) -> Result<Ack> {
+    if payload.len() != 6 {
+        return Err(ProtocolError::BadPayload("ACK"));
+    }
+    let mut r = Reader::new(payload);
+    Ok(Ack { cmd_seq: r.u32()?, cmd_type: r.u8()?, kind: r.u8()? })
 }
 
 pub fn parse_device_error(payload: &[u8]) -> Result<DeviceError> {

@@ -95,6 +95,7 @@ static void test_device_status() {
   s.gait_state = uint8_t(ead::GaitState::FootFlatZv);
   s.cycles_completed = 37;
   s.haptics = ead::kHapticsSwitchOn;
+  s.session = uint8_t(ead::SessionKind::Evaluation);
   uint8_t payload[ead::kStatusPayloadSize];
   const size_t n = ead::encodeStatusPayload(s, payload, sizeof payload);
   TEST_ASSERT_EQUAL_size_t(ead::kStatusPayloadSize, n);
@@ -533,6 +534,16 @@ static void test_haptic_batch_matches_the_vector() {
   TEST_ASSERT_EQUAL_size_t(0u, ead::encodeHapticBatchPayload(cues, 0, payload, sizeof payload));
 }
 
+static void test_ack() {
+  uint8_t payload[ead::kAckPayloadSize];
+  const size_t n = ead::encodeAckPayload(13, uint8_t(MsgType::SessionStop),
+                                         uint8_t(ead::SessionKind::Evaluation), payload,
+                                         sizeof payload);
+  TEST_ASSERT_EQUAL_size_t(ead::kAckPayloadSize, n);
+  const auto msg = message(MsgType::Ack, 42, 9000000, payload, n);
+  assertBytes(loadVector("ack.hex"), msg.data(), msg.size());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_service_test_requests_decode);
@@ -549,6 +560,7 @@ int main() {
   RUN_TEST(test_host_hello_request);
   RUN_TEST(test_device_hello);
   RUN_TEST(test_device_status);
+  RUN_TEST(test_ack);
   RUN_TEST(test_raw_batch_encode_and_decode);
   RUN_TEST(test_accel_batch_matches_the_vector);
   RUN_TEST(test_error_message);

@@ -104,6 +104,7 @@ fn device_status_decodes() {
     assert_eq!(status.calibration_samples, 500);
     assert_eq!(status.calibration_reject, 0);
     assert_eq!(status.haptics, STATUS_HAPTICS_SWITCH_ON);
+    assert_eq!(status.session, SESSION_KIND_EVALUATION);
     assert_eq!(parse_status(&payload[..10]), Err(ProtocolError::BadPayload("STATUS")));
 }
 
@@ -175,6 +176,17 @@ fn raw_accel_batch_decodes() {
     let mut unknown = payload.to_vec();
     unknown[2 + 8] = 2;
     assert_eq!(parse_accel_batch(&unknown), Err(ProtocolError::BadPayload("RAW_ACCEL_BATCH")));
+}
+
+#[test]
+fn ack_decodes_with_its_boundary_in_the_header() {
+    let msg = vector("ack.hex");
+    let (header, payload) = parse(&msg).unwrap();
+    assert_eq!(header.msg_type, MsgType::Ack as u8);
+    assert_eq!(header.sequence, 42);
+    let ack = parse_ack(payload).unwrap();
+    assert_eq!(ack, Ack { cmd_seq: 13, cmd_type: MsgType::SessionStop as u8, kind: SESSION_KIND_EVALUATION });
+    assert_eq!(parse_ack(&payload[..5]), Err(ProtocolError::BadPayload("ACK")));
 }
 
 #[test]

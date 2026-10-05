@@ -1,4 +1,4 @@
-# Device Protocol (schema 7)
+# Device Protocol (schema 8)
 
 Wire protocol between the EAD-V1 device and host software (dashboard, `tools/eadprobe.py`).
 The frame header and message type numbers are fixed by
@@ -19,7 +19,7 @@ byte count followed by that many UTF-8 bytes (no terminator).
 | Field | Where | Value | Changes when |
 |---|---|---|---|
 | `protocol_version` | Every header | 1 | The header layout changes (doc 08) |
-| `schema` | HELLO payload | 7 | Any payload layout or enumeration changes |
+| `schema` | HELLO payload | 8 | Any payload layout or enumeration changes |
 | `config_format` | CONFIG_GET payload | 2 | The configuration section layout changes (1 = MPU6500 build, 2 = BNO086 build) |
 
 A host must compare `schema` in the device HELLO and refuse to interpret payloads of an
@@ -65,14 +65,15 @@ unknown schema.
 - **Device → host, all other messages:** carry the latest durable sequence number (0 if
   none yet), so a host notices lost tail data even when only STATUS arrives.
 - **Host → device:** a host-chosen command sequence (non-zero, incrementing), echoed in
-  ERROR (and later ACK) as `cmd_seq`.
+  ERROR and ACK as `cmd_seq`. The dashboard numbers commands that wait for an answer
+  from 0x80000000, apart from its link task's keepalives, HELLO and backfill requests.
 
 ### Time
 `device_time_us` is the ESP32 monotonic clock (µs since boot). For RAW_SAMPLE_BATCH it is
 the timestamp of the batch's first frame; for other device messages, the time the message
 was built; host messages send 0. Host time is never substituted for device time (doc 08 §6).
 
-## 4. Message catalogue (schema 7)
+## 4. Message catalogue (schema 8)
 
 | Type | Name | Direction | Schema 7 behaviour |
 |---:|---|---|---|
@@ -88,7 +89,7 @@ was built; host messages send 0. Host time is never substituted for device time 
 | 0x0A | STEP_BATCH | device → host | Durable; one record per completed gait cycle (§5.12) |
 | 0x0B | HAPTIC_BATCH | device → host | Durable; every feedback cue and episode end (§5.17, DEC-023) |
 | 0x0C | STATUS | both | Device status at 5 Hz; host keepalive (empty) at 1 Hz |
-| 0x0D | ACK | device → host | Not emitted |
+| 0x0D | ACK | device → host | An accepted SESSION_START or SESSION_STOP (§5.18, schema 8) |
 | 0x0E | ERROR | device → host | Reply to a failed command, or `cmd_seq` 0 if unsolicited |
 | 0x0F | RECOVERY_INFO | device → host | Not emitted (no flash storage) |
 | 0x10 | BACKFILL_REQUEST | host → device | Request stored durable messages |
@@ -139,7 +140,7 @@ Host → device: empty payload, sent at least once per second while connected. A
 host message counts as activity. A link streams only while the host has been active
 within 3 s.
 
-Device → host (59 bytes), every 200 ms while streaming:
+Device → host (60 bytes), every 200 ms while streaming:
 
 | Offset | Type | Field |
 |---:|---|---|
@@ -166,6 +167,7 @@ Device → host (59 bytes), every 200 ms while streaming:
 | 53 | u8 | `gait_state` (§6.6) |
 | 54 | u32 | `cycles_completed` since boot, valid and invalid alike |
 | 58 | u8 | `haptics`: bit 0 the master switch is on (off at every boot), bit 1 a feedback episode is running (schema 7) |
+| 59 | u8 | `session`: the REFERENCE_CAPTURE, REFERENCE_CHECK or EVALUATION running (§6.8), 0 when none; a calibration window is `calibration_state` (schema 8) |
 
 Counters are cumulative since boot. The calibration fields describe the record held in
 RAM; it is lost on reset, and `calibration_state` returns to 0.
@@ -541,6 +543,28 @@ Each record:
 | 22 | u16 | reserved, 0 |
 | 24 | f32 | `error_score` of the cycle; 0 when ended from outside a cycle |
 | 28 | f32 | `confidence` of the cycle; 0 likewise |
+
+### 5.18 ACK (device → host, 6 bytes, schema 8)
+
+Sent for every SESSION_START and SESSION_STOP the device accepts; a refused one gets
+ERROR, as before. Until schema 8 an accepted command got no answer and the dashboard
+took 800 ms without an error as acceptance (PROB-033).
+
+| Offset | Type | Field |
+|---:|---|---|
+| 0 | u32 | `cmd_seq` of the command |
+| 4 | u8 | `cmd_type`: 0x04 or 0x05 |
+| 5 | u8 | `kind` (§6.8) started, or stopped; 0 for a stop with nothing running |
+
+The header sequence, as for every non-durable message, is the latest durable message
+when the command took effect: for a stop, the last message the session produced. The
+dashboard closes the recording once everything up to it has arrived (2 s at most) and
+hands nothing at or below it to a later recording. For a stopped REFERENCE_CAPTURE the
+ACK comes first, then the profile or ERROR Rejected: the session has ended either way.
+
+The device does not end a session when the link drops (doc 08 §5: gait processing and
+haptics continue). The dashboard stops it when it closes, and stops one that STATUS
+reports for more than 1 s while no recording is open (the app was closed or crashed).
 
 ### 5.15 RAW_ACCEL_BATCH (device → host, durable, schema 6)
 

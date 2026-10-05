@@ -3,6 +3,7 @@
 #include "calibration_service.h"
 #include "feedback.h"
 #include "gait_service.h"
+#include "session_service.h"
 
 #include <algorithm>
 
@@ -133,6 +134,7 @@ void fillStatus(ead::StatusInfo* s) {
   s->cycles_completed = gait::cyclesCompleted();
   s->haptics = uint8_t((feedback::enabled() ? ead::kHapticsSwitchOn : 0) |
                        (feedback::episodeActive() ? ead::kHapticsEpisode : 0));
+  s->session = session::active() ? uint8_t(session::kind()) : 0;
   s->calibration_state = uint8_t(calibration::state());
   s->calibration_samples = calibration::samples();
   s->calibration_reject = calibration::reject();

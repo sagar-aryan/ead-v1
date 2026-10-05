@@ -146,6 +146,7 @@ size_t encodeStatusPayload(const StatusInfo& s, uint8_t* out, size_t cap) {
   w.u8(s.gait_state);
   w.u32(s.cycles_completed);
   w.u8(s.haptics);
+  w.u8(s.session);
   return w.ok() ? w.size() : 0;
 }
 
@@ -217,6 +218,14 @@ bool decodeCalibrationPayload(const uint8_t* payload, size_t len, uint8_t* kind,
   readSensor(r, &record->foot);
   readSensor(r, &record->shank);
   return r.ok();
+}
+
+size_t encodeAckPayload(uint32_t cmdSeq, uint8_t cmdType, uint8_t kind, uint8_t* out, size_t cap) {
+  ByteWriter w(out, cap);
+  w.u32(cmdSeq);
+  w.u8(cmdType);
+  w.u8(kind);
+  return w.ok() ? w.size() : 0;
 }
 
 size_t encodeErrorPayload(uint32_t cmdSeq, uint8_t cmdType, ErrorCode code, const char* detail,

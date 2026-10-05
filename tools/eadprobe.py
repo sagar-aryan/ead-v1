@@ -27,11 +27,12 @@ import time
 import zlib
 
 PROTOCOL_VERSION = 1
-SCHEMA = 7
+SCHEMA = 8
 HEADER = struct.Struct("<HBBIIQ")
 
 HELLO, CONFIG_GET, CONFIG_SET, RAW_SAMPLE_BATCH, STATUS, ERROR = 0x01, 0x02, 0x03, 0x08, 0x0C, 0x0E
 HAPTIC_BATCH = 0x0B
+ACK = 0x0D
 SESSION_START, SESSION_STOP = 0x04, 0x05
 EVENT_BATCH, STEP_BATCH = 0x09, 0x0A
 BACKFILL_REQUEST, BACKFILL_DATA = 0x10, 0x11
@@ -54,7 +55,7 @@ USB_VID, USB_PID = 0x303A, 0x1001
 # Schema 6 frame (70 bytes): ..., q_foot, q_shank, rv_foot, rv_shank, status.
 RAW_FRAME = struct.Struct("<QI6h6h4h4h4h4hH")
 ACCEL_RECORD = struct.Struct("<QBB3h")
-STATUS_PAYLOAD = struct.Struct("<BBHIIIIIIIbBIHHHHBIHBIB")
+STATUS_PAYLOAD = struct.Struct("<BBHIIIIIIIbBIHHHHBIHBIBB")
 SENSOR_CHECK = struct.Struct("<HHHBBBBHII")
 CHECK_FLAGS = ["int_high_in_reset", "booted", "read_valid", "int_released", "wake",
                "product_id", "reports"]
@@ -310,7 +311,7 @@ def decode_status(p):
              "bus_errors", "imu_reinits", "oldest_seq", "last_seq", "ap_rssi_dbm", "ap_stations",
              "heap_free_min", "stack_free_acquisition", "stack_free_processing", "stack_free_usb",
              "stack_free_wifi", "calibration_state", "calibration_samples",
-             "calibration_reject", "gait_state", "cycles_completed", "haptics"]
+             "calibration_reject", "gait_state", "cycles_completed", "haptics", "session"]
     s = dict(zip(names, STATUS_PAYLOAD.unpack(p)))
     s["state"] = STATES[s["state"]]
     s["faults"] = flag_names(s["faults"], FAULTS)
@@ -319,6 +320,8 @@ def decode_status(p):
     s["calibration_reject"] = flag_names(s["calibration_reject"], CALIB_REJECTS)
     s["gait_state"] = GAIT_STATES[s["gait_state"]]
     s["haptics"] = [n for bit, n in enumerate(["switch_on", "episode"]) if s["haptics"] & (1 << bit)]
+    s["session"] = {v: k for k, v in SESSION_KINDS.items()}.get(s["session"], s["session"]) \
+        if s["session"] else None
     return s
 
 
@@ -436,6 +439,13 @@ def decode_calibration(p):
             "gyro_std_dps": round(v[12], 3),
         }
     return out
+
+
+def decode_ack(p):
+    """ACK, schema 8: an accepted SESSION_START or SESSION_STOP. The message's
+    header sequence is the session's boundary in the durable stream."""
+    cmd_seq, cmd_type, kind = struct.unpack("<IBB", p)
+    return f"ACK for command {cmd_seq} (type 0x{cmd_type:02X}), session kind {kind}"
 
 
 def decode_error(p):
@@ -797,6 +807,7 @@ def cmd_vectors(args):
         EVENT_BATCH: decode_events,
         STEP_BATCH: decode_cycles,
         ERROR: decode_error,
+        ACK: decode_ack,
         SESSION_STOP: lambda p: (decode_reference(p) if len(p) == REFERENCE_RECORD.size
                                  else decode_calibration(p)),
         SESSION_START: decode_session_start,

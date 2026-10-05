@@ -44,6 +44,8 @@ export interface DeviceStatus {
   cycles_completed: number;
   /** Bit 0 the haptic master switch, bit 1 a feedback episode (schema 7). */
   haptics: number;
+  /** The capture, check or evaluation the device is running (session kind), 0 none. */
+  session: number;
 }
 
 export interface Snapshot {

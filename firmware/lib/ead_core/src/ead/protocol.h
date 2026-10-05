@@ -10,7 +10,7 @@
 namespace ead {
 
 constexpr uint16_t kProtocolVersion = 1;  // doc 08 header field
-constexpr uint16_t kSchemaVersion = 7;    // payload layouts, docs/protocol.md
+constexpr uint16_t kSchemaVersion = 8;    // payload layouts, docs/protocol.md
 constexpr size_t kHeaderSize = 20;
 constexpr size_t kRawFrameSize = 70;
 constexpr size_t kMaxRawFramesPerBatch = 10;
@@ -197,9 +197,12 @@ struct StatusInfo {
   uint8_t gait_state;
   uint32_t cycles_completed;
   uint8_t haptics;  // StatusHaptics bits (schema 7)
+  /// The capture, check or evaluation running (SessionKind), 0 when none; a
+  /// calibration window is `calibration_state` (schema 8).
+  uint8_t session;
 };
 
-constexpr size_t kStatusPayloadSize = 59;
+constexpr size_t kStatusPayloadSize = 60;
 
 /// STATUS `haptics` (docs/protocol.md §5.3).
 enum StatusHaptics : uint8_t {
@@ -279,6 +282,14 @@ enum class ErrorCode : uint16_t {
 
 size_t encodeErrorPayload(uint32_t cmdSeq, uint8_t cmdType, ErrorCode code, const char* detail,
                           uint8_t* out, size_t cap);
+
+// ---- ACK (schema 8) ----------------------------------------------------------
+
+/// An accepted SESSION_START or SESSION_STOP (docs/protocol.md §5.18). The header
+/// sequence, the latest durable message when the command took effect, is the
+/// session's boundary in the stream.
+constexpr size_t kAckPayloadSize = 6;
+size_t encodeAckPayload(uint32_t cmdSeq, uint8_t cmdType, uint8_t kind, uint8_t* out, size_t cap);
 
 // ---- SERVICE_TEST (docs/protocol.md §5.14) ---------------------------------
 

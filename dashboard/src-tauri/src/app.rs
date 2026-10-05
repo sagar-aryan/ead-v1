@@ -40,6 +40,10 @@ impl Sink for Telemetry {
         self.store.record_haptics(records);
     }
 
+    fn owns_session(&self) -> bool {
+        self.store.recording_session().is_some()
+    }
+
     fn device_restarted(&self) -> Option<String> {
         match self.store.end_session_at_restart() {
             Ok(Some(session)) => {
@@ -83,6 +87,13 @@ impl App {
     }
 
     pub fn shutdown(&self) {
+        // A session the app started ends with the app: left running, the device
+        // would go on scoring and vibrating with nothing recording (PROB-033).
+        if self.device.snapshot().status.is_some_and(|s| s.session != 0) {
+            if let Err(e) = self.device.stop_session_blocking(std::time::Duration::from_millis(500)) {
+                eprintln!("device: at shutdown, {e}");
+            }
+        }
         let _ = self.shutdown.send(true);
         self.disconnect();
         // Nowhere left to show it: the window is closing. Data still held for a
@@ -358,20 +369,29 @@ reflash the firmware"
     blockers
 }
 
-/// The device answers a session it refuses with ERROR and says nothing when it
-/// accepts. Waiting a moment turns a refusal into a failed command, rather than
-/// a recording that runs on collecting cycles nobody will score — which is what
-/// happened when the device refused every check (PROB-014).
-async fn confirm_device_accepted(app: &App) -> CommandResult<()> {
-    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
-    match app.device.last_error() {
-        Some(error) => {
-            let _ = app.device.stop_session();
-            let _ = app.store.stop_session();
-            Err(format!("the device refused the session: {error}"))
-        }
-        None => Ok(()),
+/// How long a stop waits for the session's last messages to arrive before the
+/// recording closes on what it has.
+const DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Stops the device session, then the recording once the device's data up to the
+/// stop has arrived: the ACK names the last message the session produced
+/// (PROB-033). The recording closes even if the device does not answer; the
+/// error is returned after.
+async fn stop_device_then_recording(app: &App) -> CommandResult<Option<Session>> {
+    let stopped = app.device.stop_session().await;
+    let drained = match stopped {
+        Ok(boundary) => app.device.drain_through(boundary, DRAIN_TIMEOUT).await,
+        Err(_) => true,
+    };
+    let session = app.store.stop_session().map_err(failed)?;
+    stopped.map_err(|e| format!("the recording stopped, but the device: {e}"))?;
+    if !drained {
+        return Err(format!(
+            "the recording stopped, but the device's last messages had not all arrived within {} s",
+            DRAIN_TIMEOUT.as_secs()
+        ));
     }
+    Ok(session)
 }
 
 /// Starts a reference capture (doc 12 §2): a recording session, and the device
@@ -397,12 +417,10 @@ pub async fn start_reference_capture(
         .store
         .start_session(&patient_id, SessionKind::ReferenceCapture, &identity, None, None)
         .map_err(failed)?;
-    app.device.clear_error();
-    if let Err(e) = app.device.start_reference_capture() {
+    if let Err(e) = app.device.start_reference_capture().await {
         let _ = app.store.stop_session();
-        return Err(e);
+        return Err(format!("the device refused the session: {e}"));
     }
-    confirm_device_accepted(&app).await?;
     Ok(session)
 }
 
@@ -416,18 +434,23 @@ pub async fn finish_reference_capture(
     patient_id: String,
 ) -> CommandResult<Option<crate::store::StoredReference>> {
     let session_id = app.store.recording_session();
-    let stop = app.device.stop_session();
-    // The profile arrives as a SESSION_STOP reply, a link round trip later.
+    let stopped = app.device.stop_session().await;
+    // The profile follows the ACK in the same reply queue.
     let mut profile = None;
-    for _ in 0..20 {
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        profile = app.device.take_reference();
-        if profile.is_some() {
-            break;
+    if stopped.is_ok() {
+        for _ in 0..20 {
+            profile = app.device.take_reference();
+            if profile.is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
     }
+    if let Ok(boundary) = stopped {
+        app.device.drain_through(boundary, DRAIN_TIMEOUT).await;
+    }
     let _ = app.store.stop_session();
-    stop?;
+    stopped?;
     let Some(profile) = profile else { return Ok(None) };
     app.store
         .add_reference(&patient_id, session_id.as_deref(), &profile)
@@ -464,14 +487,12 @@ pub async fn start_scored_session(
             if check { None } else { limits },
         )
         .map_err(failed)?;
-    app.device.clear_error();
-    if let Err(e) = app.device.start_scored_session(check, &reference.profile) {
-        let _ = app.store.stop_session();
-        return Err(e);
-    }
     // Only a profile the device actually accepted has judged anything, so the
-    // lock waits for that.
-    confirm_device_accepted(&app).await?;
+    // lock waits for its ACK.
+    if let Err(e) = app.device.start_scored_session(check, &reference.profile).await {
+        let _ = app.store.stop_session();
+        return Err(format!("the device refused the session: {e}"));
+    }
     app.store.lock_reference(&reference_id).map_err(failed)?;
     Ok(session)
 }
@@ -479,11 +500,10 @@ pub async fn start_scored_session(
 /// Ends a check or an evaluation: the device stops scoring and the recording
 /// closes, which closes the open segment.
 #[tauri::command]
-pub fn stop_scored_session(app: tauri::State<'_, Arc<App>>) -> CommandResult<Option<Session>> {
-    let stop = app.device.stop_session();
-    let session = app.store.stop_session().map_err(failed)?;
-    stop?;
-    Ok(session)
+pub async fn stop_scored_session(
+    app: tauri::State<'_, Arc<App>>,
+) -> CommandResult<Option<Session>> {
+    stop_device_then_recording(&app).await
 }
 
 /// Writes the doc 10 export package for a session.
@@ -560,13 +580,16 @@ pub fn events(
 /// Starts a still window on the device. The record arrives in a later STATUS
 /// and in `device_snapshot`; five seconds is the documented default.
 #[tauri::command]
-pub fn start_calibration(app: tauri::State<'_, Arc<App>>, duration_ms: u16) -> CommandResult<()> {
-    app.device.start_calibration(duration_ms).map_err(failed)
+pub async fn start_calibration(
+    app: tauri::State<'_, Arc<App>>,
+    duration_ms: u16,
+) -> CommandResult<()> {
+    app.device.start_calibration(duration_ms).await.map_err(failed)
 }
 
 #[tauri::command]
-pub fn cancel_calibration(app: tauri::State<'_, Arc<App>>) -> CommandResult<()> {
-    app.device.cancel_calibration().map_err(failed)
+pub async fn cancel_calibration(app: tauri::State<'_, Arc<App>>) -> CommandResult<()> {
+    app.device.cancel_calibration().await.map_err(failed)
 }
 
 /// The configuration recorded with a session, so stored counts can be shown in
