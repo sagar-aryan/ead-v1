@@ -87,7 +87,9 @@ Receive, verify and store the device's data, and serve the UI.
   blocking thread and opens the port without touching DTR/RTS (PROB-005).
 - `device.rs` performs the handshake, sends keepalives, fetches and hash-verifies
   the device configuration, tracks durable sequence numbers and requests backfill
-  for anything missing.
+  for anything missing. The tracker outlives a connection, so a reconnect to the
+  same boot asks for what it missed (PROB-030); a sequence already received is
+  dropped (PROB-031).
 - `store/` writes raw frames through a single writer thread, batched into
   transactions every 250 ms, with `INSERT OR IGNORE` so a backfilled frame cannot
   duplicate a live one. WAL mode keeps UI queries off the writer's path. A failed

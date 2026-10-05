@@ -1806,5 +1806,8 @@ PROB-029 (failed commits kept and retried, reported in the state bar; `flush` re
 a result). Files: `dashboard/src-tauri/src/{store/mod.rs,store/tests.rs,app.rs,main.rs,
 hardware_tests.rs}`, `dashboard/src/{api.ts,App.tsx,components/StateBar.tsx}`.
 
+PROB-030 (tracker kept between connections) and PROB-031 (repeats dropped):
+`dashboard/src-tauri/src/device.rs`.
+
 ### Current Status
 In progress: host-side findings next.

@@ -127,11 +127,34 @@ pub struct Device {
     state: Arc<Mutex<State>>,
     commands: Mutex<Option<mpsc::Sender<Vec<u8>>>>,
     sink: Arc<dyn Sink>,
+    /// The last connection's receive progress, between connections.
+    tracker: Mutex<Option<Tracker>>,
 }
 
 impl Device {
     pub fn new(sink: Arc<dyn Sink>) -> Self {
-        Self { state: Arc::new(Mutex::new(State::default())), commands: Mutex::new(None), sink }
+        Self {
+            state: Arc::new(Mutex::new(State::default())),
+            commands: Mutex::new(None),
+            sink,
+            tracker: Mutex::new(None),
+        }
+    }
+
+    /// The tracker a connection uses: the previous connection's, so a reconnect
+    /// to the same boot knows what it already has and asks for what it missed.
+    /// Until 2026-10-05 every connection started a new one, and the device's
+    /// three-minute history was never asked for after a dropout (PROB-030).
+    fn take_tracker(&self) -> Tracker {
+        self.tracker
+            .lock()
+            .expect("tracker")
+            .take()
+            .unwrap_or_else(|| Tracker::new(self.sink.clone(), self.state.clone()))
+    }
+
+    fn keep_tracker(&self, tracker: Tracker) {
+        *self.tracker.lock().expect("tracker") = Some(tracker);
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -376,11 +399,23 @@ pub async fn run(device: Arc<Device>, target: LinkTarget, mut stop: tokio::sync:
 /// healthy session (so the backoff resets).
 async fn session(
     device: &Arc<Device>,
+    events: mpsc::Receiver<LinkEvent>,
+    commands: mpsc::Sender<Vec<u8>>,
+    stop: &mut tokio::sync::watch::Receiver<bool>,
+) -> bool {
+    let mut tracker = device.take_tracker();
+    let healthy = connection(device, &mut tracker, events, commands, stop).await;
+    device.keep_tracker(tracker);
+    healthy
+}
+
+async fn connection(
+    device: &Arc<Device>,
+    tracker: &mut Tracker,
     mut events: mpsc::Receiver<LinkEvent>,
     commands: mpsc::Sender<Vec<u8>>,
     stop: &mut tokio::sync::watch::Receiver<bool>,
 ) -> bool {
-    let mut tracker = Tracker::new(device.sink.clone(), device.state.clone());
     let mut command_seq: u32 = 0;
     let mut keepalive = tokio::time::interval(KEEPALIVE);
     keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -564,8 +599,8 @@ impl Tracker {
         let mut state = self.state.lock().expect("device state");
         // The device keeps its calibration in RAM only, so a new boot has none,
         // whatever this host heard before (PROB-018). Compared with the last
-        // HELLO rather than `self.boot_id`, which starts empty on every
-        // reconnect: a replug of the same boot keeps its calibration.
+        // HELLO rather than `self.boot_id`, which a first connection starts
+        // without: a replug of the same boot keeps its calibration.
         let previous = state.hello.as_ref().map(|h| h.boot_id);
         let restarted = previous.is_some() && previous != Some(hello.boot_id);
         if previous != Some(hello.boot_id) {
@@ -635,6 +670,10 @@ impl Tracker {
     fn on_durable(&mut self, sequence: u32, msg_type: u8, payload: &[u8]) {
         match self.highest_seq {
             Some(highest) if sequence > highest + 1 => self.note_missing_range(highest + 1, sequence - 1),
+            // Already received: a backfill can repeat what the live stream
+            // delivered. Handing it on again counted its cycles twice toward a
+            // segment's limits (PROB-031); the store's OR IGNORE only covers rows.
+            Some(highest) if sequence <= highest && !self.missing.contains(&sequence) => return,
             _ => {}
         }
         self.missing.remove(&sequence);
@@ -753,10 +792,67 @@ mod tests {
         protocol::encode(MsgType::Hello, 1, 0, &payload)
     }
 
-    /// A connection as `session()` makes one: a new tracker on every reconnect.
+    /// A connection's tracker, as `session()` takes it. Dropped rather than
+    /// handed back with `keep_tracker`, the next connection starts a new one.
     fn connect(device: &Device) -> Tracker {
         device.state.lock().unwrap().link_state = Some(LinkState::Connected);
-        Tracker::new(device.sink.clone(), device.state.clone())
+        device.take_tracker()
+    }
+
+    /// A HELLO whose device history runs from `oldest` to `last`.
+    fn hello_holding(boot_id: u32, oldest: u32, last: u32) -> Vec<u8> {
+        let msg = vector("hello_info.hex");
+        let (_, payload) = protocol::parse(&msg).unwrap();
+        let mut payload = payload.to_vec();
+        payload[4..8].copy_from_slice(&boot_id.to_le_bytes());
+        payload[49..53].copy_from_slice(&oldest.to_le_bytes());
+        payload[53..57].copy_from_slice(&last.to_le_bytes());
+        protocol::encode(MsgType::Hello, 1, 0, &payload)
+    }
+
+    /// The vector's message under another durable sequence number.
+    fn resequenced(name: &str, sequence: u32) -> Vec<u8> {
+        let msg = vector(name);
+        let (header, payload) = protocol::parse(&msg).unwrap();
+        protocol::encode(MsgType::from_u8(header.msg_type).unwrap(), sequence, header.time_us, payload)
+    }
+
+    fn backfill(messages: &[Vec<u8>]) -> Vec<u8> {
+        let first = protocol::parse(&messages[0]).unwrap().0.sequence;
+        let last = protocol::parse(messages.last().unwrap()).unwrap().0.sequence;
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&11u32.to_le_bytes());
+        payload.extend_from_slice(&first.to_le_bytes());
+        payload.extend_from_slice(&last.to_le_bytes());
+        payload.push(0);
+        for m in messages {
+            payload.extend_from_slice(m);
+        }
+        protocol::encode(MsgType::BackfillData, 9, 0, &payload)
+    }
+
+    // PROB-030, audit I02: received through 100, dropped, back on the same boot
+    // with history through 150. Nothing from 101 to 150 was asked for.
+    #[test]
+    fn a_reconnect_to_the_same_boot_requests_what_it_missed() {
+        let device = Device::new(Arc::new(NoSink));
+        let mut tracker = connect(&device);
+        tracker.handle(&hello_holding(7, 1, 0));
+        for sequence in 1..=100 {
+            tracker.handle(&resequenced("raw_batch.hex", sequence));
+        }
+        assert!(tracker.take_backfill_requests().is_empty());
+        device.keep_tracker(tracker);
+
+        let mut tracker = connect(&device);
+        tracker.handle(&hello_holding(7, 1, 150));
+        assert_eq!(tracker.take_backfill_requests(), vec![(101, 150)]);
+        device.keep_tracker(tracker);
+
+        // Another boot: its numbers start again and nothing earlier exists.
+        let mut tracker = connect(&device);
+        tracker.handle(&hello_holding(8, 1, 20));
+        assert!(tracker.take_backfill_requests().is_empty());
     }
 
     fn calibrated(boot_id: u32) -> Device {
@@ -845,10 +941,10 @@ mod tests {
         tracker.handle(&vector("backfill_data.hex")); // sequences 3 and 4
         assert!(tracker.missing.is_empty());
         let (frames, samples, _) = &*sink.0.lock().unwrap();
-        // Sequence 3 live, then 3 again and 4 from the backfill: repeats are
-        // handed on, and the store ignores them.
+        // Sequence 3 live, then 3 again and 4 from the backfill: the repeat of 3
+        // is dropped here (PROB-031), only 4 is handed on.
         let indices: Vec<u32> = frames.iter().map(|f| f.frame_index).collect();
-        assert_eq!(indices, vec![100, 101, 100, 101, 101]);
+        assert_eq!(indices, vec![100, 101, 101]);
         assert_eq!(samples.len(), 3);
         assert_eq!((samples[1].sensor, samples[1].sequence), (1, 255));
     }
@@ -897,14 +993,15 @@ mod tests {
         assert_eq!(shown.start_frame, protocol::parse_step_batch(
             protocol::parse(&vector("step_batch.hex")).unwrap().1).unwrap().last().unwrap().start_frame);
 
-        // The same cycle delivered by backfill is handed on as well.
-        let mut payload = Vec::new();
-        payload.extend_from_slice(&11u32.to_le_bytes());
-        payload.extend_from_slice(&52u32.to_le_bytes());
-        payload.extend_from_slice(&52u32.to_le_bytes());
-        payload.push(0);
-        payload.extend_from_slice(&vector("step_batch.hex"));
-        tracker.handle(&protocol::encode(MsgType::BackfillData, 9, 0, &payload));
+        // A missing cycle delivered by backfill is handed on.
+        tracker.handle(&backfill(&[resequenced("step_batch.hex", 10)]));
+        assert_eq!(sink.0.lock().unwrap().2, 2);
+        assert!(!tracker.missing.contains(&10));
+
+        // One already received is not, live or backfilled: its cycles were
+        // counted twice toward a segment's limits (PROB-031, audit I06).
+        tracker.handle(&backfill(&[vector("step_batch.hex")]));
+        tracker.handle(&resequenced("step_batch.hex", 10));
         assert_eq!(sink.0.lock().unwrap().2, 2);
     }
 

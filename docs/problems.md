@@ -1520,3 +1520,60 @@ the audit reproduced.
 Lost rows are reported while the app runs, not stored with the session: a later
 reader sees them only as gaps in `frame_index`. Data still held for retry when the
 app closes is lost with the process (stderr says so).
+
+## PROB-030 — After a reconnect, the device's history was never asked for
+
+**Status:** Resolved (2026-10-05)
+
+### Symptoms
+Audit finding I02, confirmed in the code: after a Wi-Fi or USB dropout, the dashboard
+reconnected and carried on live, but never requested the messages sent while it was
+away, though the device holds about three minutes of them for exactly that. The
+2026-10-04 walks lost no frames, so it had not shown in a recording.
+
+### Root cause
+`session()` in `dashboard/src-tauri/src/device.rs` built a new `Tracker` for every
+connection, with no boot ID and no highest sequence. `on_hello` asks for
+`highest + 1 ..= last_seq` only when it knows a highest, and the device starts live
+delivery after its latest message (`firmware/src/link.cpp`, HELLO). Backfill worked
+only for gaps inside one connection.
+
+### Resolution
+`Device` keeps the tracker between connections (`take_tracker`, `keep_tracker`);
+`session` hands it to `connection` and puts it back. A HELLO from the same boot then
+notes the gap as missing and the keepalive tick requests it; a new boot resets the
+tracker as before.
+
+### Verification
+`a_reconnect_to_the_same_boot_requests_what_it_missed`: received 1–100, reconnect
+with history to 150 → requests (101, 150); a new boot → none. Fails with a new tracker
+per connection ("left: [] right: [(101, 150)]").
+
+### Limitations
+The tracker lives in memory: a dashboard restarted while the device kept running
+starts without it. A task aborted mid-connection drops it (the next starts new).
+
+## PROB-031 — A message received twice was handed on twice
+
+**Status:** Resolved (2026-10-05)
+
+### Symptoms
+Audit finding I06, confirmed in the code: a backfill repeating a message the live
+stream had already delivered reached the sink again. Frames and samples are
+`INSERT OR IGNORE`, so they were harmless; a repeated step batch counted its cycles
+again toward the segment limits (`roll_segment` runs before the cycle row's
+`OR REPLACE`) and toward the LIVE valid-cycle count. Two tests (PROB-025's) asserted
+the repeat was handed on.
+
+### Root cause
+`Tracker::on_durable` checked for gaps but not for sequences it already had.
+
+### Resolution
+A sequence at or below the highest received and not missing is dropped before
+anything is decoded. The two tests now expect the repeat dropped and a missing one
+delivered.
+
+### Verification
+`gait_batches_are_durable_and_reach_the_sink` and
+`accel_batches_are_durable_and_reach_the_sink` fail without the check (cycles 4 not
+2; frames `[100, 101, 100, 101, 101]`) and pass with it.
