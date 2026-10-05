@@ -19,9 +19,10 @@ const CHECK_STEPS: [string, string][] = [
   ["reports", "Accelerometer and gyroscope stream"],
 ];
 
-/** The contract's duty range for any motor drive (doc 06, CONFIG_V1.json). */
+/** The device's duty range for any motor drive: doc 06's 20 % floor, and up to
+ * 100 % since DEC-025 (the contract capped it at 80 %). */
 const MIN_PERCENT = 20;
-const MAX_PERCENT = 80;
+const MAX_PERCENT = 100;
 
 function Verdict({ pass }: { pass: boolean }) {
   return <span className={pass ? "verdict pass" : "verdict fail"}>{pass ? "PASS" : "FAIL"}</span>;
@@ -219,7 +220,7 @@ export function Check({ device, recording }: { device: DeviceApi; recording: str
             <>
               <p className="hint">
                 One motor at a time, for one second, at the strength set here. The device ends each
-                pulse by itself and enforces the contract's limits: {MIN_PERCENT}–{MAX_PERCENT} %
+                pulse by itself and enforces its limits: {MIN_PERCENT}–{MAX_PERCENT} %
                 duty, at most 5 s on per motor in any 10 s. The device cannot sense a motor turning,
                 so say whether you felt it.
               </p>

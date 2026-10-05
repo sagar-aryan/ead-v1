@@ -222,6 +222,21 @@ static void test_several_deviations_with_no_leader_are_overall() {
                    ead::errorClassBit(ead::ErrorClass::InversionDeviation));
 }
 
+static void test_a_narrow_old_profile_is_scored_under_todays_floors() {
+  // TEST-067: reference v5 had a stance-ratio spread of 0.012, built under the old
+  // floors, and a 3 % slower stance scored 0.83 on that feature alone. Scoring
+  // applies the floor again (DEC-025): 0.03 is one floor, a third of the way to full.
+  ead::ReferenceProfile profile = buildTypicalReference();
+  profile.features[size_t(ead::GaitFeature::StanceRatio)].spread = 0.012f;
+  ead::GaitCycle c = cycleWith(profile.features[0].median, profile.features[1].median,
+                               profile.features[2].median, profile.features[3].median,
+                               profile.features[4].median + 0.03f, profile.features[5].median,
+                               profile.features[6].median);
+  const ead::ErrorResult result = ead::scoreCycle(c, profile, kGoodInputs);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 1.0f / 3.0f,
+                           result.deviations[size_t(ead::GaitFeature::StanceRatio)]);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_a_reference_needs_thirty_valid_cycles);
@@ -235,5 +250,6 @@ int main() {
   RUN_TEST(test_an_unmeasurable_feature_leaves_the_denominator);
   RUN_TEST(test_confidence_weights_and_gates);
   RUN_TEST(test_several_deviations_with_no_leader_are_overall);
+  RUN_TEST(test_a_narrow_old_profile_is_scored_under_todays_floors);
   return UNITY_END();
 }

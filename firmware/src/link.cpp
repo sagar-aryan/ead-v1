@@ -28,7 +28,7 @@ const char* refusalText(ead::MotorGuard::Refusal refusal) {
     case Refusal::BadMotor: return "motor must be 1..6";
     case Refusal::Disabled:
       return "this motor's output is switched off in this firmware";
-    case Refusal::BadDuty: return "duty must be 51..204 of 255 (20-80 %)";
+    case Refusal::BadDuty: return "duty must be 51..255 of 255 (20-100 %)";
     case Refusal::BadDuration: return "duration must be 100..5000 ms";
     case Refusal::Busy: return "another motor is pulsing: one at a time";
     case Refusal::RollingLimit: return "rolling limit: at most 5 s on per motor in any 10 s";

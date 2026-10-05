@@ -24,6 +24,7 @@ ead::HapticConfig contractConfig() {
   c.minDuty = EAD_HAPTIC_MIN_DUTY;
   c.maxDuty = EAD_HAPTIC_MAX_DUTY;
   c.intensityExponent = EAD_HAPTIC_INT_EXP;
+  c.cueMs = EAD_HAPTIC_CUE_MS;
   return c;
 }
 

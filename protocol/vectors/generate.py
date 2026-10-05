@@ -151,8 +151,10 @@ def config_section_format1(cfg):
                        p["shank_imu_int_gpio"], *[motors[f"M{i}"] for i in range(1, 7)])
     # Everything after the pins is the same in both formats. In format 2 it
     # starts after 22 bytes of sensor fields, 18 of mount maps and 15 of pins.
-    return bytes(out) + config_section(cfg, cfg["zupt"]["gyro_threshold_dps"],
-                                       haptics_fitted=0)[22 + 18 + 15:]
+    return bytes(out) + config_section(
+        cfg, cfg["zupt"]["gyro_threshold_dps"], haptics_fitted=0,
+        haptic_off=cfg["error"]["haptic_off_threshold"],
+        haptic_duty=(cfg["haptics"]["min_duty"], cfg["haptics"]["max_duty"]))[22 + 18 + 15:]
 
 
 # The ZUPT gyroscope limit of the current build: 30 deg/s by the user's decision
@@ -160,7 +162,14 @@ def config_section_format1(cfg):
 ZUPT_GYRO_DPS = 30.0
 
 
-def config_section(cfg, zupt_gyro_dps=ZUPT_GYRO_DPS, haptics_fitted=HAPTICS_FITTED):
+# Feedback as built (DEC-025, the user): an episode ends under the ON threshold,
+# and every cue runs at full duty. Format 1 keeps the contract's values.
+HAPTIC_OFF_THRESHOLD = 0.35
+HAPTIC_DUTY = (255, 255)
+
+
+def config_section(cfg, zupt_gyro_dps=ZUPT_GYRO_DPS, haptics_fitted=HAPTICS_FITTED,
+                   haptic_off=HAPTIC_OFF_THRESHOLD, haptic_duty=HAPTIC_DUTY):
     cal, gait, zupt = cfg["calibration"], cfg["gait"], cfg["zupt"]
     err, hap, net = cfg["error"], cfg["haptics"], cfg["network"]
     sto, ref = cfg["storage"], cfg["reference"]
@@ -180,12 +189,12 @@ def config_section(cfg, zupt_gyro_dps=ZUPT_GYRO_DPS, haptics_fitted=HAPTICS_FITT
     w = err["weights"]
     out += struct.pack(
         "<fffff7f", err["class_activation_threshold"], err["haptic_on_threshold"],
-        err["haptic_off_threshold"], err["confidence_haptic_threshold"], err["robust_z_clip"],
+        haptic_off, err["confidence_haptic_threshold"], err["robust_z_clip"],
         w["swing_dorsiflexion"], w["initial_contact_plantarflexion"], w["inversion_eversion"],
         w["timing"], w["stance_swing_ratio"], w["cycle_distance"], w["shank_dynamics"])
     deg = hap["motor_positions_deg"]
     out += struct.pack("<BHBBBfBBf6H", haptics_fitted, hap["pwm_hz"], hap["resolution_bits"],
-                       hap["min_duty"], hap["max_duty"], hap["intensity_exponent"],
+                       *haptic_duty, hap["intensity_exponent"],
                        hap["max_continuous_on_s"], hap["rolling_window_s"],
                        hap["rolling_duty_limit"], *[deg[f"M{i}"] for i in range(1, 7)])
     out += struct.pack("<4BHB", *[int(o) for o in net["ip"].split(".")], net["port"],

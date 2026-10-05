@@ -43,17 +43,21 @@ constexpr float kFeatureWeights[kFeatureCount] = {
     0.10f,  // shank dynamics
 };
 
-/// Spread floors, in each feature's own unit (doc 06 §2 "minimum floor").
-/// Provisional: they are the smallest difference worth calling a deviation,
-/// and want revisiting once several patients have been captured.
+/// Spread floors, in each feature's own unit (doc 06 §2 "minimum floor"),
+/// applied when a profile is built and again when a cycle is scored, so a
+/// profile built under the old floors is scored under these (DEC-025). About the
+/// change between two normal walks of the same person on one day (TEST-067): a
+/// steady capture made a 3 % change of stance 2.5 spreads, and normal walking at a
+/// slightly different pace buzzed. Until 2026-10-05: 0.5°, 0.010 s, 0.005, 0.020 m,
+/// 5 °/s (DEC-013), which only kept a spread from being zero.
 constexpr float kFeatureSpreadFloor[kFeatureCount] = {
-    0.5f,    // degrees
-    0.5f,    // degrees
-    0.5f,    // degrees
-    0.010f,  // seconds
-    0.005f,  // ratio
-    0.020f,  // metres
-    5.0f,    // degrees per second
+    3.0f,    // degrees, swing dorsiflexion
+    3.0f,    // degrees, contact angle
+    3.0f,    // degrees, inversion
+    0.10f,   // seconds, cycle time
+    0.03f,   // stance ratio
+    0.15f,   // metres, cycle distance
+    30.0f,   // degrees per second, shank dynamics
 };
 
 /// Doc 05 §11 features, read off a cycle. One place where a feature's meaning

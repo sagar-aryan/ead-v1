@@ -29,11 +29,13 @@ placeholder or fake data, no features the spec does not need.
   used (worn, TEST-065); 10 m walks over Wi-Fi at 200 Hz with 0 frames lost
   (TEST-058). Step counting on the seven video-synced fixtures: 3 errors over 176
   landings (TEST-059).
-- **Never done:** a cue felt during walking; anything on battery since the audit
-  fixes; a full reference → check → evaluation walk on the current firmware.
+- **Walked worn on battery over Wi-Fi (TEST-066, TEST-067):** the full workflow ran,
+  0 frames lost. Cues were faint and normal walking buzzed against the steady v5
+  reference; DEC-025 answers both, to be confirmed on a walk.
 - **No trustworthy reference profile exists yet.** Patient 67's v1–v3 (2026-09-18) were
   built while PROB-016 split strides; v4 (2026-10-05, TEST-066) is half free walking
-  around a room. Next: v5 from the 10 m straight only, with counts per length.
+  around a room. v5 (`20261005-151103-5aad`, the 10 m straight only) is the one to
+  use; scored under DEC-025's floors, it needs no recapture.
 - **Dashboard (`ead`, rebuilt after every change):** every doc 11 view except a
   separate HAPTICS page, plus Check; store schema 11. The database on this machine
   migrates to 11 when the app next opens; backup `ead.sqlite3.schema10-backup-2026-10-05`
@@ -151,7 +153,8 @@ calf; DEC-016 final pin map, all 15 GPIOs used, GPIO39 never a motor; DEC-017 BN
 firmware (own SH-2 driver, Mahony kept, calibrated reports as counts); DEC-018 motor
 service-test pulses; DEC-019–021 soft footfalls, the user's decisions, the 200 Hz feed;
 DEC-022 gait events from the shank's swing; DEC-023 haptic feedback during evaluations;
-DEC-024 session commands acknowledged, a session outlives the link but not the app.
+DEC-024 session commands acknowledged, a session outlives the link but not the app;
+DEC-025 full-strength 0.5 s cues, OFF at 0.35, realistic spread floors.
 
 ## Environment
 - Linux (Ubuntu 24.04), node 24.13.1, npm 11.8.0, rustc/cargo 1.95.0.
@@ -200,7 +203,7 @@ DEC-024 session commands acknowledged, a session outlives the link but not the a
 
 ## How To Verify
 The whole suite, before every commit:
-- `pio test -d firmware -e native` (101), `pio run -d firmware`,
+- `pio test -d firmware -e native` (103), `pio run -d firmware`,
   `pio run -d firmware/bench/bno086 -e foot -e shank`
 - `cd dashboard/src-tauri && cargo test` (84, 4 ignored) and
   `cargo clippy --all-targets -- -D warnings`

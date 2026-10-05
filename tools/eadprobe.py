@@ -1191,7 +1191,7 @@ def main():
     ck.add_argument("--rerun", action="store_true", help="reset both sensors and check again")
     pu = sub.add_parser("pulse", help="one motor pulse (SERVICE_TEST, DEC-018)")
     pu.add_argument("motor", type=int, help="1..6")
-    pu.add_argument("--duty", type=int, default=128, help="51..204 of 255 (default 128)")
+    pu.add_argument("--duty", type=int, default=128, help="51..255 of 255 (default 128)")
     pu.add_argument("--ms", type=int, default=1000, help="100..5000 (default 1000)")
     ro = sub.add_parser("reopen")
     ro.add_argument("--cycles", type=int, default=20)

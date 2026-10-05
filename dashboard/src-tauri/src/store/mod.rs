@@ -117,6 +117,9 @@ pub const DISTANCE_MIN_ZUPT_QUALITY: f32 = 0.15;
 const FEATURE_WEIGHTS: [f32; 7] = [0.25, 0.15, 0.15, 0.15, 0.10, 0.10, 0.10];
 /// Doc 06 §2: three spreads out is a deviation of 1.
 const DEVIATION_SCALE: f32 = 3.0;
+/// Mirrored from `ead::kFeatureSpreadFloor` (DEC-025): the device scores with
+/// these as the least spread, so the proxy uses the same normalization.
+const SPREAD_FLOORS: [f32; 7] = [3.0, 3.0, 3.0, 0.10, 0.03, 0.15, 30.0];
 
 /// `unilateral_cycle_symmetry_proxy` (doc 05 §10): cycle repeatability between
 /// consecutive valid right-leg cycles, `1 - normalized_difference`, using the
@@ -146,7 +149,8 @@ fn symmetry_proxy(current: &StoredCycle, previous: &StoredCycle, spreads: &[f32;
         let difference = (feature_value(current, feature)
             - feature_value(previous, feature))
         .abs();
-        let d = (difference / spreads[feature] / DEVIATION_SCALE).clamp(0.0, 1.0);
+        let spread = spreads[feature].max(SPREAD_FLOORS[feature]);
+        let d = (difference / spread / DEVIATION_SCALE).clamp(0.0, 1.0);
         weighted += FEATURE_WEIGHTS[feature] * d;
         active += FEATURE_WEIGHTS[feature];
     }

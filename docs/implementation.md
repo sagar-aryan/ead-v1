@@ -672,8 +672,9 @@ dashboard (CONFIG_SET, STATUS `haptics`, HAPTIC_BATCH).
   the next frame.
 
 ### Limitations
-Not flashed or felt. The 250 ms cue, TIMING's alternation and dropping a second motor
-under 51 are choices doc 06 leaves open. Right leg only.
+Since DEC-025 every cue runs at full duty for 500 ms (the user), an episode ends at the
+first step under 0.35, and spreads are floored when scored. TIMING's alternation and
+the second-motor rule are choices doc 06 leaves open. Right leg only.
 
 ### Verification
 TEST-060.

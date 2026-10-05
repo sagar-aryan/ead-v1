@@ -163,6 +163,25 @@ static void test_stopping_from_outside_closes_only_a_running_episode() {
   TEST_ASSERT_FALSE(engine.active());
 }
 
+static void test_the_built_cue_is_full_strength_whatever_the_score() {
+  // DEC-025, the user: every cue at 100 % for 500 ms. With the minimum and maximum
+  // duty both 255, doc 06 §10's formula gives 255 for any score; a second motor
+  // runs only at the same full share, so OVERALL picks the nearest one.
+  ead::HapticConfig config;
+  config.minDuty = 255;
+  config.maxDuty = 255;
+  config.cueMs = 500;
+  HapticEngine engine(config);
+  HapticCue cue;
+  TEST_ASSERT_TRUE(engine.onCycle(validCycle(), scored(ErrorClass::InsufficientDorsiflexion, 0.36f, 0.75f), &cue));
+  TEST_ASSERT_EQUAL_UINT8(255, cue.duty[0]);
+  TEST_ASSERT_EQUAL_UINT16(500, cue.durationMs);
+  HapticEngine lateral(config);
+  TEST_ASSERT_TRUE(lateral.onCycle(validCycle(), scored(ErrorClass::EversionDeviation, 0.4f, 0.9f), &cue));
+  TEST_ASSERT_EQUAL_UINT8(255, cue.duty[0]);
+  TEST_ASSERT_EQUAL_UINT8(255, cue.duty[1]);  // halfway between M2 and M3: both, full
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_an_episode_needs_the_on_threshold_and_full_confidence);
@@ -174,5 +193,6 @@ int main() {
   RUN_TEST(test_intensity_follows_score_and_confidence);
   RUN_TEST(test_a_score_with_no_class_has_no_direction);
   RUN_TEST(test_stopping_from_outside_closes_only_a_running_episode);
+  RUN_TEST(test_the_built_cue_is_full_strength_whatever_the_score);
   return UNITY_END();
 }

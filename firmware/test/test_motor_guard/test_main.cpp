@@ -11,7 +11,7 @@ void tearDown() {}
 
 // The contract's haptic limits, with every motor enabled.
 static MotorGuard contractGuard(uint8_t enabledMask = 0x3F) {
-  return MotorGuard({EAD_HAPTIC_MIN_DUTY, EAD_HAPTIC_MAX_DUTY, EAD_HAPTIC_MAX_ON_S * 1000u,
+  return MotorGuard({EAD_MOTOR_MIN_DUTY, EAD_MOTOR_MAX_DUTY, EAD_HAPTIC_MAX_ON_S * 1000u,
                      EAD_HAPTIC_ROLL_WIN_S * 1000u, EAD_HAPTIC_ROLL_DUTY_LIM, enabledMask});
 }
 
@@ -21,7 +21,7 @@ static void test_refuses_requests_outside_the_contract() {
   TEST_ASSERT_EQUAL(Refusal::BadMotor, guard.request(7, 128, 1000, 0));
   TEST_ASSERT_EQUAL(Refusal::Disabled, guard.request(3, 128, 1000, 0));
   TEST_ASSERT_EQUAL(Refusal::BadDuty, guard.request(1, 50, 1000, 0));
-  TEST_ASSERT_EQUAL(Refusal::BadDuty, guard.request(1, 205, 1000, 0));
+  // Full duty is allowed since DEC-025 (doc 06 §10 capped it at 204); the floor stays.
   TEST_ASSERT_EQUAL(Refusal::BadDuration, guard.request(1, 128, 99, 0));
   TEST_ASSERT_EQUAL(Refusal::BadDuration, guard.request(1, 128, 5001, 0));
   TEST_ASSERT_EQUAL(0, guard.running(0));
@@ -33,7 +33,7 @@ static void test_one_motor_at_a_time_and_the_pulse_ends_on_its_own() {
   TEST_ASSERT_EQUAL(1, guard.running(500));
   TEST_ASSERT_EQUAL(Refusal::Busy, guard.request(2, 128, 1000, 500));
   TEST_ASSERT_EQUAL(0, guard.running(1000));
-  TEST_ASSERT_EQUAL(Refusal::None, guard.request(2, 204, 1000, 1000));
+  TEST_ASSERT_EQUAL(Refusal::None, guard.request(2, 255, 1000, 1000));
 }
 
 static void test_at_most_half_of_any_ten_seconds_on_per_motor() {

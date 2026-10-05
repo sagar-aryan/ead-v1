@@ -16,7 +16,7 @@ constexpr uint8_t kPins[EAD_MOTOR_COUNT] = {EAD_MOTOR_M1_GPIO, EAD_MOTOR_M2_GPIO
                                             EAD_MOTOR_M5_GPIO, EAD_MOTOR_M6_GPIO};
 
 portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
-ead::MotorGuard s_guard({EAD_HAPTIC_MIN_DUTY, EAD_HAPTIC_MAX_DUTY, EAD_HAPTIC_MAX_ON_S * 1000u,
+ead::MotorGuard s_guard({EAD_MOTOR_MIN_DUTY, EAD_MOTOR_MAX_DUTY, EAD_HAPTIC_MAX_ON_S * 1000u,
                          EAD_HAPTIC_ROLL_WIN_S * 1000u, EAD_HAPTIC_ROLL_DUTY_LIM,
                          EAD_MOTOR_ENABLED_MASK});
 esp_timer_handle_t s_stop = nullptr;

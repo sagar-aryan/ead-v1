@@ -134,7 +134,9 @@ inline void eadMountApply(const EadMountMap& map, int32_t cx, int32_t cy,
 #define EAD_SCORE_MAX              1.0f
 #define EAD_CLASS_ACTIVATION_TH    0.35f
 #define EAD_HAPTIC_ON_TH           0.35f
-#define EAD_HAPTIC_OFF_TH          0.25f
+// DEC-025: an episode ends at the first step under the ON threshold. Doc 06 §11's
+// 0.25 sits at the score of a normal step (about 0.23, TEST-066), so episodes ran on.
+#define EAD_HAPTIC_OFF_TH          0.35f
 #define EAD_CONF_HAPTIC_TH         0.75f
 #define EAD_ROBUST_Z_CLIP          3.0f
 // Error weights: swing_dorsi .25, IC_plantar .15, inv Ever .15,
@@ -150,8 +152,17 @@ inline void eadMountApply(const EadMountMap& map, int32_t cx, int32_t cy,
 // ---- Haptics (doc 06, CONFIG_V1.json "haptics") ----
 #define EAD_HAPTIC_PWM_HZ          200u
 #define EAD_HAPTIC_RES_BITS        8u
-#define EAD_HAPTIC_MIN_DUTY        51u    // 20%
-#define EAD_HAPTIC_MAX_DUTY        204u   // 80%
+// Feedback cue duty. DEC-025, the user: every cue at full strength, 100 %, not
+// scaled by the score (doc 06 §10: 51..204 by score^1.5 x confidence). With both
+// at 255 the §10 formula gives 255, and CONFIG_GET reports what the device does.
+#define EAD_HAPTIC_MIN_DUTY        255u
+#define EAD_HAPTIC_MAX_DUTY        255u
+// How long each cue runs (DEC-025, the user; 250 ms until then was too faint).
+#define EAD_HAPTIC_CUE_MS          500u
+// The motor guard's duty range for every output, service pulses included: doc 06
+// §10's 20 % floor, and up to 100 % since DEC-025.
+#define EAD_MOTOR_MIN_DUTY         51u
+#define EAD_MOTOR_MAX_DUTY         255u
 #define EAD_HAPTIC_INT_EXP         1.5f
 #define EAD_HAPTIC_MAX_ON_S        5u
 #define EAD_HAPTIC_ROLL_WIN_S      10u

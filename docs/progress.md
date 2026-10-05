@@ -1837,3 +1837,26 @@ renders (screenshot).
 Store: bounded writer queue and foreign keys on every connection (PROB-029 update).
 Not changed, for the user to decide: Wi-Fi controller ownership (audit I12), which
 cannot be tested from this laptop.
+
+## 2026-10-05 — First walks with feedback; DEC-025
+
+### Objective
+The full workflow worn on battery over Wi-Fi, then the user's two reports: cues faint,
+and frequent cues while walking normally.
+
+### Investigation
+TEST-066 and TEST-067 from the stored sessions: normal steps score about 0.23 (OFF was
+0.25); reference v5's spreads were narrow (stance 0.012), and a 7 % slower evaluation
+walk scored as error. Rescored offline with wider floors before changing anything.
+
+### Changes
+DEC-025: cues at 255 for 500 ms (`config_v1.h`, `feedback.cpp`), guard range separate
+(`EAD_MOTOR_*`), OFF threshold 0.35, spread floors raised and applied at scoring
+(`reference.h`, `error_engine.cpp`), the dashboard's symmetry proxy floored alike,
+Check view up to 100 %, vectors (config section) regenerated. Tests:
+`test_a_narrow_old_profile_is_scored_under_todays_floors` (0.83 without the scoring
+floor, as in TEST-067), `test_the_built_cue_is_full_strength_whatever_the_score`, the
+guard accepting 255.
+
+### Current Status
+Built and tested on the host; to flash and walk.

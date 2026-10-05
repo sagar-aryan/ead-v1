@@ -1015,3 +1015,54 @@ closes is the wanted behaviour ("it is ok this way").
 access point's passphrase can connect and take control, and a second client replaces
 the first. Not changed: "the wifi issue will rarely be exploited". The passphrase
 (generated per build, never committed) is the access control.
+
+## DEC-025 — Full-strength 0.5 s cues, an OFF threshold at the ON threshold, realistic spread floors
+
+**Date:** 2026-10-05
+
+**Status:** Accepted (the user)
+
+### Context
+The first walks with feedback (TEST-066, TEST-067): cues at doc 06 §10's
+score-scaled 51–204 duty for this project's provisional 250 ms were "not felt that
+much"; episodes ran on through normal steps, because a normal step scores about
+0.23 and §11's OFF threshold is 0.25; and against a steady reference (v5) normal
+walking at a slightly different pace buzzed on 38 of 52 steps, because the spreads
+were narrow and the floors (DEC-013) only kept them from being zero.
+
+### Options Considered
+1. Keep doc 06: lengthen the cue only.
+2. The user's choice: every cue at 100 % for 0.5 s; end an episode at the first step
+   under 0.35; floors at about the change between two normal walks.
+3. Score-scaled duty from a higher floor (for example 60–100 %).
+
+### Decision
+Option 2, the user's words: "I want the motor … at 100 % for 0.5 sec for a wrong step".
+- `EAD_HAPTIC_MIN_DUTY` = `EAD_HAPTIC_MAX_DUTY` = 255, so §10's formula gives 255 for
+  any score and CONFIG_GET reports what runs; a second motor runs only at the same
+  full share (two motors when the cue sits halfway between them, as for inversion and
+  eversion), so OVERALL takes the nearest motor. `EAD_HAPTIC_CUE_MS` = 500.
+- The motor guard's range is separate, `EAD_MOTOR_MIN_DUTY` 51 to `EAD_MOTOR_MAX_DUTY`
+  255, so service pulses keep any strength from 20 % up; the 5 s and 50 %-in-10 s
+  limits are unchanged. At a 1.4 s cycle a 0.5 s cue is about 36 % on-time.
+- `EAD_HAPTIC_OFF_TH` = 0.35, the ON threshold: one step under it ends an episode.
+- `kFeatureSpreadFloor` 3°, 3°, 3°, 0.10 s, 0.03, 0.15 m, 30 °/s, applied when a profile
+  is built and again when a cycle is scored, so references built under the old floors
+  (v5) need no recapture. The dashboard's symmetry proxy uses the same floors.
+
+### Reason
+Rescoring TEST-067's stored cycles: normal walking would start an episode on 9 of 52
+cycles instead of 38, the check on 0 of 14, and all 14 deliberate deviations of the
+first evaluation still score at or above 0.35.
+
+### Trade-offs
+The cue no longer grows with the size of the error (requirement 2 asked for "stronger
+the more off the step was"); the class still picks the direction. Mild deviations
+(about 0.4 before) may no longer start a cue. Without hysteresis an episode can stop
+and start on consecutive steps near 0.35. The floors are one healthy person's walks on
+one day. The symmetry proxy of earlier sessions changes when they are shown or
+re-exported; their stored error scores do not.
+
+### Consequences
+Config section (format 2) reports OFF 0.35 and duty 255/255; vectors regenerated
+(format 1 keeps the contract's values). To be felt and confirmed on a walk.

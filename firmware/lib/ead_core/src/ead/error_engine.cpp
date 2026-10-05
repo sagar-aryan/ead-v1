@@ -1,5 +1,6 @@
 #include "ead/error_engine.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace ead {
@@ -85,7 +86,10 @@ ErrorResult scoreCycle(const GaitCycle& cycle, const ReferenceProfile& reference
     if (!measured) continue;
     ++activeFeatures;
 
-    const float z = std::fabs(value - ref.median) / ref.spread;
+    // The floor again, so a profile built under smaller floors is scored under
+    // today's (DEC-025).
+    const float spread = std::max(ref.spread, kFeatureSpreadFloor[f]);
+    const float z = std::fabs(value - ref.median) / spread;
     const float d = clamp01(z / kDeviationScale);
     result.deviations[f] = d;
     weighted += kFeatureWeights[f] * d;
