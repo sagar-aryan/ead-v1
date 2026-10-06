@@ -684,11 +684,12 @@ came first.",
             7.5,
             &format!(
                 "Haptics: {} cues ran in {} episodes; {} refused by the motor guard's rolling \
-limit (DEC-023, haptics.csv). On-device flash storage is not implemented in V1, so there is \
+limit (DEC-023, haptics.csv); {} held back while the laptop was not heard (DEC-027). On-device flash storage is not implemented in V1, so there is \
 no storage recovery state to report.",
                 haptics.iter().filter(|h| h.event != "off" && h.duty_a > 0).count(),
                 haptics.iter().filter(|h| h.event == "on").count(),
                 haptics.iter().filter(|h| h.reason == "refused").count(),
+                haptics.iter().filter(|h| h.reason == "link_lost").count(),
             ),
         );
 

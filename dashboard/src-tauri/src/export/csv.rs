@@ -11,7 +11,7 @@ use std::fmt::Write as _;
 use crate::store::{Session, StatusChange, StoredCycle, StoredEvent, StoredHaptic};
 
 /// Quotes only when a value could otherwise break the row.
-fn field(value: &str) -> String {
+pub fn field(value: &str) -> String {
     if value.contains([',', '"', '\n']) {
         format!("\"{}\"", value.replace('"', "\"\""))
     } else {
@@ -30,20 +30,23 @@ fn field(value: &str) -> String {
 /// `rv_*` is the sensor's game rotation vector as it reported it (Q14, chip
 /// frame, device schema 6); the cells are empty for a frame recorded before
 /// then, which carried none.
+///
+/// Every CSV carries `patient_name` (DEC-028, the user), so a file stands on its
+/// own; `name` is the session's patient name already passed through `field`.
 pub fn raw_header() -> &'static str {
-    "timestamp_us,frame_index,sensor,ax,ay,az,gx,gy,gz,qw,qx,qy,qz,status_flags,\
+    "patient_name,timestamp_us,frame_index,sensor,ax,ay,az,gx,gy,gz,qw,qx,qy,qz,status_flags,\
 rv_real,rv_i,rv_j,rv_k\n"
 }
 
 /// The two `raw.csv` rows of one frame, foot then shank.
-pub fn raw_rows(out: &mut String, frame: &crate::protocol::RawFrame) {
+pub fn raw_rows(out: &mut String, name: &str, frame: &crate::protocol::RawFrame) {
     for (sensor, values, quaternion, rotation_vector) in [
         ("foot", &frame.foot, &frame.q_foot, frame.rv_foot),
         ("shank", &frame.shank, &frame.q_shank, frame.rv_shank),
     ] {
         let _ = write!(
             out,
-            "{},{},{sensor},{},{},{},{},{},{},{},{},{},{},{},",
+            "{name},{},{},{sensor},{},{},{},{},{},{},{},{},{},{},{},",
             frame.timestamp_us,
             frame.frame_index,
             values[0],
@@ -76,13 +79,18 @@ pub fn raw_rows(out: &mut String, frame: &crate::protocol::RawFrame) {
 /// frame: no mount map is applied. They are empty when the session stored no
 /// configuration, rather than scaled by a guess.
 pub fn accel_header() -> &'static str {
-    "timestamp_us,sensor,sequence,ax,ay,az,ax_g,ay_g,az_g\n"
+    "patient_name,timestamp_us,sensor,sequence,ax,ay,az,ax_g,ay_g,az_g\n"
 }
 
-pub fn accel_row(out: &mut String, sample: &crate::protocol::AccelSample, lsb_per_g: Option<f32>) {
+pub fn accel_row(
+    out: &mut String,
+    name: &str,
+    sample: &crate::protocol::AccelSample,
+    lsb_per_g: Option<f32>,
+) {
     let [ax, ay, az] = sample.accel;
     let sensor = if sample.sensor == 0 { "foot" } else { "shank" };
-    let _ = write!(out, "{},{sensor},{},{ax},{ay},{az},", sample.timestamp_us, sample.sequence);
+    let _ = write!(out, "{name},{},{sensor},{},{ax},{ay},{az},", sample.timestamp_us, sample.sequence);
     match lsb_per_g {
         Some(lsb) => {
             let g = |v: i16| f64::from(v) / f64::from(lsb);
@@ -92,20 +100,23 @@ pub fn accel_row(out: &mut String, sample: &crate::protocol::AccelSample, lsb_pe
     }
 }
 
-/// `gait.csv`, doc 10 §3.
+/// `gait.csv`, doc 10 §3, plus `patient_name` (DEC-028) and `valid` at the end:
+/// a cycle outside the temporal guards is exported but marked, as in `session.mat`,
+/// so it is not averaged in as a measurement.
 pub fn gait(session: &Session, cycles: &[StoredCycle], classes: &[&str]) -> String {
     let mut out = String::from(
-        "session_id,segment_id,cycle_id,start_us,end_us,cycle_time_s,stance_s,swing_s,\
+        "session_id,patient_name,segment_id,cycle_id,start_us,end_us,cycle_time_s,stance_s,swing_s,\
 cadence_spm,cycle_distance_m,speed_mps,unilateral_symmetry_proxy,error_score,confidence,\
-primary_error_class,zupt_quality\n",
+primary_error_class,zupt_quality,valid\n",
     );
     let scored = session.reference_id.is_some();
     for (index, c) in cycles.iter().enumerate() {
         let end_us = c.start_us + (c.cycle_time_s as f64 * 1e6) as i64;
         let _ = write!(
             &mut out,
-            "{},{},{},{},{},{:.4},{:.4},{:.4},{:.2},{:.4},{:.4},",
+            "{},{},{},{},{},{},{:.4},{:.4},{:.4},{:.2},{:.4},{:.4},",
             field(&session.session_id),
+            field(&session.patient_name),
             c.segment_index,
             index + 1,
             c.start_us,
@@ -137,7 +148,7 @@ primary_error_class,zupt_quality\n",
         } else {
             out.push_str(",,,");
         }
-        let _ = writeln!(&mut out, "{:.4}", c.zupt_quality);
+        let _ = writeln!(&mut out, "{:.4},{}", c.zupt_quality, u8::from(c.valid));
     }
     out
 }
@@ -252,12 +263,14 @@ pub fn events(
     }
 
     rows.sort_by_key(|r| (r.timestamp_us, r.kind));
-    let mut out = String::from("session_id,segment_id,cycle_id,timestamp_us,event_type,quality\n");
+    let mut out =
+        String::from("session_id,patient_name,segment_id,cycle_id,timestamp_us,event_type,quality\n");
     for r in rows {
         let _ = write!(
             &mut out,
-            "{},{},{},{},{},",
+            "{},{},{},{},{},{},",
             field(&session.session_id),
+            field(&session.patient_name),
             r.segment_id,
             r.cycle_id.map(|c| c.to_string()).unwrap_or_default(),
             r.timestamp_us,
@@ -279,11 +292,12 @@ pub fn events(
 /// apart. `cycle_id` and `segment_id` follow `events.csv`: the cycle's position,
 /// 1-based, and its segment; empty for an episode ended outside a cycle.
 /// Motors and duties are `;`-separated in the same order; a duty of 0 is a cue
+/// held back while the laptop was not heard (reason `link_lost`, DEC-027) or one
 /// the motor guard refused.
 pub fn haptics(session: &Session, cycles: &[StoredCycle], records: &[StoredHaptic]) -> String {
     let mut out = String::from(
-        "session_id,segment_id,cycle_id,timestamp_us,motor_ids,error_class,pwm,duration_ms,\
-error_score,confidence,reason,event\n",
+        "session_id,patient_name,segment_id,cycle_id,timestamp_us,motor_ids,error_class,pwm,\
+duration_ms,error_score,confidence,reason,event\n",
     );
     for h in records {
         let cycle = (h.cycle_start_frame != 0)
@@ -298,8 +312,9 @@ error_score,confidence,reason,event\n",
         };
         let _ = writeln!(
             out,
-            "{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{}",
             field(&session.session_id),
+            field(&session.patient_name),
             cycle.map(|i| cycles[i].segment_index.to_string()).unwrap_or_default(),
             cycle.map(|i| (i + 1).to_string()).unwrap_or_default(),
             h.device_time_us,

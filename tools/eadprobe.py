@@ -27,7 +27,7 @@ import time
 import zlib
 
 PROTOCOL_VERSION = 1
-SCHEMA = 8
+SCHEMA = 9
 HEADER = struct.Struct("<HBBIIQ")
 
 HELLO, CONFIG_GET, CONFIG_SET, RAW_SAMPLE_BATCH, STATUS, ERROR = 0x01, 0x02, 0x03, 0x08, 0x0C, 0x0E
@@ -330,7 +330,7 @@ HAPTIC_RECORD = struct.Struct("<QIBBBBBBHBBHff")
 assert HAPTIC_RECORD.size == 32, HAPTIC_RECORD.size
 HAPTIC_EVENTS = {1: "on", 2: "update", 3: "off"}
 HAPTIC_REASONS = ["none", "below_threshold", "low_confidence", "invalid_step", "no_direction",
-                  "switched_off", "session_ended", "sensor_fault", "refused"]
+                  "switched_off", "session_ended", "sensor_fault", "refused", "link_lost"]
 
 
 def decode_haptics(p):

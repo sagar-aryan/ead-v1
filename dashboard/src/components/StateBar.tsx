@@ -35,7 +35,7 @@ function HapticSwitch({ snapshot }: { snapshot: Snapshot | null }) {
       title={
         error ??
         (on
-          ? "Vibration runs during an evaluation: a 0.5 s full-strength cue after each step scored off the reference. Click to switch it off."
+          ? "Vibration runs during an evaluation: a 0.5 s cue after each step scored off the reference, 60 % for a slight error up to 100 % for a large one. Click to switch it off."
           : "Click to allow vibration during evaluations. It is off after every device restart.")
       }
     >

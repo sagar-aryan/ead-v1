@@ -70,6 +70,7 @@ void Link::onMessage(const uint8_t* msg, size_t len, int64_t nowUs) {
     return;
   }
   lastRxUs_ = nowUs;
+  device::noteHostMessage(nowUs);
 
   switch (MsgType(h.type)) {
     case MsgType::Hello: {

@@ -72,7 +72,7 @@ def main(directory):
     check(gvalues.shape[0] == len(grows), f"gait rows {gvalues.shape[0]} == gait.csv {len(grows)}")
     pairs = [("cycle_time_s", "cycle_time_s"), ("cycle_distance_m", "cycle_distance_m"),
              ("unilateral_cycle_symmetry_proxy", "unilateral_symmetry_proxy"),
-             ("error_score", "error_score"), ("confidence", "confidence")]
+             ("error_score", "error_score"), ("confidence", "confidence"), ("valid", "valid")]
     for mat_name, csv_name in pairs:
         if mat_name not in gcolumns:
             continue
@@ -92,6 +92,13 @@ def main(directory):
         js = json.load(fh)
     check(text(field(meta, "session_id")) == js["session"]["session_id"], "session_id matches")
     check(text(field(meta, "patient_id")) == js["patient"]["patient_id"], "patient_id matches")
+    name = js["patient"]["patient_name"]
+    check(text(field(meta, "patient_name")) == name, "patient_name matches")
+    # DEC-028: every CSV carries the patient's name on every row.
+    for csv_name in ("raw.csv", "accel_native.csv", "gait.csv", "events.csv", "haptics.csv"):
+        with open(directory / csv_name, newline="") as fh:
+            names = {row["patient_name"] for row in csv.DictReader(fh)}
+        check(names <= {name}, f"{csv_name} names only {name!r}")
     check(int(field(meta, "protocol_version")[0, 0]) == js["device"]["protocol_version"],
           "protocol_version matches")
 

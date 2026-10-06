@@ -75,7 +75,9 @@ def main(directory):
     ran = sum(1 for r in rows if r["event"] != "off" and r["pwm"] and int(r["pwm"].split(";")[0]) > 0)
     episodes = sum(1 for r in rows if r["event"] == "on")
     refused = sum(1 for r in rows if r["reason"] == "refused")
-    expected = f"Haptics: {ran} cues ran in {episodes} episodes; {refused} refused"
+    held = sum(1 for r in rows if r["reason"] == "link_lost")
+    expected = (f"Haptics: {ran} cues ran in {episodes} episodes; {refused} refused by the motor "
+                f"guard's rolling limit (DEC-023, haptics.csv); {held} held back")
     check(expected in " ".join(text.split()), f"haptics line agrees with haptics.csv: {expected!r}")
 
     # The trend page is page 2; every plot must be titled on it.

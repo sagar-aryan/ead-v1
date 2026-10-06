@@ -28,6 +28,9 @@ void raiseFault(uint16_t faults);
 void clearFault(uint16_t faults);
 uint16_t faults();
 void setLinkActive(uint8_t linkFlag, bool active);
+// The last time any link received a valid message from the host (esp_timer µs).
+void noteHostMessage(int64_t nowUs);
+bool hostQuietFor(int64_t nowUs, int64_t us);
 void setWifiStackFree(uint16_t bytes);
 
 enum class TaskRole : uint8_t { Acquisition, Processing, Usb };

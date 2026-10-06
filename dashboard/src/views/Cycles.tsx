@@ -151,7 +151,10 @@ function summary(values: number[]) {
 function cueText(records: HapticRecord[], startFrame: number) {
   const cue = records.find((h) => h.cycle_start_frame === startFrame && h.event !== "off");
   if (!cue) return <span className="absent">—</span>;
-  if (cue.duty_a === 0) return <span className="absent">refused</span>;
+  if (cue.duty_a === 0) {
+    // DEC-027: held back while the laptop was not heard; otherwise the motor guard.
+    return <span className="absent">{cue.reason === "link_lost" ? "no laptop" : "refused"}</span>;
+  }
   return [[cue.motor_a, cue.duty_a], [cue.motor_b, cue.duty_b]]
     .filter(([motor]) => motor !== 0)
     .map(([motor, duty]) => `M${motor} ${duty}`)

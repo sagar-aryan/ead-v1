@@ -10,7 +10,7 @@
 namespace ead {
 
 constexpr uint16_t kProtocolVersion = 1;  // doc 08 header field
-constexpr uint16_t kSchemaVersion = 8;    // payload layouts, docs/protocol.md
+constexpr uint16_t kSchemaVersion = 9;    // payload layouts, docs/protocol.md
 constexpr size_t kHeaderSize = 20;
 constexpr size_t kRawFrameSize = 70;
 constexpr size_t kMaxRawFramesPerBatch = 10;

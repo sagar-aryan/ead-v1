@@ -1,8 +1,11 @@
 #include "feedback.h"
 
+#include <esp_timer.h>
+
 #include <atomic>
 
 #include "config_v1.h"
+#include "device.h"
 #include "ead/haptics.h"
 #include "ead/protocol.h"
 #include "motors.h"
@@ -66,6 +69,11 @@ void onCycle(const ead::GaitCycle& cycle, const ead::ErrorResult* score) {
   if (!s_engine.onCycle(cycle, *score, &cue)) return;
   if (cue.event == ead::HapticEvent::Off) {
     motors::stopAll();
+  } else if (device::hostQuietFor(esp_timer_get_time(), EAD_HAPTIC_LINK_TIMEOUT_MS * 1000LL)) {
+    // DEC-027: no one is watching. Logged as it would have run, with no duty;
+    // the episode carries on, and cues resume when the laptop is heard again.
+    cue.reason = ead::HapticReason::LinkLost;
+    cue.duty[0] = cue.duty[1] = 0;
   } else if (motors::cue(cue) != ead::MotorGuard::Refusal::None) {
     // Logged as it would have run, with no duty: it did not.
     cue.reason = ead::HapticReason::Refused;

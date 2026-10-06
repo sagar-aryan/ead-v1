@@ -1020,7 +1020,7 @@ the first. Not changed: "the wifi issue will rarely be exploited". The passphras
 
 **Date:** 2026-10-05
 
-**Status:** Accepted (the user)
+**Status:** Accepted (the user); the fixed 100 % duty superseded by DEC-026
 
 ### Context
 The first walks with feedback (TEST-066, TEST-067): cues at doc 06 §10's
@@ -1066,3 +1066,103 @@ re-exported; their stored error scores do not.
 ### Consequences
 Config section (format 2) reports OFF 0.35 and duty 255/255; vectors regenerated
 (format 1 keeps the contract's values). To be felt and confirmed on a walk.
+
+## DEC-026 — Cue strength scaled by the score over 60–100 %
+
+**Date:** 2026-10-07
+
+**Status:** Accepted (the user)
+
+### Context
+A second external audit (F-01) noted that DEC-025's fixed 100 % duty throws away the
+graded feedback clinical requirement 2 asks for ("stronger the more off the step was"):
+every score from 0.35 to 1.0 drove 255. The reason for DEC-025 was that doc 06 §10's
+20–80 % at 250 ms was "not felt that much" (TEST-066).
+
+### Options Considered
+1. Keep 100 % for every cue.
+2. Score-scaled, 50–100 %.
+3. Score-scaled, 60–100 %.
+4. Score-scaled, 70–100 %.
+
+### Decision
+Option 3, the user's choice: `EAD_HAPTIC_MIN_DUTY` 153, `EAD_HAPTIC_MAX_DUTY` 255, doc 06
+§10's formula unchanged (min + (max − min) · score^1.5 · confidence). Cues stay 500 ms
+(DEC-025).
+
+### Reason
+A floor at 60 % with the 500 ms cue keeps the weakest cue well above the 20 % at 250 ms
+that was not felt, while a gross error (score 1, confidence 1) still reaches 100 %.
+
+### Trade-offs
+The spread is modest: score 0.36 at confidence 0.9 gives 173 (68 %), score 0.75 gives
+about 213 (84 %). The cap stays at the hardware maximum (3.3 V rail on a 3 V motor), as in
+DEC-025. A second motor runs only when its share of the duty is at least 153, so OVERALL
+and medial/lateral cues use two motors less often than at 51.
+
+### Consequences
+Config section reports duty 153/255; vectors regenerated. The firmware test now builds
+the shipped configuration from `config_v1.h` (audit F-11). To be felt on a walk.
+
+## DEC-027 — Cues held back when the laptop has not been heard for 5 s
+
+**Date:** 2026-10-07
+
+**Status:** Accepted (the user)
+
+### Context
+Audit F-10: a session outlives the link (DEC-024, doc 08 §5), so with the Wi-Fi lost the
+device keeps vibrating with no one watching and nothing able to switch it off but the
+battery switch.
+
+### Options Considered
+1. Keep cueing (doc 08 §5).
+2. Stop the session when the link drops (rejected in DEC-024: the data would end too).
+3. Keep the session and recording, hold back cues after 2, 5 or 10 s without the host.
+
+### Decision
+Option 3 at 5 s, the user's choice (`EAD_HAPTIC_LINK_TIMEOUT_MS`). Any valid message on
+either link counts; the dashboard's keepalive goes every 500 ms. A cue that would run
+while the host is silent is logged as it would have run, with duty 0 and reason 9
+`link_lost` (protocol schema 9), and the episode carries on, so cues resume by
+themselves on the first step after the laptop is heard again. A cue already running when
+the link drops ends on its own (500 ms).
+
+### Reason
+The recording is what a link drop must not lose; vibration with nobody observing is what
+must not continue. Logging the held-back cue keeps the session's feedback record complete.
+
+### Trade-offs
+Departs from doc 08 §5 (the user lifted contract restrictions). A Wi-Fi hiccup over 5 s
+pauses feedback. Schema 9 requires a reflash and the matching dashboard.
+
+### Consequences
+Dashboard: `link_lost` decoded, shown as "no laptop" in the cycles table, counted on the
+PDF's haptics line (checked by `tools/check_pdf.py`). `eadprobe` knows the reason.
+
+## DEC-028 — The patient's name in every exported file
+
+**Date:** 2026-10-07
+
+**Status:** Accepted (the user)
+
+### Context
+Audit F-19 suggested taking the name out of research exports. The user asked for the
+opposite: the name in every export. It was in `metadata.json`, `session.mat` and
+`report.pdf`; the CSVs carried only the session ID.
+
+### Decision
+A `patient_name` column on every row of every CSV: first in `raw.csv` and
+`accel_native.csv`, after `session_id` in `gait.csv`, `events.csv` and `haptics.csv`.
+
+### Reason
+The user's choice: each file identifies its patient on its own.
+
+### Trade-offs
+Exports are identifiable data and must be handled as such; a pseudonym can still be
+entered as the patient's name. The repository itself stays free of real names (patients
+are referred to by ID in docs). `raw.csv` grows by one cell per row.
+
+### Consequences
+`tools/check_mat.py` checks every CSV's names against `metadata.json`.
+

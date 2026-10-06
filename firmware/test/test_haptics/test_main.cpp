@@ -1,5 +1,7 @@
 #include <unity.h>
 
+#include "config_v1.h"
+
 #include "ead/haptics.h"
 #include "ead/reference.h"
 
@@ -163,23 +165,31 @@ static void test_stopping_from_outside_closes_only_a_running_episode() {
   TEST_ASSERT_FALSE(engine.active());
 }
 
-static void test_the_built_cue_is_full_strength_whatever_the_score() {
-  // DEC-025, the user: every cue at 100 % for 500 ms. With the minimum and maximum
-  // duty both 255, doc 06 §10's formula gives 255 for any score; a second motor
-  // runs only at the same full share, so OVERALL picks the nearest one.
+static void test_the_shipped_cue_is_graded_from_60_to_100_percent() {
+  // The configuration the device builds (feedback.cpp), from config_v1.h: DEC-026's
+  // 153..255 duty, DEC-025's 500 ms and the OFF threshold at the ON threshold.
   ead::HapticConfig config;
-  config.minDuty = 255;
-  config.maxDuty = 255;
-  config.cueMs = 500;
+  config.onScore = EAD_HAPTIC_ON_TH;
+  config.offScore = EAD_HAPTIC_OFF_TH;
+  config.startConfidence = EAD_CONF_HAPTIC_TH;
+  config.minDuty = EAD_HAPTIC_MIN_DUTY;
+  config.maxDuty = EAD_HAPTIC_MAX_DUTY;
+  config.intensityExponent = EAD_HAPTIC_INT_EXP;
+  config.cueMs = EAD_HAPTIC_CUE_MS;
   HapticEngine engine(config);
   HapticCue cue;
-  TEST_ASSERT_TRUE(engine.onCycle(validCycle(), scored(ErrorClass::InsufficientDorsiflexion, 0.36f, 0.75f), &cue));
-  TEST_ASSERT_EQUAL_UINT8(255, cue.duty[0]);
+  // 153 + 102 x 0.36^1.5 x 0.9 = 172.8: a slight error buzzes near the 60 % floor.
+  TEST_ASSERT_TRUE(engine.onCycle(validCycle(), scored(ErrorClass::InsufficientDorsiflexion, 0.36f, 0.9f), &cue));
+  TEST_ASSERT_EQUAL_UINT8(173, cue.duty[0]);
   TEST_ASSERT_EQUAL_UINT16(500, cue.durationMs);
-  HapticEngine lateral(config);
-  TEST_ASSERT_TRUE(lateral.onCycle(validCycle(), scored(ErrorClass::EversionDeviation, 0.4f, 0.9f), &cue));
+  // A gross error at full confidence reaches 100 %.
+  TEST_ASSERT_TRUE(engine.onCycle(validCycle(), scored(ErrorClass::InsufficientDorsiflexion, 1.0f, 1.0f), &cue));
+  TEST_ASSERT_EQUAL(HapticEvent::Update, cue.event);
   TEST_ASSERT_EQUAL_UINT8(255, cue.duty[0]);
-  TEST_ASSERT_EQUAL_UINT8(255, cue.duty[1]);  // halfway between M2 and M3: both, full
+  // The first step under 0.35 ends the episode.
+  TEST_ASSERT_TRUE(engine.onCycle(validCycle(), scored(ErrorClass::InsufficientDorsiflexion, 0.34f, 0.9f), &cue));
+  TEST_ASSERT_EQUAL(HapticEvent::Off, cue.event);
+  TEST_ASSERT_EQUAL(HapticReason::BelowThreshold, cue.reason);
 }
 
 int main() {
@@ -193,6 +203,6 @@ int main() {
   RUN_TEST(test_intensity_follows_score_and_confidence);
   RUN_TEST(test_a_score_with_no_class_has_no_direction);
   RUN_TEST(test_stopping_from_outside_closes_only_a_running_episode);
-  RUN_TEST(test_the_built_cue_is_full_strength_whatever_the_score);
+  RUN_TEST(test_the_shipped_cue_is_graded_from_60_to_100_percent);
   return UNITY_END();
 }

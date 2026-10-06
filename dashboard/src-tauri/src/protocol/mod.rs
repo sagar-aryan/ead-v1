@@ -17,7 +17,7 @@ pub use config::ConfigSection;
 pub const PROTOCOL_VERSION: u16 = 1;
 use std::cmp::Ordering;
 
-pub const SCHEMA_VERSION: u16 = 8;
+pub const SCHEMA_VERSION: u16 = 9;
 pub const HEADER_SIZE: usize = 20;
 pub const RAW_FRAME_SIZE: usize = 70;
 pub const ACCEL_RECORD_SIZE: usize = 16;
@@ -977,7 +977,7 @@ pub const HAPTIC_RECORD_SIZE: usize = 32;
 /// HAPTIC_BATCH `event`, 1-based (docs/protocol.md §5.17).
 pub const HAPTIC_EVENTS: [&str; 3] = ["on", "update", "off"];
 /// HAPTIC_BATCH `reason` (docs/protocol.md §6.12).
-pub const HAPTIC_REASONS: [&str; 9] = [
+pub const HAPTIC_REASONS: [&str; 10] = [
     "none",
     "below_threshold",
     "low_confidence",
@@ -987,6 +987,7 @@ pub const HAPTIC_REASONS: [&str; 9] = [
     "session_ended",
     "sensor_fault",
     "refused",
+    "link_lost",
 ];
 
 /// One feedback cue or episode end, as the device logged it (doc 06 §13).

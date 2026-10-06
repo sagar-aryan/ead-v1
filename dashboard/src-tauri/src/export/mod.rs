@@ -102,10 +102,11 @@ pub fn export_session(store: &Store, session_id: &str, directory: &Path) -> Resu
 
     let mut files = Vec::new();
     let mut line = String::new();
+    let name = csv::field(&session.patient_name);
     let frames = write_rows(directory, "raw.csv", csv::raw_header(), |emit| {
         Ok(store.for_each_frame(session_id, |frame| {
             line.clear();
-            csv::raw_rows(&mut line, frame);
+            csv::raw_rows(&mut line, &name, frame);
             emit(&line);
         })?)
     })?;
@@ -118,7 +119,7 @@ pub fn export_session(store: &Store, session_id: &str, directory: &Path) -> Resu
     let accel_rows = write_rows(directory, "accel_native.csv", csv::accel_header(), |emit| {
         Ok(store.for_each_accel(session_id, |sample| {
             line.clear();
-            csv::accel_row(&mut line, sample, lsb_per_g);
+            csv::accel_row(&mut line, &name, sample, lsb_per_g);
             emit(&line);
         })?)
     })?;

@@ -21,7 +21,7 @@ ROOT = HERE.parent.parent
 CONFIG_JSON = ROOT / "ead_agent_docs_v2" / "CONFIG_V1.json"
 
 PROTOCOL_VERSION = 1
-SCHEMA = 8
+SCHEMA = 9
 
 # Message types (doc 08 §3).
 HELLO, CONFIG_GET, STATUS, ERROR = 0x01, 0x02, 0x0C, 0x0E
@@ -162,10 +162,10 @@ def config_section_format1(cfg):
 ZUPT_GYRO_DPS = 30.0
 
 
-# Feedback as built (DEC-025, the user): an episode ends under the ON threshold,
-# and every cue runs at full duty. Format 1 keeps the contract's values.
+# Feedback as built: an episode ends under the ON threshold (DEC-025), and cues are
+# scaled over 60..100 % duty (DEC-026, the user). Format 1 keeps the contract's values.
 HAPTIC_OFF_THRESHOLD = 0.35
-HAPTIC_DUTY = (255, 255)
+HAPTIC_DUTY = (153, 255)
 
 
 def config_section(cfg, zupt_gyro_dps=ZUPT_GYRO_DPS, haptics_fitted=HAPTICS_FITTED,

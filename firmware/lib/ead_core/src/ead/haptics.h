@@ -43,6 +43,7 @@ enum class HapticReason : uint8_t {
   SessionEnded = 6,
   SensorFault = 7,      ///< a read failure or a gap in the frames (doc 06 §12)
   Refused = 8,          ///< the motor guard refused the cue (rolling limit)
+  LinkLost = 9,         ///< held back: no message from the laptop (DEC-027)
 };
 
 struct HapticCue {

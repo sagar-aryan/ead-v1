@@ -26,6 +26,8 @@ namespace {
 
 std::atomic<uint16_t> s_faults{0};
 std::atomic<uint8_t> s_linkFlags{0};
+// Milliseconds: a 64-bit atomic is not lock-free on this core. Wraps after 49 days.
+std::atomic<uint32_t> s_hostMessageMs{0};
 std::atomic<uint16_t> s_wifiStackFree{0};
 std::atomic<bool> s_booted{false};
 
@@ -66,6 +68,12 @@ void setLinkActive(uint8_t linkFlag, bool active) {
   } else {
     s_linkFlags.fetch_and(uint8_t(~linkFlag));
   }
+}
+
+void noteHostMessage(int64_t nowUs) { s_hostMessageMs = uint32_t(nowUs / 1000); }
+
+bool hostQuietFor(int64_t nowUs, int64_t us) {
+  return uint32_t(nowUs / 1000) - s_hostMessageMs.load() > uint32_t(us / 1000);
 }
 
 void setWifiStackFree(uint16_t bytes) { s_wifiStackFree = bytes; }

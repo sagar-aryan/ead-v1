@@ -671,7 +671,7 @@ fn schema_upgrades_from_version_7_keeping_frames_without_rotation_vectors() {
     assert_eq!((read[0].rv_foot, read[0].rv_shank), (None, None));
     // Exported as empty cells, never as a zero rotation.
     let mut csv = String::new();
-    crate::export::csv::raw_rows(&mut csv, &read[0]);
+    crate::export::csv::raw_rows(&mut csv, "", &read[0]);
     assert!(csv.lines().all(|row| row.ends_with(",0,,,,")), "{csv}");
     assert_eq!(read[1].foot, frame(1).foot);
     assert_eq!(store.accel_count(&session_id).unwrap(), 0);
@@ -956,20 +956,21 @@ fn the_export_package_matches_the_database() {
     assert_eq!(summary.raw_rows, store.frame_count(&session_id).unwrap() as usize * 2);
     let raw = std::fs::read_to_string(target.join("raw.csv")).unwrap();
     assert_eq!(raw.lines().count(), summary.raw_rows + 1, "one header row");
-    assert!(raw.lines().next().unwrap().starts_with("timestamp_us,frame_index,sensor,"));
+    // Every CSV carries the patient's name (DEC-028).
+    assert!(raw.lines().next().unwrap().starts_with("patient_name,timestamp_us,frame_index,sensor,"));
     assert!(raw.lines().next().unwrap().ends_with(",status_flags,rv_real,rv_i,rv_j,rv_k"));
     // Each row carries its own sensor's rotation vector.
     let rows: Vec<&str> = raw.lines().skip(1).collect();
-    assert!(rows[0].starts_with("0,0,foot,") && rows[0].ends_with(",16384,0,0,0"), "{}", rows[0]);
-    assert!(rows[1].starts_with("0,0,shank,") && rows[1].ends_with(",11585,-11585,0,-32768"));
+    assert!(rows[0].starts_with("Reference Walker,0,0,foot,") && rows[0].ends_with(",16384,0,0,0"), "{}", rows[0]);
+    assert!(rows[1].starts_with("Reference Walker,0,0,shank,") && rows[1].ends_with(",11585,-11585,0,-32768"));
 
     // Every accelerometer sample, one row each, in counts; no configuration was
     // stored, so the g columns are empty rather than scaled by a guess.
     let accel = std::fs::read_to_string(target.join("accel_native.csv")).unwrap();
     assert_eq!(summary.accel_rows, 3);
     assert_eq!(accel.lines().count(), summary.accel_rows + 1, "one header row");
-    assert_eq!(accel.lines().nth(1), Some("1000,foot,7,2510,-1,-32768,,,"));
-    assert_eq!(accel.lines().nth(2), Some("2000,shank,200,2510,-1,-32768,,,"));
+    assert_eq!(accel.lines().nth(1), Some("Reference Walker,1000,foot,7,2510,-1,-32768,,,"));
+    assert_eq!(accel.lines().nth(2), Some("Reference Walker,2000,shank,200,2510,-1,-32768,,,"));
     assert!(summary.files.contains(&"accel_native.csv".to_string()));
 
     let gait = std::fs::read_to_string(target.join("gait.csv")).unwrap();
@@ -977,9 +978,16 @@ fn the_export_package_matches_the_database() {
     // The first valid cycle has no previous one, so its proxy cell is empty
     // rather than zero; the second has both.
     let rows: Vec<&str> = gait.lines().skip(1).collect();
-    assert_eq!(rows[0].split(',').nth(11).unwrap(), "", "no previous cycle to compare with");
-    assert_ne!(rows[1].split(',').nth(11).unwrap(), "");
-    assert_eq!(rows[1].split(',').nth(14).unwrap(), "insufficient_dorsiflexion");
+    assert!(gait.starts_with("session_id,patient_name,") && gait.lines().next().unwrap().ends_with(",zupt_quality,valid"));
+    assert_eq!(rows[0].split(',').nth(1).unwrap(), "Reference Walker");
+    assert_eq!(rows[0].split(',').nth(12).unwrap(), "", "no previous cycle to compare with");
+    assert_ne!(rows[1].split(',').nth(12).unwrap(), "");
+    assert_eq!(rows[1].split(',').nth(15).unwrap(), "insufficient_dorsiflexion");
+    // Each row says whether the cycle passed the temporal guards, as session.mat does.
+    let stored = store.cycles(&session_id).unwrap();
+    for (row, cycle) in rows.iter().zip(&stored) {
+        assert_eq!(row.rsplit(',').next().unwrap(), if cycle.valid { "1" } else { "0" });
+    }
 
     // Doc 10 §4: the derived event types are present alongside the device's.
     let events = std::fs::read_to_string(target.join("events.csv")).unwrap();
@@ -996,7 +1004,7 @@ fn the_export_package_matches_the_database() {
     let segment = store.cycles(&session_id).unwrap()[1].segment_index;
     assert_eq!(
         rows[1],
-        format!("{session_id},{segment},2,2000000,5;6,inversion_deviation,204;120,250,0.8,0.9,none,on")
+        format!("{session_id},Reference Walker,{segment},2,2000000,5;6,inversion_deviation,204;120,250,0.8,0.9,none,on")
     );
     assert!(rows[2].ends_with(",3000000,,inversion_deviation,,0,0.1,0.9,below_threshold,off"), "{}", rows[2]);
 
@@ -1036,19 +1044,25 @@ fn an_unscored_session_exports_empty_cells_not_zeroes() {
     let session = store
         .start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None)
         .unwrap();
-    store.record_gait(&[scored_cycle(0, true, 0, 0.0), scored_cycle(1, true, 0, 0.0)], &[]);
+    store.record_gait(
+        &[scored_cycle(0, true, 0, 0.0), scored_cycle(1, true, 0, 0.0), scored_cycle(2, false, 0, 0.0)],
+        &[],
+    );
     store.flush().unwrap();
     store.stop_session().unwrap();
     let target = dir.path().join("package");
     crate::export::export_session(&store, &session.session_id, &target).unwrap();
 
     let gait = std::fs::read_to_string(target.join("gait.csv")).unwrap();
+    // F-31: a cycle outside the temporal guards is exported, and marked.
+    let valid: Vec<&str> = gait.lines().skip(1).map(|r| r.rsplit(',').next().unwrap()).collect();
+    assert_eq!(valid, ["1", "1", "0"]);
     for row in gait.lines().skip(1) {
         let cells: Vec<&str> = row.split(',').collect();
-        assert_eq!(cells[11], "", "symmetry proxy needs a reference's spreads");
-        assert_eq!(cells[12], "", "an unscored cycle has no error score");
-        assert_eq!(cells[13], "", "an unscored cycle has no confidence");
-        assert_eq!(cells[14], "", "an unscored cycle has no class");
+        assert_eq!(cells[12], "", "symmetry proxy needs a reference's spreads");
+        assert_eq!(cells[13], "", "an unscored cycle has no error score");
+        assert_eq!(cells[14], "", "an unscored cycle has no confidence");
+        assert_eq!(cells[15], "", "an unscored cycle has no class");
     }
     let metadata: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(target.join("metadata.json")).unwrap())
@@ -1175,7 +1189,7 @@ fn native_accel_export_scales_by_the_session_configuration() {
     // Counts over the stored 2510.5 counts per g (an f32), chip frame, no mount
     // map; expected values from numpy with the same f32 scale.
     let accel = std::fs::read_to_string(target.join("accel_native.csv")).unwrap();
-    assert_eq!(accel.lines().nth(1), Some("4000,shank,3,2510,-1,-32768,0.999800,-0.000398,-13.052367"));
+    assert_eq!(accel.lines().nth(1), Some("Reference Walker,4000,shank,3,2510,-1,-32768,0.999800,-0.000398,-13.052367"));
 }
 
 #[test]

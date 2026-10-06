@@ -1,4 +1,4 @@
-# Device Protocol (schema 8)
+# Device Protocol (schema 9)
 
 Wire protocol between the EAD-V1 device and host software (dashboard, `tools/eadprobe.py`).
 The frame header and message type numbers are fixed by
@@ -19,7 +19,7 @@ byte count followed by that many UTF-8 bytes (no terminator).
 | Field | Where | Value | Changes when |
 |---|---|---|---|
 | `protocol_version` | Every header | 1 | The header layout changes (doc 08) |
-| `schema` | HELLO payload | 8 | Any payload layout or enumeration changes |
+| `schema` | HELLO payload | 9 | Any payload layout or enumeration changes (9: haptic reason 9 `link_lost`, DEC-027) |
 | `config_format` | CONFIG_GET payload | 2 | The configuration section layout changes (1 = MPU6500 build, 2 = BNO086 build) |
 
 A host must compare `schema` in the device HELLO and refuse to interpret payloads of an
@@ -73,7 +73,7 @@ unknown schema.
 the timestamp of the batch's first frame; for other device messages, the time the message
 was built; host messages send 0. Host time is never substituted for device time (doc 08 §6).
 
-## 4. Message catalogue (schema 8)
+## 4. Message catalogue (schema 9)
 
 | Type | Name | Direction | Schema 7 behaviour |
 |---:|---|---|---|
@@ -515,9 +515,11 @@ in an EVALUATION session (§5.17). STATUS `haptics` reports the switch.
 
 Cues are decided per scored cycle in an EVALUATION session with the switch on, when the
 cycle closes, i.e. when the right foot lands (doc 06, DEC-023). Gating: a new episode needs
-`error_score` ≥ 0.35 and `confidence` ≥ 0.75; it continues while the score stays ≥ 0.25 and
-confidence ≥ 0.50; an invalid cycle, a lost frame, a failed read, the switch or the end of
-the session ends it.
+`error_score` ≥ 0.35 and `confidence` ≥ 0.75; it continues while the score stays ≥ 0.35
+(DEC-025) and confidence ≥ 0.50; an invalid cycle, a lost frame, a failed read, the switch
+or the end of the session ends it. Duty is 153–255 by doc 06 §10's formula (DEC-026), each
+cue 500 ms. With no message from the host for 5 s a cue is held back and logged with
+reason 9 and duty 0; the episode carries on (DEC-027, schema 9).
 
 | Offset | Type | Field |
 |---:|---|---|
@@ -532,7 +534,7 @@ Each record:
 | 0 | u64 | `device_time_us`: the cue's start, or when the episode ended |
 | 8 | u32 | `cycle_start_frame`: the cycle that produced it; 0 when ended from outside a cycle |
 | 12 | u8 | `event`: 1 ON (first cue of an episode), 2 UPDATE, 3 OFF |
-| 13 | u8 | `reason` (§6.12): why an episode ended, or 8 for a cue the motor guard refused |
+| 13 | u8 | `reason` (§6.12): why an episode ended, 8 for a cue the motor guard refused, or 9 for one held back while the host was silent |
 | 14 | u8 | `motor_a` 1–6, 0 none |
 | 15 | u8 | `duty_a` of 255; 0 when it did not run |
 | 16 | u8 | `motor_b` 1–6, 0 none |
@@ -670,10 +672,11 @@ time, 4 stance ratio, 5 cycle distance, 6 shank dynamics`. Weights, in the same 
 bit *n* is class *n*.
 
 ### 6.12 Haptic reasons (§5.17)
-0 none, 1 below_threshold (score under 0.25), 2 low_confidence (under 0.50),
+0 none, 1 below_threshold (score under 0.35, DEC-025), 2 low_confidence (under 0.50),
 3 invalid_step, 4 no_direction (no class names a direction), 5 switched_off,
 6 session_ended, 7 sensor_fault (failed read, lost frame, no orientation), 8 refused (the
-motor guard's rolling limit).
+motor guard's rolling limit), 9 link_lost (a cue held back: no host message for 5 s,
+DEC-027, schema 9).
 
 ### 6.6 Gait state (doc 05 §2)
 

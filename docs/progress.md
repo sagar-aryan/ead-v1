@@ -1871,3 +1871,44 @@ lock files. Scanned before publishing: no email addresses, phone numbers, secret
 absolute paths; the PDFs carry no author. The docs keep the supplier and an order
 number as the source of the parts list. Current docs point to the new path; dated
 entries keep the old one.
+
+## 2026-10-07 — Second external audit: verified, the user's answers, fixes
+
+### Objective
+The user pasted the findings list (F-01 to F-40) of a second external audit
+(`EAD_AUDIT_REPORT.md`, untracked, run read-only against `3a08651`) and asked which
+exist in the current version, which need fixing, and which stop the device working.
+
+### Investigation
+Every finding re-checked in the code, not taken from the report. All confirmed against
+`3a08651` except: F-11 partly done (one test already checked the shipped duty); F-18
+never observed (no `refused` record in any stored session); F-12 and F-01 are the user's
+DEC-025 choices; F-40 the user's DEC-024 choice. The one finding that can make a session
+run wrong unnoticed is F-27 (a calibration record dropped on a busy Wi-Fi socket).
+
+### The user's answers (2026-10-07)
+- F-01: cue strength scaled by the score again, 60–100 % (DEC-026).
+- F-10: hold back cues after 5 s without the laptop, resume when it is heard (DEC-027).
+- F-19/F-38: the patient's name in every export, every CSV included (DEC-028).
+- F-07: no external reference system available; no sync work.
+- Q-1 (target vs baseline): the patient's own baseline, as now.
+- Left leg: not needed; right leg only.
+- The remaining fixes: go ahead.
+
+### Changes (first group)
+- DEC-026: `EAD_HAPTIC_MIN_DUTY` 153; test builds the shipped configuration from
+  `config_v1.h` (`test_the_shipped_cue_is_graded_from_60_to_100_percent`, replaces the
+  full-strength test). StateBar tooltip.
+- DEC-027: `device::noteHostMessage` / `hostQuietFor` (fed by `Link::onMessage`),
+  `feedback::onCycle` holds back a cue after `EAD_HAPTIC_LINK_TIMEOUT_MS`; haptic reason
+  9 `link_lost`; protocol schema 9 (firmware, dashboard, eadprobe, vectors). Cycles view
+  shows "no laptop"; the PDF haptics line counts held-back cues; `check_pdf.py` checks it.
+- DEC-028 and F-31: `patient_name` in all five CSVs; `valid` column at the end of
+  `gait.csv`. `check_mat.py` compares `valid` with `session.mat` and every CSV's names
+  with `metadata.json`.
+- `docs/protocol.md`: schema 9, reason 9, and the stale 0.25 OFF threshold in §5.17/§6.12.
+
+### Verification
+Full suite: pio 103/103, firmware build, cargo 84 (4 ignored), npm 28/28, build, vectors
+0 failures; `export_sample` then `check_mat.py` and `check_pdf.py`, 0 failures each.
+The link-loss hold-back is not host-testable (Arduino side); to confirm on the device.

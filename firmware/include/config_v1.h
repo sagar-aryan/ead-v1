@@ -152,13 +152,18 @@ inline void eadMountApply(const EadMountMap& map, int32_t cx, int32_t cy,
 // ---- Haptics (doc 06, CONFIG_V1.json "haptics") ----
 #define EAD_HAPTIC_PWM_HZ          200u
 #define EAD_HAPTIC_RES_BITS        8u
-// Feedback cue duty. DEC-025, the user: every cue at full strength, 100 %, not
-// scaled by the score (doc 06 §10: 51..204 by score^1.5 x confidence). With both
-// at 255 the §10 formula gives 255, and CONFIG_GET reports what the device does.
-#define EAD_HAPTIC_MIN_DUTY        255u
+// Feedback cue duty, scaled by doc 06 §10 (min + (max - min) x score^1.5 x
+// confidence). DEC-026, the user: 60..100 %. Doc 06's 20..80 % at 250 ms was not
+// felt (TEST-066); DEC-025's fixed 100 % told a slight error from a gross one by
+// nothing.
+#define EAD_HAPTIC_MIN_DUTY        153u
 #define EAD_HAPTIC_MAX_DUTY        255u
 // How long each cue runs (DEC-025, the user; 250 ms until then was too faint).
 #define EAD_HAPTIC_CUE_MS          500u
+// DEC-027, the user: with no message from the laptop for this long, cues are held
+// back (logged as link_lost, duty 0) until it is heard again. The host sends a
+// keepalive every 500 ms.
+#define EAD_HAPTIC_LINK_TIMEOUT_MS 5000u
 // The motor guard's duty range for every output, service pulses included: doc 06
 // §10's 20 % floor, and up to 100 % since DEC-025.
 #define EAD_MOTOR_MIN_DUTY         51u
