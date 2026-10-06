@@ -134,3 +134,11 @@ unvalidated beyond one wearer. Current state and next steps:
 Start with [`docs/handoff.md`](docs/handoff.md); [`docs/README.md`](docs/README.md)
 indexes the rest, including the wire protocol ([`docs/protocol.md`](docs/protocol.md))
 and the decision log ([`docs/decisions.md`](docs/decisions.md)).
+
+## License
+
+MIT ([`LICENSE`](LICENSE)): firmware, dashboard, tools, hardware design files and
+documentation. Exceptions keep their own licences: the IBM Plex fonts in
+`dashboard/src-tauri/assets/fonts/` (SIL Open Font License 1.1, `OFL.txt` beside them)
+and the agent skills in `.claude/skills/` (Apache 2.0 and MIT, as each states). The
+software comes with no warranty, and nothing here is cleared for clinical use.

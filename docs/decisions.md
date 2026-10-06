@@ -1199,3 +1199,32 @@ The configuration section (pins) and its SHA-256 change; vectors regenerated
 and needs no change; `hardware/erm-driver-pcb/firmware/erm_channel_test.ino` predates
 DEC-016 and is not for this board.
 
+## DEC-030 — MIT licence for the repository
+
+**Date:** 2026-10-07
+
+**Status:** Accepted (the user asked for the licence that suits the project best)
+
+### Context
+The repository is public with no licence, so no one else may legally reuse it.
+
+### Options Considered
+1. MIT: permissive, short, widely understood.
+2. Apache 2.0: permissive with an explicit patent grant; longer, with notice rules.
+3. GPL-3.0 for the software and CERN-OHL-S for the PCB: modifications must stay open.
+
+### Decision
+MIT for everything the project wrote, hardware design files included, copyright "EAD
+V1 contributors". Third-party files keep their licences: IBM Plex fonts under OFL 1.1
+(its text added as `dashboard/src-tauri/assets/fonts/OFL.txt`, which the OFL requires
+and which was missing), `.claude/skills/` under Apache 2.0 and MIT.
+
+### Reason
+A research prototype is most useful when other researchers can reuse it without legal
+review; MIT is the simplest licence that allows that and disclaims warranty. No
+patents are known to be at stake, which is what Apache 2.0 adds.
+
+### Trade-offs
+Anyone may close and commercialise a derivative. One licence for hardware files is
+simpler than a hardware-specific one, at the cost of CERN-OHL's hardware wording.
+

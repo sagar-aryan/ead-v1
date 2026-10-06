@@ -16,7 +16,7 @@ failed, and what was verified. Update it alongside every significant change.
 - `hardware.md` — As-built hardware: the current DEC-016 build, the previous
   MPU6500 build, register config, pins, mount maps.
 - `wiring_reference.md` — Every connection of the DEC-016 build, with its evidence.
-- `decisions.md` — DEC-001 to DEC-029.
+- `decisions.md` — DEC-001 to DEC-030.
 - `problems.md` — PROB-001 to PROB-042 (there is no PROB-008), including failed
   approaches.
 - `testing.md` — Executed tests with measured results; doc-13 acceptance suites.

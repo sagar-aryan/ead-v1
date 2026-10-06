@@ -60,7 +60,7 @@ and USB links → Rust backend with SQLite → React views and exports.
 | `ead_agent_docs_v2/` | Contract. Never modify |
 | `docs/hardware.md` | Current DEC-016 build, previous MPU6500 build, mount maps, what is verified |
 | `docs/wiring_reference.md` | Every DEC-016 connection with its evidence; firmware rules the wiring depends on |
-| `docs/decisions.md` | DEC-001–DEC-029 |
+| `docs/decisions.md` | DEC-001–DEC-030 |
 | `docs/problems.md` | PROB-001–PROB-042 (no PROB-008) |
 | `docs/testing.md` | TEST-001–TEST-070, with measured results |
 | `docs/protocol.md` | Wire protocol (schema 9): payloads, framing, backfill, ACK, SERVICE_TEST, haptics, enumerations |
