@@ -67,7 +67,8 @@ ACCEL_LSB_PER_G = 256 * 9.80665
 GYRO_LSB_PER_DPS = 512 * math.pi / 180
 # SCK, MISO, MOSI, foot CS, shank CS, foot INT, shank INT, RST, WAKE; motors M1-M6.
 SENSOR_PINS = (7, 8, 9, 43, 44, 39, 40, 41, 3)
-MOTOR_PINS = (1, 2, 42, 4, 5, 6)
+# Motors as rewired on 2026-10-07 (DEC-029); until then (1, 2, 42, 4, 5, 6).
+MOTOR_PINS = (4, 6, 42, 5, 1, 2)
 # Measured on the leg for the BNO086 boards (config_v1.h, TEST-051).
 FOOT_MOUNT = [[0, -1, 0], [1, 0, 0], [0, 0, 1]]
 SHANK_MOUNT = [[0, 0, 1], [1, 0, 0], [0, 1, 0]]

@@ -242,7 +242,7 @@ fn config_section_decodes_every_documented_field() {
             wake: 3,
         }
     );
-    assert_eq!(config.pins.motors, [1, 2, 42, 4, 5, 6]);
+    assert_eq!(config.pins.motors, [4, 6, 42, 5, 1, 2]); // DEC-029
 
     // Contract values (CONFIG_V1.json).
     assert_eq!(config.mahony_kp, 2.0);

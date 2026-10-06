@@ -572,7 +572,7 @@ contamination has to be measured rather than designed away.
 
 **Date:** 2026-10-01
 
-**Status:** Accepted. Supersedes the pin map in contract doc
+**Status:** Accepted. Supersedes the pin map in contract doc; motor order superseded by DEC-029 (2026-10-07)
 `03_GPIO_PIN_MAP.md` §1, which assumes two MPU6050s on I²C.
 
 ### Context
@@ -1165,4 +1165,37 @@ are referred to by ID in docs). `raw.csv` grows by one cell per row.
 
 ### Consequences
 `tools/check_mat.py` checks every CSV's names against `metadata.json`.
+
+## DEC-029 — Motors rewired to a new pin order
+
+**Date:** 2026-10-07
+
+**Status:** Accepted (the user's hardware change)
+
+### Context
+The user changed the ERM driver wiring and reported the new connections: M5 on D0, M6
+on D1, M1 on D3, M4 on D4, M2 on D5, M3 on the MTMS back pad. The reason was not
+stated.
+
+### Decision
+`EAD_MOTOR_Mn_GPIO` follow the wiring: M1 GPIO4 (D3), M2 GPIO6 (D5), M3 GPIO42
+(MTMS), M4 GPIO5 (D4), M5 GPIO1 (D0), M6 GPIO2 (D1). Motor n stays the motor at band
+position n (`EAD_MOTOR_Mn_DEG`), so cue directions are unchanged.
+
+### Reason
+The firmware must drive the motor that sits where the cue's direction says. The six
+pins are the same set as DEC-016's, so every DEC-016 pin rule still holds: all are
+held LOW first at boot, none has an internal pull-up, GPIO39 is not a motor
+(`config_v1.h` static asserts).
+
+### Trade-offs
+None in the firmware. Not yet confirmed: whether any motor moved between the driver's
+two rails (affects only which regulator a motor draws from), and each motor's position,
+which a service pulse per motor felt on the band confirms.
+
+### Consequences
+The configuration section (pins) and its SHA-256 change; vectors regenerated
+(`MOTOR_PINS`). Reflash required. `firmware/bench/bno086` holds the same six pins LOW
+and needs no change; `hardware/erm-driver-pcb/firmware/erm_channel_test.ino` predates
+DEC-016 and is not for this board.
 

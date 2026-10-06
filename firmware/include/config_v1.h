@@ -27,12 +27,15 @@
 #define EAD_PIN_SHANK_INT          40
 #define EAD_PIN_SENSOR_RST         41
 #define EAD_PIN_SENSOR_WAKE        3
-#define EAD_MOTOR_M1_GPIO          1
-#define EAD_MOTOR_M2_GPIO          2
-#define EAD_MOTOR_M3_GPIO          42
-#define EAD_MOTOR_M4_GPIO          4
-#define EAD_MOTOR_M5_GPIO          5
-#define EAD_MOTOR_M6_GPIO          6
+// Motor n is the motor at band position n (EAD_MOTOR_Mn_DEG). Rewired by the user
+// on 2026-10-07 (DEC-029): the same six pins, in a new order. Until then M1-M6 were
+// GPIO 1, 2, 42, 4, 5, 6 (D0, D1, MTMS, D3, D4, D5).
+#define EAD_MOTOR_M1_GPIO          4   // D3
+#define EAD_MOTOR_M2_GPIO          6   // D5
+#define EAD_MOTOR_M3_GPIO          42  // back pad MTMS
+#define EAD_MOTOR_M4_GPIO          5   // D4
+#define EAD_MOTOR_M5_GPIO          1   // D0
+#define EAD_MOTOR_M6_GPIO          2   // D1
 #define EAD_MOTOR_COUNT            6
 // Bit n-1 = motor n may be driven. A channel whose wiring is in doubt is switched
 // off here: motor 3 was, until GPIO42 measured about 100 kOhm to GND (PROB-020).

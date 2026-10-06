@@ -47,16 +47,17 @@ was soldered and the device ran two MPU6500s (audit F-21).
 
 ## 3. XIAO ESP32-S3 — every pin
 
-All 15 usable GPIOs are used. There is no spare. **[DEC-016]**
+All 15 usable GPIOs are used. There is no spare. **[DEC-016]** The motors were
+rewired on 2026-10-07 to a new order over the same six pins **[USER]** **[DEC-029]**.
 
 | XIAO pin | GPIO | Dir | Connects to | Evidence |
 |---|---:|---|---|---|
-| D0 | 1 | Out | Motor 1 gate network (§6) | [DEC] no internal pull at reset [DS] |
-| D1 | 2 | Out | Motor 2 gate network | [DEC] no internal pull [DS] |
+| D0 | 1 | Out | Motor 5 gate network (§6) | [DEC] no internal pull at reset [DS] |
+| D1 | 2 | Out | Motor 6 gate network | [DEC] no internal pull [DS] |
 | D2 | 3 | Out | **WAKE** pad on both BNO086 boards | [DEC] strapping pin, see §14 |
-| D3 | 4 | Out | Motor 4 gate network | [DEC] no internal pull [DS] |
-| D4 | 5 | Out | Motor 5 gate network | [DEC] no internal pull [DS] |
-| D5 | 6 | Out | Motor 6 gate network | [DEC] no internal pull [DS] |
+| D3 | 4 | Out | Motor 1 gate network | [DEC] no internal pull [DS] |
+| D4 | 5 | Out | Motor 4 gate network | [DEC] no internal pull [DS] |
+| D5 | 6 | Out | Motor 2 gate network | [DEC] no internal pull [DS] |
 | D6 | 43 | Out | **CS** pad, foot BNO086 | [DEC] internal pull-up keeps it deselected through boot [DS] |
 | D7 | 44 | Out | **CS** pad, shank BNO086 | [DEC] same [DS] |
 | D8 | 7 | Out | **SCK** pad on both boards, via 33 Ω | [DEC] |
@@ -206,12 +207,17 @@ Why it is safe:
 
 | Motor | On the band | XIAO pin | GPIO | Rail | Rail wire in the band harness |
 |---|---|---|---:|---|---|
-| M1 | Anterior, 0° | D0 | 1 | A | +A |
-| M2 | Anterolateral, 60° | D1 | 2 | A | +A |
+| M1 | Anterior, 0° | D3 | 4 | A | +A |
+| M2 | Anterolateral, 60° | D5 | 6 | A | +A |
 | M3 | Posterolateral, 120° | back pad MTMS | 42 | A | +A |
-| M4 | Posterior, 180° | D3 | 4 | B | +B |
-| M5 | Posteromedial, 240° | D4 | 5 | B | +B |
-| M6 | Anteromedial, 300° | D5 | 6 | B | +B |
+| M4 | Posterior, 180° | D4 | 5 | B | +B |
+| M5 | Posteromedial, 240° | D0 | 1 | B | +B |
+| M6 | Anteromedial, 300° | D1 | 2 | B | +B |
+
+XIAO pins as rewired by the user on 2026-10-07 (DEC-029); until then M1–M6 were on D0,
+D1, MTMS, D3, D4, D5. The Rail column is the design's (M1–M3 on rail A); whether the
+rewiring moved any motor to the other rail is **not yet confirmed** **[USER]**. Each
+motor's position is to be confirmed by a service pulse felt on the band.
 
 Angles from the front of the shin, clockwise seen from above, right leg
 **[CONTRACT]** `06_ERROR_AND_HAPTIC_ENGINE.md` §7. Rail A feeds the front-lateral
@@ -445,7 +451,8 @@ input **[vendor doc]**. Consequence and options: PROB-021. **Never turn the mast
 switch ON while USB is plugged into the XIAO.**
 
 **Current device (user, 2026-10-02): the DEC-016 build of §3, with the ERM driver
-PCB of §6, everything fitted.**
+PCB of §6, everything fitted.** Motors rewired to a new pin order on 2026-10-07
+(user; §6, DEC-029).
 
 **Previous device, no longer exists.** Two MPU6500s on I²C.
 

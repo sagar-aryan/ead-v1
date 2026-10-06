@@ -60,7 +60,7 @@ and USB links → Rust backend with SQLite → React views and exports.
 | `ead_agent_docs_v2/` | Contract. Never modify |
 | `docs/hardware.md` | Current DEC-016 build, previous MPU6500 build, mount maps, what is verified |
 | `docs/wiring_reference.md` | Every DEC-016 connection with its evidence; firmware rules the wiring depends on |
-| `docs/decisions.md` | DEC-001–DEC-028 |
+| `docs/decisions.md` | DEC-001–DEC-029 |
 | `docs/problems.md` | PROB-001–PROB-042 (no PROB-008) |
 | `docs/testing.md` | TEST-001–TEST-069, with measured results |
 | `docs/protocol.md` | Wire protocol (schema 9): payloads, framing, backfill, ACK, SERVICE_TEST, haptics, enumerations |
@@ -179,7 +179,8 @@ DEC-022 gait events from the shank's swing; DEC-023 haptic feedback during evalu
 DEC-024 session commands acknowledged, a session outlives the link but not the app;
 DEC-025 0.5 s cues, OFF at 0.35, realistic spread floors (its fixed 100 % duty
 superseded by DEC-026 graded 60–100 %); DEC-027 cues held back after 5 s without the
-laptop (schema 9); DEC-028 the patient's name in every exported file.
+laptop (schema 9); DEC-028 the patient's name in every exported file; DEC-029 motors
+rewired by the user to a new order over the same six pins.
 
 ## Environment
 - Linux (Ubuntu 24.04), node 24.13.1, npm 11.8.0, rustc/cargo 1.95.0.
@@ -240,19 +241,23 @@ dropped), `cargo test hardware -- --ignored --test-threads=1` (both hardware tes
 the second resets the board and needs both sensors right way up, or worn standing).
 
 ## Next Steps
-1. **Evaluation walk (user, battery, Wi-Fi):** calibrate, evaluation against v5 with the
+1. **Motor positions after the rewiring (user, battery, Wi-Fi; DEC-029):** pulse M1–M6
+   from the Check view and confirm each is felt at its band position (M1 front, M2
+   front-outer, M3 back-outer, M4 back, M5 back-inner, M6 front-inner); say whether any
+   motor moved to the other regulator rail.
+2. **Evaluation walk (user, battery, Wi-Fi):** calibrate, evaluation against v5 with the
    switch on; normal lengths and deliberate deviations. Is a slight error felt at 60 %,
    a large one stronger? Then switch the laptop's Wi-Fi off mid-walk: the buzz should
    stop within 5 s and resume after reconnecting (`link_lost` records in haptics.csv).
-2. **Second audit, design work:** a confidence measure that can block a cue (F-02);
+3. **Second audit, design work:** a confidence measure that can block a cue (F-02);
    bounding velocity or invalidating distance when no zero-velocity window fires
    (F-04); a reference quality gate and mounting check (F-05). Each needs recorded walks
    to judge.
-3. Distance (PROB-024) with floor-mark ground truth; functional calibration of the
+4. Distance (PROB-024) with floor-mark ground truth; functional calibration of the
    shank swing axis (TEST-061); event timing against the synced videos (F-09).
-4. Dashboard gaps against doc 11: symmetry proxy on LIVE, RAW cycle/error filters,
+5. Dashboard gaps against doc 11: symmetry proxy on LIVE, RAW cycle/error filters,
    PAUSE/RESUME.
-5. M7 storage DEC, then the code.
+6. M7 storage DEC, then the code.
 
 ## Warnings
 - **Only firmware on the DEC-016 pins goes on this board** (product firmware from
