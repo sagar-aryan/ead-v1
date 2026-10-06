@@ -21,10 +21,9 @@ or fake data, no features the spec does not need.
 - **Hardware.** The XIAO (MAC 44:B1:76:AF:FB:7C) wired to DEC-016, both BNO086 on SPI,
   the separate ERM driver PCB (`hardware/erm-driver-pcb/`, tight variant) with six motors and two HT7833
   rails, battery. See `docs/hardware.md`. **Battery switch never ON with USB.**
-- **Not yet flashed (2026-10-07):** the repository's firmware is protocol schema 9
-  (DEC-026 graded cues, DEC-027 link-loss hold-back, PROB-037/038/041/042). The board
-  still runs `0.1.0+c2a15de` (schema 8, DEC-025: fixed 100 % cues), and the rebuilt
-  dashboard (schema 9) refuses it until it is reflashed over USB, battery off.
+- **Firmware `0.1.0+ae4b4b5`, protocol schema 9, flashed (TEST-069):** cues graded
+  60–100 % for 500 ms (DEC-026), held back after 5 s without the laptop (DEC-027),
+  calibration record kept until sent (PROB-037). Earlier features as below.
 - **Firmware as of `29c560c`, protocol schema 8:** 200 Hz frames clocked by
   the foot gyroscope, the BNO086's own orientation and a native 250 Hz accelerometer
   stream (DEC-021); gait events from the shank's swing (DEC-022); haptic feedback in
@@ -63,7 +62,7 @@ and USB links → Rust backend with SQLite → React views and exports.
 | `docs/wiring_reference.md` | Every DEC-016 connection with its evidence; firmware rules the wiring depends on |
 | `docs/decisions.md` | DEC-001–DEC-028 |
 | `docs/problems.md` | PROB-001–PROB-042 (no PROB-008) |
-| `docs/testing.md` | TEST-001–TEST-068, with measured results |
+| `docs/testing.md` | TEST-001–TEST-069, with measured results |
 | `docs/protocol.md` | Wire protocol (schema 9): payloads, framing, backfill, ACK, SERVICE_TEST, haptics, enumerations |
 | `docs/clinical_requirements.md` | The researcher's four requirements vs what is built |
 | `firmware/include/config_v1.h` | Fixed V1 constants, the DEC-016 pins with compile-time pin checks, BNO086 scales, mount maps |
@@ -241,21 +240,19 @@ dropped), `cargo test hardware -- --ignored --test-threads=1` (both hardware tes
 the second resets the board and needs both sensors right way up, or worn standing).
 
 ## Next Steps
-1. **Flash the schema 9 firmware** (USB, battery off): `pio run -d firmware -t upload`,
-   then `eadprobe config` (expect duty 153/255, OFF 0.35) and `eadprobe stats`.
-2. **Evaluation walk (user, battery, Wi-Fi):** calibrate, evaluation against v5 with the
+1. **Evaluation walk (user, battery, Wi-Fi):** calibrate, evaluation against v5 with the
    switch on; normal lengths and deliberate deviations. Is a slight error felt at 60 %,
    a large one stronger? Then switch the laptop's Wi-Fi off mid-walk: the buzz should
    stop within 5 s and resume after reconnecting (`link_lost` records in haptics.csv).
-3. **Second audit, design work:** a confidence measure that can block a cue (F-02);
+2. **Second audit, design work:** a confidence measure that can block a cue (F-02);
    bounding velocity or invalidating distance when no zero-velocity window fires
    (F-04); a reference quality gate and mounting check (F-05). Each needs recorded walks
    to judge.
-4. Distance (PROB-024) with floor-mark ground truth; functional calibration of the
+3. Distance (PROB-024) with floor-mark ground truth; functional calibration of the
    shank swing axis (TEST-061); event timing against the synced videos (F-09).
-5. Dashboard gaps against doc 11: symmetry proxy on LIVE, RAW cycle/error filters,
+4. Dashboard gaps against doc 11: symmetry proxy on LIVE, RAW cycle/error filters,
    PAUSE/RESUME.
-6. M7 storage DEC, then the code.
+5. M7 storage DEC, then the code.
 
 ## Warnings
 - **Only firmware on the DEC-016 pins goes on this board** (product firmware from

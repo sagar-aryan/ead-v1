@@ -2394,3 +2394,36 @@ tests run on battery over Wi-Fi only.
 ### Result
 PASS for what USB can show. The cue's strength and length, and quiet normal walking,
 are for the user's next walk.
+
+## TEST-069 — Schema 9 firmware on the board (USB): DEC-026, PROB-037, the dashboard's hardware test
+
+### Objective
+Flash `ae4b4b5` (DEC-026/027, PROB-037/038/041/042) and confirm what USB can show.
+
+### Environment
+USB, battery switch off, both sensor boards lying on the desk (not worn). 2026-10-07.
+
+### Procedure
+1. `pio run -d firmware -t upload`.
+2. `eadprobe hello`, `eadprobe config`, `eadprobe stats --seconds 30`.
+3. `eadprobe calibrate --seconds 5`.
+4. `cargo test records_a_session_from_a_real_device -- --ignored` (sensor check through
+   the changed `request_service` path, then a recorded session).
+
+### Expected
+Schema 9; duty 153/255; OFF 0.35; 200 Hz with nothing dropped; the calibration record
+delivered (its flag now taken on commit); the hardware test passing.
+
+### Actual
+1. Flashed, hash verified.
+2. Schema 9, `0.1.0+ae4b4b5`; `min_duty` 153, `max_duty` 255, `haptic_on`/`haptic_off`
+   0.35, `confidence_haptic` 0.75, rolling limit 0.5. 200.267 Hz, frames dropped 0, no
+   faults, read failures 0; foot accelerometer 246.8 Hz, shank 250.1 Hz on the desk.
+3. Record received: 1000 samples, rejected `upside_down` (foot tilt 80.5°, shank 131°:
+   the boards were lying on their sides, as expected off the leg).
+4. Passed (5.7 s).
+
+### Result
+PASS for what USB can show. Not shown over USB: graded cue strength felt, the 5 s
+link-loss hold-back, the Wi-Fi silence reconnect and the Wi-Fi calibration path; for the
+user's walk on battery over Wi-Fi.
