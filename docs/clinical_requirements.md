@@ -88,8 +88,17 @@ rather than invented silently.
 **Update (2026-10-04):** the drivers are fitted on the DEC-016 build and the
 vibration is built (DEC-023): one cue per scored cycle in an evaluation, its
 strength from the formula above, held to the 5 s and 50 % limits, off whenever a
-sensor faults (PROB-026). Not yet felt during walking. The paragraph below
-describes the earlier build.
+sensor faults (PROB-026). The paragraph below describes the earlier build.
+
+**Update (2026-10-07):** cues at doc 06's 20–80 % for 250 ms were felt only faintly
+on the first walks (TEST-066). DEC-025 made every cue 100 % for 500 ms, which no
+longer told a slight error from a large one; DEC-026 (the user) restores the scaling
+over 60–100 %: `153 + 102·score^1.5·confidence` of 255, 500 ms, the cap at the motor
+rail's maximum. An episode ends at the first step under 0.35 (DEC-025). With no
+message from the laptop for 5 s, cues are held back and logged (DEC-027). Open (audit
+F-02): the confidence floor on a valid cycle with healthy sensors is 0.796, above the
+0.75 gate, so confidence never blocks a cue; noise is kept out by the spread floors,
+the temporal guards and the 0.35 threshold.
 
 **Earlier (2026-09-18):** the vibration itself cannot be delivered on the current hardware —
 no ERM driver channels are fitted, which is why there is no haptic code (DEC-006,

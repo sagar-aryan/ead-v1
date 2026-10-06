@@ -672,8 +672,10 @@ dashboard (CONFIG_SET, STATUS `haptics`, HAPTIC_BATCH).
   the next frame.
 
 ### Limitations
-Since DEC-025 every cue runs at full duty for 500 ms (the user), an episode ends at the
-first step under 0.35, and spreads are floored when scored. TIMING's alternation and
+Cues run 500 ms at 153–255 duty by doc 06 §10's formula (DEC-025, DEC-026, the user),
+an episode ends at the first step under 0.35, and spreads are floored when scored. A cue
+is held back (duty 0, reason `link_lost`) when no host message has arrived for 5 s
+(DEC-027; `device::hostQuietFor`, `feedback::onCycle`). TIMING's alternation and
 the second-motor rule are choices doc 06 leaves open. Right leg only.
 
 ### Verification

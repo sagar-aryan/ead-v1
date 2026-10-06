@@ -7,18 +7,25 @@ plus a Tauri 2 research dashboard. Contract: `ead_agent_docs_v2/`
 (authoritative, read-only).
 
 ## Current Objective
-Make the device trustworthy enough for a real reference → check → evaluation walk with
-feedback. On 2026-10-05 an external code audit's findings were checked and the harmful
-ones fixed (PROB-026–035); what remains needs the user: the motors felt on battery over
-Wi-Fi, and a full workflow walk. The user wants engineered work only: no filler, no
-placeholder or fake data, no features the spec does not need.
+Make the device trustworthy for a real reference → check → evaluation walk with
+feedback. On 2026-10-07 a second external audit (`EAD_AUDIT_REPORT.md`, untracked) was
+checked finding by finding; the user answered its questions (cue strength graded
+60–100 %, cues held back after 5 s without the laptop, the patient's name in every
+export, baseline as the target, right leg only, no external sync system) and the
+code-level findings were fixed (DEC-026–028, PROB-037–042). Next: flash, then the
+user's evaluation walk. The user wants engineered work only: no filler, no placeholder
+or fake data, no features the spec does not need.
 
-## Current State (2026-10-05)
+## Current State (2026-10-07)
 
 - **Hardware.** The XIAO (MAC 44:B1:76:AF:FB:7C) wired to DEC-016, both BNO086 on SPI,
   the separate ERM driver PCB (`hardware/erm-driver-pcb/`, tight variant) with six motors and two HT7833
   rails, battery. See `docs/hardware.md`. **Battery switch never ON with USB.**
-- **Firmware `0.1.0+29c560c`, protocol schema 8, flashed:** 200 Hz frames clocked by
+- **Not yet flashed (2026-10-07):** the repository's firmware is protocol schema 9
+  (DEC-026 graded cues, DEC-027 link-loss hold-back, PROB-037/038/041/042). The board
+  still runs `0.1.0+c2a15de` (schema 8, DEC-025: fixed 100 % cues), and the rebuilt
+  dashboard (schema 9) refuses it until it is reflashed over USB, battery off.
+- **Firmware as of `29c560c`, protocol schema 8:** 200 Hz frames clocked by
   the foot gyroscope, the BNO086's own orientation and a native 250 Hz accelerometer
   stream (DEC-021); gait events from the shank's swing (DEC-022); haptic feedback in
   evaluations behind a master switch, off at boot (DEC-023); ACK for session commands
@@ -36,10 +43,11 @@ placeholder or fake data, no features the spec does not need.
   built while PROB-016 split strides; v4 (2026-10-05, TEST-066) is half free walking
   around a room. v5 (`20261005-151103-5aad`, the 10 m straight only) is the one to
   use; scored under DEC-025's floors, it needs no recapture.
-- **Dashboard (`ead`, rebuilt after every change):** every doc 11 view except a
-  separate HAPTICS page, plus Check; store schema 11. The database on this machine
-  migrates to 11 when the app next opens; backup `ead.sqlite3.schema10-backup-2026-10-05`
-  beside it. Session commands wait for the device's answer; stops drain to the device's
+- **Dashboard (`ead`, rebuilt 2026-10-07):** every doc 11 view except a
+  separate HAPTICS page, plus Check; protocol schema 9, store schema 12. The database on
+  this machine migrates to 12 when the app next opens (migration tested on a copy: 41
+  status rows kept, integrity ok); backup `ead.sqlite3.schema11-backup-2026-10-07`
+  beside it. Every CSV carries `patient_name`; `gait.csv` has `valid`. Session commands wait for the device's answer; stops drain to the device's
   boundary; save failures show in the state bar; a live session cannot be exported.
 
 ## Architecture
@@ -53,10 +61,10 @@ and USB links → Rust backend with SQLite → React views and exports.
 | `ead_agent_docs_v2/` | Contract. Never modify |
 | `docs/hardware.md` | Current DEC-016 build, previous MPU6500 build, mount maps, what is verified |
 | `docs/wiring_reference.md` | Every DEC-016 connection with its evidence; firmware rules the wiring depends on |
-| `docs/decisions.md` | DEC-001–DEC-024 |
-| `docs/problems.md` | PROB-001–PROB-035 (no PROB-008) |
-| `docs/testing.md` | TEST-001–TEST-065, with measured results |
-| `docs/protocol.md` | Wire protocol (schema 8): payloads, framing, backfill, ACK, SERVICE_TEST, haptics, enumerations |
+| `docs/decisions.md` | DEC-001–DEC-028 |
+| `docs/problems.md` | PROB-001–PROB-042 (no PROB-008) |
+| `docs/testing.md` | TEST-001–TEST-068, with measured results |
+| `docs/protocol.md` | Wire protocol (schema 9): payloads, framing, backfill, ACK, SERVICE_TEST, haptics, enumerations |
 | `docs/clinical_requirements.md` | The researcher's four requirements vs what is built |
 | `firmware/include/config_v1.h` | Fixed V1 constants, the DEC-016 pins with compile-time pin checks, BNO086 scales, mount maps |
 | `firmware/lib/ead_core/` | Portable codec, COBS, CRC-32, ring, SH-2 codec, motor guard, calibration, Mahony, gait, reference, error engine |
@@ -92,7 +100,11 @@ and USB links → Rust backend with SQLite → React views and exports.
   walks over Wi-Fi (TEST-058), shank-swing step detection (DEC-022), haptic feedback
   (DEC-023), schema 7 on the board (TEST-062).
 - 2026-10-05: power budget estimate (`hardware.md`); the external audit checked
-  claim by claim and fixed: PROB-026–035, DEC-024, TEST-063–065.
+  claim by claim and fixed: PROB-026–035, DEC-024, TEST-063–065. First walks with
+  feedback (TEST-066–068), DEC-025; the ERM driver PCB project into the repository.
+- 2026-10-07: second external audit verified; the user's answers (DEC-026–028); fixes
+  PROB-037–042; mirrored score constants tested against the firmware headers; root
+  README.
 
 ## Current Work
 Nothing in flight. The audit list's remaining items are under Next Steps.
@@ -114,10 +126,19 @@ Nothing in flight. The audit list's remaining items are under Next Steps.
 - `EAD_GAIT_LOWPASS_HZ` (6 Hz) is reported in CONFIG_GET but not applied.
 - **PROB-022 (open):** still on the desk, both gyroscopes show episodes of a few °/s; a
   2 s calibration was once rejected as "moved". Calibrate again.
-- **Not yet fixed from the audit:** anyone on the access point can control the device
-  (no pairing; left as is by the user's decision, DEC-024); dependency advisories (Vite/esbuild dev server, glib, unmaintained
-  font crates, fixed for npm in PROB-036; the Rust ones wait on Tauri and krilla);
-  `session.mat` built in memory.
+- **Not yet fixed from the audits:** anyone on the access point can control the device
+  (no pairing; left as is by the user's decision, DEC-024); the Rust dependency
+  notices (wait on Tauri and krilla, PROB-036); `session.mat` built in memory.
+  Second audit, open: the confidence gate cannot block a cue (F-02, floor 0.796 vs
+  gate 0.75); velocity is not bounded when no zero-velocity window fires and those
+  cycles stay valid (F-04); no reference quality gate or mounting check (F-05); shank
+  gyro and rotation vectors resampled to the foot's frames (F-06); slow-walk distance,
+  toe-off/stance/swing timing and thresholds unvalidated beyond one healthy wearer
+  (F-08, F-09, F-15); worn accelerometer rate 224–238 Hz and ~0.5 ms frame-time jitter,
+  causes unknown (F-14, F-32); pause/resume and on-device storage not built (F-17);
+  cues at cycles under ~1 s on one motor can be refused by the 50 % limit (F-18, never
+  observed); no part numbers in the PCB BOM (F-24); Windows/macOS setup never run
+  (F-26). By the user's choice: OFF = ON (F-12), Wi-Fi control (F-40).
 
 ## Failed Approaches
 - Mount maps derived from statements or images (PROB-002). Measure on the leg;
@@ -142,6 +163,9 @@ Nothing in flight. The audit list's remaining items are under Next Steps.
   or an unrelated error decided wrongly. Session commands now wait for ACK or ERROR.
 - Sending backfill requests on a new connection before its HELLO is read: after a
   reset the old boot's gaps went to the new boot (TEST-065).
+- `cargo fmt` on the dashboard: it reformats the whole crate (not rustfmt-formatted).
+- Clearing the dashboard's held calibration record at each calibration start
+  (PROB-037): a cancelled window keeps the device's old calibration.
 
 ## Important Decisions
 DEC-005 USB link; DEC-006 no haptic code (superseded by DEC-023); DEC-007 raw =
@@ -154,7 +178,9 @@ firmware (own SH-2 driver, Mahony kept, calibrated reports as counts); DEC-018 m
 service-test pulses; DEC-019–021 soft footfalls, the user's decisions, the 200 Hz feed;
 DEC-022 gait events from the shank's swing; DEC-023 haptic feedback during evaluations;
 DEC-024 session commands acknowledged, a session outlives the link but not the app;
-DEC-025 full-strength 0.5 s cues, OFF at 0.35, realistic spread floors.
+DEC-025 0.5 s cues, OFF at 0.35, realistic spread floors (its fixed 100 % duty
+superseded by DEC-026 graded 60–100 %); DEC-027 cues held back after 5 s without the
+laptop (schema 9); DEC-028 the patient's name in every exported file.
 
 ## Environment
 - Linux (Ubuntu 24.04), node 24.13.1, npm 11.8.0, rustc/cargo 1.95.0.
@@ -203,9 +229,9 @@ DEC-025 full-strength 0.5 s cues, OFF at 0.35, realistic spread floors.
 
 ## How To Verify
 The whole suite, before every commit:
-- `pio test -d firmware -e native` (103), `pio run -d firmware`,
+- `pio test -d firmware -e native` (104), `pio run -d firmware`,
   `pio run -d firmware/bench/bno086 -e foot -e shank`
-- `cd dashboard/src-tauri && cargo test` (84, 4 ignored) and
+- `cd dashboard/src-tauri && cargo test` (91, 4 ignored) and
   `cargo clippy --all-targets -- -D warnings`
 - `cd dashboard && npm test` (28) and `npm run build`
 - `python3 tools/eadprobe.py vectors` (27, 0 failures)
@@ -215,16 +241,18 @@ dropped), `cargo test hardware -- --ignored --test-threads=1` (both hardware tes
 the second resets the board and needs both sensors right way up, or worn standing).
 
 ## Next Steps
-1. **Motors on battery, over Wi-Fi (user):** USB unplugged, switch on,
-   `eadprobe --ws ws://192.168.4.1:8080/ws pulse 4 --duty 75 --ms 250` and
-   `--duty 204`: both felt? Is 250 ms right?
-2. **The full workflow walk (user, Wi-Fi):** calibrate standing; a reference capture of
-   at least 30 valid cycles; a check; an evaluation with the switch on and deliberate
-   deviations; export, then `check_mat.py` and `check_pdf.py` on the package.
-3. **Audit remainder:** `session.mat` in two passes; reference/mounting compatibility.
-   Controller ownership on the access point: left as is (user, DEC-024).
+1. **Flash the schema 9 firmware** (USB, battery off): `pio run -d firmware -t upload`,
+   then `eadprobe config` (expect duty 153/255, OFF 0.35) and `eadprobe stats`.
+2. **Evaluation walk (user, battery, Wi-Fi):** calibrate, evaluation against v5 with the
+   switch on; normal lengths and deliberate deviations. Is a slight error felt at 60 %,
+   a large one stronger? Then switch the laptop's Wi-Fi off mid-walk: the buzz should
+   stop within 5 s and resume after reconnecting (`link_lost` records in haptics.csv).
+3. **Second audit, design work:** a confidence measure that can block a cue (F-02);
+   bounding velocity or invalidating distance when no zero-velocity window fires
+   (F-04); a reference quality gate and mounting check (F-05). Each needs recorded walks
+   to judge.
 4. Distance (PROB-024) with floor-mark ground truth; functional calibration of the
-   shank swing axis (TEST-061).
+   shank swing axis (TEST-061); event timing against the synced videos (F-09).
 5. Dashboard gaps against doc 11: symmetry proxy on LIVE, RAW cycle/error filters,
    PAUSE/RESUME.
 6. M7 storage DEC, then the code.
@@ -235,9 +263,9 @@ the second resets the board and needs both sensors right way up, or worn standin
   LOW first (a doubtful channel stays out of the enable mask), never asserts both chip
   selects, never starts UART0, and never puts a motor on GPIO39
   (`docs/wiring_reference.md` firmware rules).
-- The master switch output feeds the XIAO's 5V pin (PROB-021). **The battery switch is
-  never ON while USB is plugged in** (user, 2026-10-05). A motor test that needs battery
-  power runs over Wi-Fi with USB unplugged.
+- PROB-021: the user reports the power path fixed (2026-10-06; method not recorded).
+  **The battery switch is still never ON while USB is plugged in** (user, 2026-10-05).
+  A motor test that needs battery power runs over Wi-Fi with USB unplugged.
 - `firmware/bench/padstate` briefly pulls each motor gate up at boot (0.3 ms).
 - **The repository is public.** Never commit `firmware/include/ead_secrets.h`;
   never put the patient's name in docs (use the ID, `67`).

@@ -147,8 +147,9 @@ The foot board sits about 42° off level on the instep (standing gravity
 separate driver PCB (user, 2026-10-02) and all six were felt at 50 % duty in service
 pulses (TEST-049). The firmware drives the motor GPIOs LOW first in `setup()`, then
 runs 200 Hz PWM for service pulses (DEC-018) and feedback cues during evaluations
-(DEC-023). No current or vibration amplitude has been measured, and no cue has been
-felt during walking.
+(DEC-023). Cues were felt while walking on battery over Wi-Fi (TEST-066), faintly at
+the contract's 20–80 % for 250 ms; since DEC-026 cues run 60–100 % (153–255) for
+500 ms. No current or vibration amplitude has been measured.
 
 **History:** on the MPU6500 build the channels were not fitted (user, 2026-09-17), and
 DEC-006 kept all PWM and haptic code out of the firmware until they were.
