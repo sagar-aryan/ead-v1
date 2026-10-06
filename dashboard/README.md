@@ -6,8 +6,9 @@ decision: DEC-011 in `../docs/decisions.md`.
 
 ## Current state
 
-Every doc 11 view except HAPTICS (no haptic code, DEC-006): LIVE, CYCLES, EVENTS,
-RAW, REFERENCES, SESSIONS, EXPORT, DEVICE. The Rust backend holds the device link
+Every doc 11 view except a separate HAPTICS page (cues are shown in CYCLES, EVENTS and
+the state bar's vibration switch, DEC-023): LIVE, CYCLES, EVENTS, RAW, REFERENCES,
+SESSIONS, EXPORT, DEVICE, and Check (`ead --check`). The Rust backend holds the device link
 (USB or Wi-Fi, with backfill), the SQLite store, the session gate, host-side
 segments and the export package (CSV, `metadata.json`, `.mat`, PDF).
 
