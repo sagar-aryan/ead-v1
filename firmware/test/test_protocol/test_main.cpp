@@ -1,6 +1,7 @@
 #include <unity.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <initializer_list>
 #include <string>
@@ -431,8 +432,18 @@ static void test_a_reference_with_a_zero_spread_is_refused() {
   ead::encodeReferenceProfile(profile, encoded, sizeof encoded);
   TEST_ASSERT_FALSE(ead::decodeReferenceProfile(encoded, sizeof encoded, &decoded));
 
-  // So would a profile built from too few cycles.
+  // A median or spread that is not a finite number (F-39).
   profile.features[3].spread = 1.0f;
+  profile.features[2].median = NAN;
+  ead::encodeReferenceProfile(profile, encoded, sizeof encoded);
+  TEST_ASSERT_FALSE(ead::decodeReferenceProfile(encoded, sizeof encoded, &decoded));
+  profile.features[2].median = 1.0f;
+  profile.features[2].spread = INFINITY;
+  ead::encodeReferenceProfile(profile, encoded, sizeof encoded);
+  TEST_ASSERT_FALSE(ead::decodeReferenceProfile(encoded, sizeof encoded, &decoded));
+  profile.features[2].spread = 1.0f;
+
+  // So would a profile built from too few cycles.
   profile.cycles = 12;
   ead::encodeReferenceProfile(profile, encoded, sizeof encoded);
   TEST_ASSERT_FALSE(ead::decodeReferenceProfile(encoded, sizeof encoded, &decoded));

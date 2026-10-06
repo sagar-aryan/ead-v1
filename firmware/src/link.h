@@ -29,7 +29,7 @@ class Link {
   uint8_t activeFlag() const { return activeFlag_; }
 
  private:
-  enum class Source : uint8_t { None, Reply, Status, Live, Backfill };
+  enum class Source : uint8_t { None, Reply, Status, Calibration, Live, Backfill };
 
   void queueReply(ead::MsgType type, const uint8_t* payload, size_t len, int64_t nowUs);
   void queueAck(uint32_t cmdSeq, uint8_t cmdType, uint8_t kind, int64_t nowUs);
@@ -40,7 +40,10 @@ class Link {
                      int64_t nowUs);
   size_t buildBackfill(uint8_t* out, size_t cap, int64_t nowUs);
 
-  static constexpr size_t kReplySlots = 4;
+  // A full queue drops the new reply. A command is retried on its timeout, but
+  // a capture's profile cannot be asked for again, so there is room for a burst
+  // of errors besides the stop's ACK and the profile (F-36; four until 2026-10-07).
+  static constexpr size_t kReplySlots = 8;
   static constexpr size_t kReplyCap = 512;
   struct Reply {
     uint16_t len;

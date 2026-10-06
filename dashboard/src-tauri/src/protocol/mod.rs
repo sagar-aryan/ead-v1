@@ -18,6 +18,8 @@ pub const PROTOCOL_VERSION: u16 = 1;
 use std::cmp::Ordering;
 
 pub const SCHEMA_VERSION: u16 = 9;
+/// STATUS `calibration_state` of a device holding a usable calibration.
+pub const CALIBRATION_READY: u8 = 2;
 pub const HEADER_SIZE: usize = 20;
 pub const RAW_FRAME_SIZE: usize = 70;
 pub const ACCEL_RECORD_SIZE: usize = 16;

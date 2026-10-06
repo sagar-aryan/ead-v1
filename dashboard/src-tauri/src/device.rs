@@ -261,7 +261,11 @@ impl Device {
     /// device has accepted it.
     pub async fn start_reference_capture(&self) -> Result<(), String> {
         let payload = protocol::session_start(protocol::SESSION_KIND_REFERENCE_CAPTURE, 0);
-        self.command(MsgType::SessionStart, &payload).await?;
+        // A profile still held from an earlier capture whose finish timed out
+        // would otherwise be stored as this capture's (F-30).
+        self.state.lock().expect("device state").reference = None;
+        let boundary = self.command(MsgType::SessionStart, &payload).await?;
+        self.raise_floor(boundary);
         self.note_session(Some(protocol::SESSION_KIND_REFERENCE_CAPTURE));
         Ok(())
     }
@@ -287,7 +291,8 @@ impl Device {
             protocol::SESSION_KIND_EVALUATION
         };
         let payload = protocol::session_start_with_reference(kind, profile);
-        self.command(MsgType::SessionStart, &payload).await?;
+        let boundary = self.command(MsgType::SessionStart, &payload).await?;
+        self.raise_floor(boundary);
         self.note_session(Some(kind));
         Ok(())
     }
@@ -331,9 +336,17 @@ impl Device {
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         };
+        self.raise_floor(boundary);
+        drained
+    }
+
+    /// Nothing at or below `boundary` is handed on from now: at a stop, the
+    /// session's tail arriving late; at a start, a backfill of a gap from before
+    /// it, or a cycle that closed just before it (F-33). The ACK's header sequence
+    /// is the last durable message before the device's session began.
+    fn raise_floor(&self, boundary: u32) {
         let mut state = self.state.lock().expect("device state");
         state.floor = Some(state.floor.map_or(boundary, |f| f.max(boundary)));
-        drained
     }
 
     /// Sends a session command and waits for the device's answer: the boundary
@@ -365,21 +378,27 @@ impl Device {
 
     /// Asks for the sensor check. With `rerun` the device resets both sensors
     /// and checks every line again, which stops frames for about two seconds.
-    /// Returns the reply count to wait past.
-    pub fn request_sensor_check(&self, rerun: bool) -> Result<u64, String> {
+    /// Returns the reply count to wait past and the command's sequence.
+    pub fn request_sensor_check(&self, rerun: bool) -> Result<(u64, u32), String> {
         self.request_service(&protocol::sensor_check_request(rerun))
     }
 
     /// Asks for one motor pulse; the device ends it by itself.
-    pub fn request_motor_pulse(&self, pulse: &protocol::MotorPulse) -> Result<u64, String> {
+    pub fn request_motor_pulse(&self, pulse: &protocol::MotorPulse) -> Result<(u64, u32), String> {
         self.request_service(&protocol::motor_pulse_request(pulse))
     }
 
-    fn request_service(&self, payload: &[u8]) -> Result<u64, String> {
+    fn request_service(&self, payload: &[u8]) -> Result<(u64, u32), String> {
         let seen = self.service_replies();
-        self.clear_error();
-        self.send_now(MsgType::ServiceTest, payload)?;
-        Ok(seen)
+        let seq = self.send_command(MsgType::ServiceTest, payload)?;
+        Ok((seen, seq))
+    }
+
+    /// The device's refusal of command `seq`, if one has arrived. Matched by the
+    /// command's sequence: any other ERROR (a backfill's "serving a..b") made a
+    /// sensor check or a pulse look refused while it was the last error (F-34).
+    pub fn take_refusal(&self, seq: u32) -> Option<String> {
+        self.take_reply(seq).and_then(|reply| reply.err())
     }
 
     /// The haptic master switch (CONFIG_SET, DEC-023). The device echoes it and
@@ -401,10 +420,6 @@ impl Device {
     /// the command about to be sent.
     pub fn clear_error(&self) {
         self.state.lock().expect("device state").last_error = None;
-    }
-
-    pub fn last_error(&self) -> Option<String> {
-        self.state.lock().expect("device state").last_error.clone()
     }
 
     /// Takes the profile from the last completed capture, clearing it.
@@ -545,7 +560,7 @@ async fn connection(
                         return false;
                     }
                 }
-                for (first, last) in tracker.take_backfill_requests() {
+                if let Some((first, last)) = tracker.take_backfill_request() {
                     command_seq += 1;
                     let payload = protocol::backfill_request(first, last);
                     if send(&commands, MsgType::BackfillRequest, command_seq, &payload)
@@ -730,6 +745,7 @@ impl Tracker {
         if previous != Some(hello.boot_id) {
             state.calibration = None;
             state.sensor_check = None;  // a check describes the boot it ran in
+            state.reference = None; // a profile belongs to the capture of its boot
         }
         if restarted {
             // Whatever session this host started ended with the old boot.
@@ -902,30 +918,25 @@ impl Tracker {
         }
     }
 
-    /// Contiguous ranges to request, oldest first.
-    fn take_backfill_requests(&mut self) -> Vec<(u32, u32)> {
+    /// The oldest contiguous range to request. One at a time: the device serves
+    /// one backfill and each request replaces the last, so asking for four per
+    /// tick served only the newest, and the oldest gap, the first to be evicted
+    /// from the device's ring, waited longest (F-28).
+    fn take_backfill_request(&mut self) -> Option<(u32, u32)> {
         if !self.hello_seen {
-            return Vec::new();
+            return None;
         }
         self.forget_evicted();
-        let mut ranges = Vec::new();
         let mut iter = self.missing.iter().copied();
-        let Some(mut first) = iter.next() else { return ranges };
+        let first = iter.next()?;
         let mut last = first;
         for sequence in iter {
-            if sequence == last + 1 && last - first + 1 < MAX_BACKFILL_SPAN {
-                last = sequence;
-                continue;
+            if sequence != last + 1 || last - first + 1 >= MAX_BACKFILL_SPAN {
+                break;
             }
-            ranges.push((first, last));
-            if ranges.len() == 4 {
-                return ranges; // one request per keepalive tick is enough
-            }
-            first = sequence;
             last = sequence;
         }
-        ranges.push((first, last));
-        ranges
+        Some((first, last))
     }
 }
 
@@ -999,12 +1010,12 @@ mod tests {
         for sequence in 1..=100 {
             tracker.handle(&resequenced("raw_batch.hex", sequence));
         }
-        assert!(tracker.take_backfill_requests().is_empty());
+        assert_eq!(tracker.take_backfill_request(), None);
         device.keep_tracker(tracker);
 
         let mut tracker = connect(&device);
         tracker.handle(&hello_holding(7, 1, 150));
-        assert_eq!(tracker.take_backfill_requests(), vec![(101, 150)]);
+        assert_eq!(tracker.take_backfill_request(), Some((101, 150)));
 
         // Another boot: its numbers start again and nothing earlier exists. Until
         // its HELLO is read, the old boot's gap is not asked for either (TEST-065).
@@ -1012,9 +1023,23 @@ mod tests {
         device.keep_tracker(tracker);
         let mut tracker = connect(&device);
         tracker.hello_seen = false; // as `connection()` starts each one
-        assert!(tracker.take_backfill_requests().is_empty());
+        assert_eq!(tracker.take_backfill_request(), None);
         tracker.handle(&hello_holding(8, 1, 20));
-        assert!(tracker.take_backfill_requests().is_empty());
+        assert_eq!(tracker.take_backfill_request(), None);
+    }
+
+    #[test]
+    fn the_oldest_gap_is_requested_first_and_alone() {
+        let device = Device::new(Arc::new(NoSink));
+        let mut tracker = connect(&device);
+        tracker.handle(&hello_holding(7, 1, 0));
+        for sequence in [1, 2, 5, 6, 9] {
+            tracker.handle(&resequenced("raw_batch.hex", sequence));
+        }
+        assert_eq!(tracker.take_backfill_request(), Some((3, 4)));
+        tracker.handle(&resequenced("raw_batch.hex", 3));
+        tracker.handle(&resequenced("raw_batch.hex", 4));
+        assert_eq!(tracker.take_backfill_request(), Some((7, 8)));
     }
 
     fn calibrated(boot_id: u32) -> Device {
@@ -1033,6 +1058,22 @@ mod tests {
         let device = calibrated(0xA1B2_C3D4);
         connect(&device).handle(&hello(0x0102_0304));
         assert_eq!(device.snapshot().calibration, None);
+    }
+
+    // F-30: a profile that arrived after its capture's finish gave up must not be
+    // taken by a later capture; a new boot cannot have sent it for its own.
+    #[test]
+    fn a_device_reboot_discards_a_held_reference_profile() {
+        let device = calibrated(0xA1B2_C3D4);
+        let msg = vector("reference_profile.hex");
+        let (_, payload) = protocol::parse(&msg).unwrap();
+        let profile = protocol::encode(MsgType::SessionStop, 1, 0, &payload[4..]);
+        let mut tracker = connect(&device);
+        tracker.handle(&hello(0xA1B2_C3D4));
+        tracker.handle(&profile);
+        assert!(device.state.lock().unwrap().reference.is_some(), "the profile was held");
+        tracker.handle(&hello(0x0102_0304));
+        assert_eq!(device.take_reference(), None);
     }
 
     /// Counts restarts, as the store would end a session for each.
@@ -1098,7 +1139,7 @@ mod tests {
         tracker.handle(&vector("raw_batch.hex")); // sequence 3
         tracker.handle(&vector("raw_accel_batch.hex")); // sequence 5
         assert_eq!(tracker.missing.iter().copied().collect::<Vec<_>>(), vec![4]);
-        assert_eq!(tracker.take_backfill_requests(), vec![(4, 4)]);
+        assert_eq!(tracker.take_backfill_request(), Some((4, 4)));
 
         tracker.handle(&vector("backfill_data.hex")); // sequences 3 and 4
         assert!(tracker.missing.is_empty());
@@ -1187,6 +1228,17 @@ mod tests {
         protocol::encode(MsgType::Ack, boundary, 0, &payload)
     }
 
+    // F-34: an ERROR answering another command is not this command's refusal.
+    #[test]
+    fn a_refusal_is_matched_to_its_own_command() {
+        let device = Device::new(Arc::new(NoSink));
+        let mut tracker = connect(&device);
+        tracker.handle(&hello(0xA1B2_C3D4));
+        tracker.handle(&error_for(0x8000_0010));
+        assert_eq!(device.take_refusal(0x8000_0011), None);
+        assert!(device.take_refusal(0x8000_0010).is_some_and(|e| e.contains("running")));
+    }
+
     fn error_for(cmd_seq: u32) -> Vec<u8> {
         let mut payload = cmd_seq.to_le_bytes().to_vec();
         payload.push(MsgType::SessionStart as u8);
@@ -1223,6 +1275,31 @@ mod tests {
         tracker.handle(&error_for(header.sequence));
         assert!(waiting.await.unwrap().unwrap_err().contains("running"));
         assert_eq!(device.snapshot().session_kind, None, "a refused start is not a session");
+    }
+
+    // F-33: a gap from before the start, repaired during the session, is not
+    // stored into it; what follows the start's ACK is.
+    #[tokio::test]
+    async fn a_start_hands_on_nothing_from_before_it() {
+        let sink = Arc::new(Collect::default());
+        let device = Arc::new(Device::new(sink.clone()));
+        let mut sent = linked(&device);
+        let mut tracker = connect(&device);
+        tracker.handle(&hello_holding(7, 1, 0));
+        tracker.handle(&resequenced("raw_batch.hex", 1));
+        tracker.handle(&resequenced("raw_batch.hex", 3)); // 2 is missing
+        let waiting = tokio::spawn({
+            let device = device.clone();
+            async move { device.start_reference_capture().await }
+        });
+        let (header, _) = protocol::parse(&sent.recv().await.unwrap()).unwrap();
+        tracker.handle(&ack(header.sequence, MsgType::SessionStart, 2, 3));
+        waiting.await.unwrap().unwrap();
+        let before = sink.0.lock().unwrap().0.len();
+        tracker.handle(&backfill(&[resequenced("raw_batch.hex", 2)]));
+        assert_eq!(sink.0.lock().unwrap().0.len(), before, "2 is from before the start");
+        tracker.handle(&resequenced("raw_batch.hex", 4));
+        assert_eq!(sink.0.lock().unwrap().0.len(), before + 2);
     }
 
     // PROB-033, audit I05: the recording closes once the stop's data is in, and
@@ -1272,7 +1349,7 @@ mod tests {
         std::thread::sleep(ORPHAN_AFTER + Duration::from_millis(50));
         tracker.handle(&status);
         assert!(device.state.lock().unwrap().stop_orphan);
-        assert!(device.last_error().unwrap().contains("no recording owns"));
+        assert!(device.snapshot().last_error.unwrap().contains("no recording owns"));
     }
 
 }

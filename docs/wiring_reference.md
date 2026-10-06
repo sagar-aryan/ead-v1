@@ -18,9 +18,10 @@ says so and §16 lists the question.
 | **[CONTRACT]** | Fixed by `ead_agent_docs_v2/` |
 | **[DEC]** | Decided in `docs/decisions.md` |
 
-Build status: **nothing in the target build is soldered yet.** The current
-device runs two MPU6500s on I²C (§15); one BNO086 has been wired and measured on
-the bench (TEST-039, TEST-040); the ERM drivers are not fitted.
+Build status (2026-10-07): **the DEC-016 build is the device.** Two BNO086 on SPI,
+and the ERM driver PCB, tight variant (`hardware/erm-driver-pcb/`), with everything
+fitted (user, 2026-10-02 and 2026-10-05; §15). Until 2026-10-02 this line said nothing
+was soldered and the device ran two MPU6500s (audit F-21).
 
 ## 2. Parts
 
@@ -38,7 +39,8 @@ the bench (TEST-039, TEST-040); the ERM drivers are not fitted.
 | Capacitor | 4 | 1 µF, 1206 | HT7833 input + output, each regulator |
 | Capacitor | 2+ | 100 nF, 1206 | At each sensor's 3V3 pad |
 | Capacitor | 1+ | 10 µF, 1206 | Logic 3V3 rail |
-| Capacitor | 0 | 10 nF, 1206 | Footprint across each motor, **not fitted** by default |
+| Capacitor | 6 | 10 nF, 1206 | Across each motor (tight BOM C9–C14; fitted, §15) |
+| Capacitor | 6 | 100 nF, 1206 | Local rail decoupling per channel (tight BOM C15–C20) |
 | Resistor | 2 | 33 Ω, 1206 | SPI series termination, §5 (recommended, not in the contract) |
 | Cell | 1 | 1S Li-ion/LiPo, 3.7 V nominal, ~2000 mAh | Power |
 | Charger | 1 | MCP73833 module — **exact board not yet known, §16** | Charging |

@@ -359,7 +359,7 @@ export function References({ device }: { device: DeviceApi }) {
                     {f.spread.toFixed(FEATURE_DIGITS[i])}
                     <span className="unit">{FEATURE_UNITS[i]}</span>
                   </td>
-                  <td className="num">{FEATURE_WEIGHTS[i].toFixed(2)}</td>
+                  <td className="num">{vocabulary?.feature_weights[i]?.toFixed(2) ?? "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -411,7 +411,11 @@ export function References({ device }: { device: DeviceApi }) {
                       // which is "not measured", not agreement (PROB-015).
                       // Those cycles are left out; if none remain, say so.
                       const values = scored
-                        .filter((c) => i !== DISTANCE_FEATURE || c.zupt_quality >= DISTANCE_MIN_ZUPT)
+                        .filter(
+                          (c) =>
+                            i !== DISTANCE_FEATURE ||
+                            c.zupt_quality >= (vocabulary?.distance_min_zupt_quality ?? 1),
+                        )
                         .map((c) => c.deviations[i])
                         .filter((v) => v !== undefined);
                       const d = median(values);
@@ -457,8 +461,3 @@ export function References({ device }: { device: DeviceApi }) {
 
 /** Index of cycle distance in `Vocabulary.feature_names` (doc 06 §3). */
 const DISTANCE_FEATURE = 5;
-/** Mirrored from `ead::kDistanceMinZuptQuality` (doc 05 §8). */
-const DISTANCE_MIN_ZUPT = 0.15;
-
-/** Doc 06 §3, mirrored from `ead::kFeatureWeights` for display only. */
-const FEATURE_WEIGHTS = [0.25, 0.15, 0.15, 0.15, 0.1, 0.1, 0.1];

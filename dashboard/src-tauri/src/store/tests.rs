@@ -946,6 +946,50 @@ fn exportable_session() -> (Arc<Store>, tempdir::TempDir, String) {
     (store, dir, id)
 }
 
+// F-35: while the sensors stall the frame index stops; every change reported at
+// it is kept, in arrival order, and survives the schema 12 upgrade.
+#[test]
+fn status_changes_at_one_frame_index_are_all_kept() {
+    let dir = tempdir::TempDir::new();
+    let path = dir.path().join("ead.sqlite3");
+    let session_id = {
+        let store = Store::open(&path).expect("create");
+        store.create_patient("P-001", "Reference Walker").unwrap();
+        let session = store
+            .start_session("P-001", SessionKind::Recording, &DeviceIdentity::default(), None, None)
+            .unwrap();
+        for faults in [1, 3, 0] {
+            store.record_status(&crate::protocol::Status { frame_index: 40, faults, ..Default::default() });
+        }
+        store.flush().unwrap();
+        store.stop_session().unwrap();
+        let faults: Vec<u16> =
+            store.status_changes(&session.session_id).unwrap().iter().map(|c| c.faults).collect();
+        assert_eq!(faults, [1, 3, 0]);
+        // Back to the schema 11 table, holding one change, as an older store would.
+        store
+            .reader()
+            .unwrap()
+            .execute_batch(&format!(
+                "DROP TABLE status_changes;
+                 CREATE TABLE status_changes (
+                   session_id TEXT NOT NULL REFERENCES sessions(session_id),
+                   frame_index INTEGER NOT NULL, at TEXT NOT NULL,
+                   device_state INTEGER NOT NULL, faults INTEGER NOT NULL,
+                   PRIMARY KEY (session_id, frame_index)) WITHOUT ROWID;
+                 INSERT INTO status_changes VALUES ('{}', 40, 'then', 0, 1);
+                 PRAGMA user_version = 11;",
+                session.session_id
+            ))
+            .unwrap();
+        session.session_id
+    };
+    let store = Store::open(&path).expect("migrate");
+    let changes = store.status_changes(&session_id).unwrap();
+    assert_eq!(changes.len(), 1, "the change survives the upgrade");
+    assert_eq!((changes[0].frame_index, changes[0].faults), (40, 1));
+}
+
 #[test]
 fn the_export_package_matches_the_database() {
     let (store, dir, session_id) = exportable_session();
@@ -995,6 +1039,10 @@ fn the_export_package_matches_the_database() {
         assert!(events.contains(kind), "events.csv is missing {kind}");
     }
     assert!(!events.contains("SERVICE_TEST"), "service tests are refused during a session");
+    // The fault was reported at frame 2: stamped with that frame's device time
+    // (10 000 us), not the start of its cycle (F-37).
+    let fault = events.lines().find(|r| r.contains(",FAULT,")).unwrap();
+    assert_eq!(fault.split(',').nth(4).unwrap(), "10000", "{fault}");
 
     // Doc 10 §5 plus `event`: one row per stored record, the backfilled copy once.
     let haptics = std::fs::read_to_string(target.join("haptics.csv")).unwrap();
@@ -1302,4 +1350,38 @@ fn a_stalled_writer_counts_what_it_could_not_queue() {
     let flushed = store.flush();
     assert!(matches!(&flushed, Err(StoreError::Rejected(m)) if m.contains("fell more than 30 s behind")), "{flushed:?}");
     store.stop_session().ok();
+}
+
+/// The firmware's `constexpr float NAME = v;` or `NAME[n] = {v, ...};`, parsed
+/// from its header text.
+fn firmware_constant(header: &str, name: &str) -> Vec<f32> {
+    let path = format!("{}/../../firmware/lib/ead_core/src/ead/{header}", env!("CARGO_MANIFEST_DIR"));
+    let text = std::fs::read_to_string(&path).unwrap();
+    let start = text.find(&format!("constexpr float {name}")).unwrap_or_else(|| panic!("{name}"));
+    let body = &text[start..];
+    let body = &body[body.find('=').unwrap() + 1..body.find(';').unwrap()];
+    body.lines()
+        .map(|line| line.split("//").next().unwrap())
+        .flat_map(|line| line.split(','))
+        .map(|v| v.trim().trim_matches(['{', '}']).trim().trim_end_matches('f'))
+        .filter(|v| !v.is_empty())
+        .map(|v| v.parse().unwrap_or_else(|_| panic!("{name}: {v}")))
+        .collect()
+}
+
+// F-16: the dashboard copies these from the firmware; nothing checked they agree.
+#[test]
+fn constants_mirrored_from_the_firmware_match_it() {
+    use crate::store::{
+        CONFIDENCE_FOR_DISPLAY, DEVIATION_SCALE, DISTANCE_MIN_ZUPT_QUALITY, FEATURE_WEIGHTS,
+        SPREAD_FLOORS,
+    };
+    assert_eq!(firmware_constant("reference.h", "kFeatureWeights"), FEATURE_WEIGHTS);
+    assert_eq!(firmware_constant("reference.h", "kFeatureSpreadFloor"), SPREAD_FLOORS);
+    assert_eq!(firmware_constant("error_engine.h", "kDeviationScale"), [DEVIATION_SCALE]);
+    assert_eq!(firmware_constant("error_engine.h", "kConfidenceForDisplay"), [CONFIDENCE_FOR_DISPLAY]);
+    assert_eq!(
+        firmware_constant("error_engine.h", "kDistanceMinZuptQuality"),
+        [DISTANCE_MIN_ZUPT_QUALITY]
+    );
 }

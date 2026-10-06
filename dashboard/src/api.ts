@@ -159,6 +159,10 @@ export interface Vocabulary {
   feature_names: string[];
   error_classes: string[];
   default_wifi_url: string;
+  /** Doc 06 §3 weights, in `feature_names` order (the firmware's, via the store). */
+  feature_weights: number[];
+  /** Below this zero-velocity quality, cycle distance is not a measurement. */
+  distance_min_zupt_quality: number;
 }
 
 export interface LiveTick {

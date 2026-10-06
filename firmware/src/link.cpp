@@ -339,18 +339,19 @@ size_t Link::peek(uint8_t* out, size_t cap, int64_t nowUs) {
     queueSensorCheck(nowUs);  // goes out on the next peek
   }
 
-  if (calibration::takeCompletion()) {
+  if (calibration::completionPending()) {
     ead::CalibrationRecord record;
     if (calibration::record(&record)) {
       uint8_t body[ead::kCalibrationPayloadSize];
       const size_t n = ead::encodeCalibrationPayload(uint8_t(ead::SessionKind::Calibration), record,
                                                      body, sizeof body);
-      // Not durable: the record is held in RAM and can be asked for again by
-      // reading STATUS, so a missed one is not a gap in the data.
+      // Not durable, so not in the ring: offered on every peek until a transport
+      // takes it (commit). Taking it here lost it whenever the Wi-Fi socket was
+      // full at that moment (F-27).
       const size_t len =
           ead::encodeMessage(MsgType::SessionStop, 0, uint64_t(nowUs), body, n, out, cap);
       if (len > 0) {
-        pending_ = Source::Status;
+        pending_ = Source::Calibration;
         return len;
       }
     }
@@ -432,6 +433,9 @@ void Link::commit(int64_t nowUs) {
       break;
     case Source::Status:
       nextStatusUs_ = nowUs + kStatusPeriodUs;
+      break;
+    case Source::Calibration:
+      calibration::takeCompletion();
       break;
     case Source::Live:
       cursor_ = pendingSeq_ + 1;

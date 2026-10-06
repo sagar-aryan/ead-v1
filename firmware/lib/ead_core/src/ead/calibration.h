@@ -24,8 +24,10 @@ enum CalibrationReject : uint16_t {
   kCalibUpsideDown = 1 << 3,     ///< gravity was not on +Z at all
 };
 
-/// At least this many samples (2 s at 100 Hz) before a record is usable.
-constexpr uint32_t kCalibMinSamples = 200;
+/// At least this many samples (2 s at 200 Hz) before a record is usable. It
+/// stayed 200 when frames went from 100 to 200 Hz (DEC-021), which made the
+/// minimum 1 s (audit F-22); the dashboard asks for 5 s windows.
+constexpr uint32_t kCalibMinSamples = 400;
 /// Standard deviation of any gyro axis, above which the sensor was moving.
 constexpr float kCalibMaxGyroStdDps = 2.0f;
 /// How far the mean acceleration may sit from 1 g.

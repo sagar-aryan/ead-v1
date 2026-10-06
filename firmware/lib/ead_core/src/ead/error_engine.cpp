@@ -79,9 +79,12 @@ ErrorResult scoreCycle(const GaitCycle& cycle, const ReferenceProfile& reference
     // A feature the device could not measure is dropped from the denominator
     // rather than scored as zero deviation (doc 06 §3): distance means nothing
     // without a zero-velocity window to correct it.
+    // A value that is not a number is not a measurement either: it would make
+    // the score NaN, and a NaN score drove an episode and an undefined duty
+    // (audit F-13).
     const bool measured =
         !(feature == GaitFeature::CycleDistance && cycle.zuptQuality < kDistanceMinZuptQuality) &&
-        ref.spread > 0.0f;
+        ref.spread > 0.0f && std::isfinite(value) && std::isfinite(ref.median);
     result.active[f] = measured;
     if (!measured) continue;
     ++activeFeatures;

@@ -1912,3 +1912,34 @@ run wrong unnoticed is F-27 (a calibration record dropped on a busy Wi-Fi socket
 Full suite: pio 103/103, firmware build, cargo 84 (4 ignored), npm 28/28, build, vectors
 0 failures; `export_sample` then `check_mat.py` and `check_pdf.py`, 0 failures each.
 The link-loss hold-back is not host-testable (Arduino side); to confirm on the device.
+
+### Changes (second group)
+- Wi-Fi and attribution (PROB-037 to PROB-039): calibration completion taken on
+  commit; sessions also gated on STATUS calibration state; 5 s silence ends a Wi-Fi
+  connection; one backfill range per tick; reply queue 8; held profile cleared at a
+  capture start and a new boot; a start's ACK raises the delivery floor; service-test
+  refusals matched by command sequence.
+- Store schema 12 (PROB-040): status changes keyed by arrival; FAULT rows timed by
+  their frame.
+- Non-finite guards (PROB-041); calibration minimum 2 s at 200 Hz (PROB-042).
+- F-16: one Rust test reads the firmware headers and compares every mirrored score
+  constant; the frontend's copies removed, weights and the distance threshold now come
+  from the backend's vocabulary.
+- F-21/F-23/F-25: `wiring_reference.md` build status and capacitor rows, docs index,
+  the duplicated export line in `architecture.md`; the GPU dump untracked and ignored
+  (kept locally); a root `README.md`.
+
+### Failed approach
+Clearing the dashboard's held calibration record at each calibration start (for
+F-27): backed out before commit, because a cancelled window keeps the device's old
+calibration and the dashboard would then block sessions on a calibrated device. The
+firmware fix removes the cause; the STATUS gate covers the rest.
+
+`cargo fmt` was run once on one file and reformatted the whole crate (the project is
+not rustfmt-formatted); the files were restored and only the intended edits re-applied.
+
+### Verification (second group)
+Full suite: pio 104/104, firmware and both bench builds, cargo 91 (4 ignored),
+clippy `-D warnings` clean, npm 28/28, build, vectors 0 failures; export checks 0
+failures; walk replays unchanged (3/176). New regression tests fail with their fixes
+removed (F-30, F-33, F-13 checked).

@@ -33,7 +33,10 @@ uint16_t reject();
 /// Copies the last record; false when no window has completed since boot.
 bool record(ead::CalibrationRecord* out);
 
-/// True exactly once per completed window, so the link can emit SESSION_STOP.
+/// True from a window's completion until `takeCompletion`, so the link can emit
+/// SESSION_STOP. The link reads it in peek() and takes it only once the message
+/// was handed to the transport (commit), or a full Wi-Fi socket loses it (F-27).
+bool completionPending();
 bool takeCompletion();
 
 }  // namespace calibration

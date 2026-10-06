@@ -7,7 +7,7 @@ use rusqlite::{Connection, Result};
 
 use crate::protocol::{AccelSample, RawFrame};
 
-pub const SCHEMA_VERSION: i32 = 11;
+pub const SCHEMA_VERSION: i32 = 12;
 
 pub fn migrate(connection: &mut Connection) -> Result<()> {
     // WAL keeps readers (UI queries) from blocking the writer thread.
@@ -46,6 +46,7 @@ pub fn migrate(connection: &mut Connection) -> Result<()> {
             8 => transaction.execute_batch(MIGRATE_8_TO_9)?,
             9 => transaction.execute_batch(MIGRATE_9_TO_10)?,
             10 => transaction.execute_batch(MIGRATE_10_TO_11)?,
+            11 => transaction.execute_batch(MIGRATE_11_TO_12)?,
             other => unreachable!("no migration from schema {other}"),
         }
         version += 1;
@@ -207,13 +208,14 @@ ALTER TABLE sessions ADD COLUMN calibration TEXT;
 -- STATUS arrives at 5 Hz and a session that never faults should not cost
 -- eighteen thousand rows an hour to say so.
 CREATE TABLE status_changes (
+  id           INTEGER PRIMARY KEY,
   session_id   TEXT NOT NULL REFERENCES sessions(session_id),
   frame_index  INTEGER NOT NULL,
   at           TEXT NOT NULL,
   device_state INTEGER NOT NULL,
-  faults       INTEGER NOT NULL,
-  PRIMARY KEY (session_id, frame_index)
-) WITHOUT ROWID;
+  faults       INTEGER NOT NULL
+);
+CREATE INDEX status_changes_session ON status_changes(session_id, frame_index);
 
 -- Schema 7: the configuration format each session's section is written in. The
 -- section bytes alone cannot say which layout they follow; every session before
@@ -294,6 +296,27 @@ CREATE TABLE haptics (
 -- spoke, so a session recorded at one schema was labelled with a later one
 -- (PROB-035). NULL for sessions recorded before this column existed: unknown.
 ALTER TABLE sessions ADD COLUMN payload_schema INTEGER;
+"#;
+
+const MIGRATE_11_TO_12: &str = r#"
+-- Schema 12: status changes keyed by arrival, not by frame index. While the
+-- sensors stall the frame index stops, and every fault change after the first at
+-- that index was ignored by the old (session_id, frame_index) key (audit F-35),
+-- just when faults change most.
+CREATE TABLE status_changes_12 (
+  id           INTEGER PRIMARY KEY,
+  session_id   TEXT NOT NULL REFERENCES sessions(session_id),
+  frame_index  INTEGER NOT NULL,
+  at           TEXT NOT NULL,
+  device_state INTEGER NOT NULL,
+  faults       INTEGER NOT NULL
+);
+INSERT INTO status_changes_12 (session_id, frame_index, at, device_state, faults)
+  SELECT session_id, frame_index, at, device_state, faults FROM status_changes
+  ORDER BY session_id, frame_index;
+DROP TABLE status_changes;
+ALTER TABLE status_changes_12 RENAME TO status_changes;
+CREATE INDEX status_changes_session ON status_changes(session_id, frame_index);
 "#;
 
 const MIGRATE_10_TO_11: &str = r#"
@@ -597,6 +620,6 @@ VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
 "#;
 
 pub const INSERT_STATUS_CHANGE: &str = r#"
-INSERT OR IGNORE INTO status_changes (session_id, frame_index, at, device_state, faults)
+INSERT INTO status_changes (session_id, frame_index, at, device_state, faults)
 VALUES (?1, ?2, ?3, ?4, ?5)
 "#;

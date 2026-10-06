@@ -9,6 +9,8 @@
 #include "ead/cobs.h"
 #include "ead/crc32.h"
 
+#include <cmath>
+
 namespace ead {
 
 bool isDurable(MsgType type) {
@@ -458,10 +460,15 @@ bool decodeReferenceProfile(const uint8_t* payload, size_t len, ReferenceProfile
     out->features[f].spread = r.f32();
   }
   r.u32();
-  // A spread of zero would divide by zero downstream: refuse the profile rather
-  // than let it produce infinite deviations.
+  // A spread of zero would divide by zero downstream, and a median or spread
+  // that is not a finite number scores nothing sensibly: refuse the profile
+  // rather than let it produce infinite or NaN deviations (audit F-39).
   for (size_t f = 0; f < kFeatureCount; ++f) {
-    if (!(out->features[f].spread > 0.0f)) return false;
+    const ReferenceFeature& feature = out->features[f];
+    if (!(feature.spread > 0.0f) || !std::isfinite(feature.spread) ||
+        !std::isfinite(feature.median)) {
+      return false;
+    }
   }
   return r.ok() && out->cycles >= kReferenceMinCycles;
 }

@@ -246,15 +246,20 @@ pub fn events(
         error_open = active;
     }
 
-    // Faults are timestamped by the frame the device reported them at; the
-    // cycle they fall in is the one whose frame range contains it.
+    // Faults are timestamped by the frame the device reported them at (its
+    // device time; until 2026-10-07 the start of the cycle around it, or 0,
+    // audit F-37); the cycle they fall in is the one whose frame range contains
+    // it. Clears are not a doc 10 event type; `session.mat` holds every change.
     for change in status.iter().filter(|s| s.faults != 0) {
         let found = cycles
             .iter()
             .enumerate()
             .find(|(_, c)| change.frame_index >= c.start_frame && change.frame_index <= c.end_frame);
         rows.push(Event {
-            timestamp_us: found.map(|(_, c)| c.start_us).unwrap_or(0),
+            timestamp_us: change
+                .timestamp_us
+                .or_else(|| found.map(|(_, c)| c.start_us))
+                .unwrap_or(0),
             kind: "FAULT",
             cycle_id: found.map(|(i, _)| i + 1),
             segment_id: found.map(|(_, c)| c.segment_index).unwrap_or(0),

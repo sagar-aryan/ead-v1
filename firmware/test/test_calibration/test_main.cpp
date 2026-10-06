@@ -29,7 +29,7 @@ static void test_bias_is_the_mean_rate_while_still() {
   // A real gyro sits at a small constant offset with noise either side of it.
   const float low[3] = {1.4f, -0.6f, 0.1f};
   const float high[3] = {1.6f, -0.4f, 0.3f};
-  for (uint32_t i = 0; i < 250; ++i) acc.add(accel, i % 2 == 0 ? low : high);
+  for (uint32_t i = 0; i < 500; ++i) acc.add(accel, i % 2 == 0 ? low : high);
 
   ead::CalibrationSensor out;
   TEST_ASSERT_EQUAL_UINT16(0, acc.finish(&out));
@@ -66,7 +66,7 @@ static void test_alignment_is_identity_when_already_upright() {
   acc.reset();
   const float accel[3] = {0.0f, 0.0f, 1.0f};
   const float gyro[3] = {0.0f, 0.0f, 0.0f};
-  feed(&acc, accel, gyro, 300);
+  feed(&acc, accel, gyro, 500);
 
   ead::CalibrationSensor out;
   TEST_ASSERT_EQUAL_UINT16(0, acc.finish(&out));
@@ -80,7 +80,7 @@ static void test_movement_during_the_window_is_rejected() {
   const float accel[3] = {0.0f, 0.0f, 1.0f};
   const float still[3] = {0.0f, 0.0f, 0.0f};
   const float moved[3] = {0.0f, 0.0f, 40.0f};
-  for (uint32_t i = 0; i < 300; ++i) acc.add(accel, i < 290 ? still : moved);
+  for (uint32_t i = 0; i < 500; ++i) acc.add(accel, i < 490 ? still : moved);
 
   ead::CalibrationSensor out;
   TEST_ASSERT_EQUAL_UINT16(ead::kCalibMoved, acc.finish(&out));
@@ -106,14 +106,14 @@ static void test_wrong_magnitude_and_upside_down_are_rejected() {
   heavy.reset();
   const float strong[3] = {0.0f, 0.0f, 1.3f};
   const float gyro[3] = {0.0f, 0.0f, 0.0f};
-  feed(&heavy, strong, gyro, 300);
+  feed(&heavy, strong, gyro, 500);
   ead::CalibrationSensor out;
   TEST_ASSERT_EQUAL_UINT16(ead::kCalibNotGravity, heavy.finish(&out));
 
   ead::CalibrationAccumulator inverted;
   inverted.reset();
   const float upsideDown[3] = {0.0f, 0.0f, -1.0f};
-  feed(&inverted, upsideDown, gyro, 300);
+  feed(&inverted, upsideDown, gyro, 500);
   TEST_ASSERT_EQUAL_UINT16(ead::kCalibUpsideDown, inverted.finish(&out));
 }
 
@@ -122,7 +122,7 @@ static void test_a_sensor_on_its_side_is_rejected_as_not_up() {
   acc.reset();
   const float sideways[3] = {0.0f, 0.94f, 0.34f};
   const float gyro[3] = {0.0f, 0.0f, 0.0f};
-  feed(&acc, sideways, gyro, 300);
+  feed(&acc, sideways, gyro, 500);
   ead::CalibrationSensor out;
   TEST_ASSERT_EQUAL_UINT16(ead::kCalibUpsideDown, acc.finish(&out));
 }

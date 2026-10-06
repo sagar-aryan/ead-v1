@@ -197,6 +197,10 @@ pub struct Vocabulary {
     pub feature_names: [&'static str; 7],
     pub error_classes: [&'static str; 7],
     pub default_wifi_url: &'static str,
+    /// Doc 06 §3 weights in feature order, and the zero-velocity quality below
+    /// which distance is not a measurement: the store's copies of the firmware's.
+    pub feature_weights: [f32; 7],
+    pub distance_min_zupt_quality: f32,
 }
 
 #[tauri::command]
@@ -209,6 +213,8 @@ pub fn vocabulary() -> Vocabulary {
         feature_names: crate::protocol::FEATURE_NAMES,
         error_classes: crate::protocol::ERROR_CLASSES,
         default_wifi_url: crate::link::ws::DEFAULT_URL,
+        feature_weights: crate::store::FEATURE_WEIGHTS,
+        distance_min_zupt_quality: crate::store::DISTANCE_MIN_ZUPT_QUALITY,
     }
 }
 
@@ -351,6 +357,16 @@ reflash the firmware"
         Some(record) if record.usable() => {}
         Some(_) => blockers.push("the last calibration was rejected".into()),
         None => blockers.push("the device has not been calibrated since it started".into()),
+    }
+    // The device's own account as well as the record: the two disagree when a
+    // record went missing on the way (F-27), and the device's decides what it runs.
+    if snapshot.calibration.is_some_and(|r| r.usable())
+        && snapshot
+            .status
+            .as_ref()
+            .is_some_and(|s| s.calibration_state != crate::protocol::CALIBRATION_READY)
+    {
+        blockers.push("the device reports it is not calibrated; calibrate again".into());
     }
     for fault in &snapshot.faults {
         blockers.push(format!("the device reports a fault: {fault}"));
@@ -634,15 +650,16 @@ fn refuse_while_recording(app: &App) -> CommandResult<()> {
     }
 }
 
-/// Waits for the SERVICE_TEST reply after `seen`, or the device's ERROR.
-async fn await_service_reply(app: &App, seen: u64, timeout_ms: u64) -> CommandResult<()> {
+/// Waits for the SERVICE_TEST reply after `seen`, or the device's ERROR to
+/// command `seq`.
+async fn await_service_reply(app: &App, (seen, seq): (u64, u32), timeout_ms: u64) -> CommandResult<()> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
     while std::time::Instant::now() < deadline {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         if app.device.service_replies() > seen {
             return Ok(());
         }
-        if let Some(error) = app.device.last_error() {
+        if let Some(error) = app.device.take_refusal(seq) {
             return Err(format!("the device refused: {error}"));
         }
     }
@@ -657,8 +674,8 @@ pub async fn sensor_check(
     rerun: bool,
 ) -> CommandResult<crate::protocol::SensorCheckReport> {
     refuse_while_recording(&app)?;
-    let seen = app.device.request_sensor_check(rerun)?;
-    await_service_reply(&app, seen, if rerun { 6000 } else { 2000 }).await?;
+    let request = app.device.request_sensor_check(rerun)?;
+    await_service_reply(&app, request, if rerun { 6000 } else { 2000 }).await?;
     let report = app.device.sensor_check().ok_or("the device sent no sensor check")?;
     if rerun {
         let json = serde_json::to_string(&report).map_err(failed)?;
@@ -676,8 +693,8 @@ pub async fn motor_pulse(
 ) -> CommandResult<i64> {
     refuse_while_recording(&app)?;
     let pulse = crate::protocol::MotorPulse { motor, duty, duration_ms: MOTOR_PULSE_MS };
-    let seen = app.device.request_motor_pulse(&pulse)?;
-    await_service_reply(&app, seen, 1000).await?;
+    let request = app.device.request_motor_pulse(&pulse)?;
+    await_service_reply(&app, request, 1000).await?;
     app.store.record_motor_pulse(&app.device_identity(), &pulse).map_err(failed)
 }
 

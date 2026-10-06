@@ -122,6 +122,13 @@ bool record(ead::CalibrationRecord* out) {
   return have;
 }
 
+bool completionPending() {
+  portENTER_CRITICAL(&s_mux);
+  const bool completed = s_completed;
+  portEXIT_CRITICAL(&s_mux);
+  return completed;
+}
+
 bool takeCompletion() {
   portENTER_CRITICAL(&s_mux);
   const bool completed = s_completed;

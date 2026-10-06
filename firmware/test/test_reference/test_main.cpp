@@ -237,9 +237,22 @@ static void test_a_narrow_old_profile_is_scored_under_todays_floors() {
                            result.deviations[size_t(ead::GaitFeature::StanceRatio)]);
 }
 
+static void test_a_feature_that_is_not_a_number_is_left_out() {
+  // F-13: a NaN feature made the whole score NaN.
+  ead::ReferenceProfile profile = buildTypicalReference();
+  ead::GaitCycle c = cycleWith(NAN, profile.features[1].median, profile.features[2].median,
+                               profile.features[3].median, profile.features[4].median,
+                               profile.features[5].median, profile.features[6].median);
+  const ead::ErrorResult result = ead::scoreCycle(c, profile, kGoodInputs);
+  TEST_ASSERT_FALSE(result.active[size_t(ead::GaitFeature::SwingDorsiflexion)]);
+  TEST_ASSERT_TRUE(std::isfinite(result.score));
+  TEST_ASSERT_TRUE(result.score < 0.35f);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_a_reference_needs_thirty_valid_cycles);
+  RUN_TEST(test_a_feature_that_is_not_a_number_is_left_out);
   RUN_TEST(test_invalid_cycles_never_reach_the_reference);
   RUN_TEST(test_the_median_is_robust_to_a_stumble);
   RUN_TEST(test_a_flat_feature_gets_the_spread_floor);

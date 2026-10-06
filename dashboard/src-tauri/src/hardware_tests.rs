@@ -117,7 +117,7 @@ fn records_a_session_from_a_real_device() {
 
     // The boot-time sensor check, decoded from the device's own bytes: every
     // step passes on both sensors (TEST-043 wiring).
-    let seen = device.request_sensor_check(false).expect("request sensor check");
+    let (seen, _) = device.request_sensor_check(false).expect("request sensor check");
     wait_for(Duration::from_secs(3), "sensor check", || device.service_replies() > seen);
     let check = device.sensor_check().expect("sensor check");
     for (name, sensor) in [("foot", &check.foot), ("shank", &check.shank)] {

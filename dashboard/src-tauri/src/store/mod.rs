@@ -80,6 +80,10 @@ pub struct SegmentLimits {
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct StatusChange {
     pub frame_index: i64,
+    /// Device time of the last stored frame at or before `frame_index`: when the
+    /// change was reported, on the clock every other export column uses. None if
+    /// no frame was stored by then.
+    pub timestamp_us: Option<i64>,
     pub at: String,
     pub device_state: u8,
     pub faults: u16,
@@ -106,20 +110,25 @@ pub fn counts_as_error(cycle: &GaitCycle) -> bool {
     cycle.primary_class != 0 && cycle.confidence >= CONFIDENCE_FOR_DISPLAY
 }
 
+// The constants below copy the firmware's; `store::tests::
+// constants_mirrored_from_the_firmware_match_it` reads the firmware headers and
+// fails when one changes without the other (audit F-16).
+
 /// Doc 06 §7, mirrored from `ead::kConfidenceForDisplay`.
-const CONFIDENCE_FOR_DISPLAY: f32 = 0.50;
+pub const CONFIDENCE_FOR_DISPLAY: f32 = 0.50;
 
 /// Mirrored from `ead::kDistanceMinZuptQuality` (doc 05 §8): below this, a
 /// cycle's distance is not a measurement and is left out of any comparison.
 pub const DISTANCE_MIN_ZUPT_QUALITY: f32 = 0.15;
 
 /// Doc 06 §3 weights, in feature order, mirrored from `ead::kFeatureWeights`.
-const FEATURE_WEIGHTS: [f32; 7] = [0.25, 0.15, 0.15, 0.15, 0.10, 0.10, 0.10];
-/// Doc 06 §2: three spreads out is a deviation of 1.
-const DEVIATION_SCALE: f32 = 3.0;
+pub const FEATURE_WEIGHTS: [f32; 7] = [0.25, 0.15, 0.15, 0.15, 0.10, 0.10, 0.10];
+/// Doc 06 §2: three spreads out is a deviation of 1. Mirrored from
+/// `ead::kDeviationScale`.
+pub const DEVIATION_SCALE: f32 = 3.0;
 /// Mirrored from `ead::kFeatureSpreadFloor` (DEC-025): the device scores with
 /// these as the least spread, so the proxy uses the same normalization.
-const SPREAD_FLOORS: [f32; 7] = [3.0, 3.0, 3.0, 0.10, 0.03, 0.15, 30.0];
+pub const SPREAD_FLOORS: [f32; 7] = [3.0, 3.0, 3.0, 0.10, 0.03, 0.15, 30.0];
 
 /// `unilateral_cycle_symmetry_proxy` (doc 05 §10): cycle repeatability between
 /// consecutive valid right-leg cycles, `1 - normalized_difference`, using the
@@ -963,8 +972,11 @@ impl Store {
     pub fn status_changes(&self, session_id: &str) -> Result<Vec<StatusChange>> {
         let connection = self.reader()?;
         let mut statement = connection.prepare(
-            "SELECT frame_index, at, device_state, faults
-             FROM status_changes WHERE session_id = ?1 ORDER BY frame_index",
+            "SELECT s.frame_index, s.at, s.device_state, s.faults,
+                    (SELECT f.timestamp_us FROM raw_frames f
+                      WHERE f.session_id = s.session_id AND f.frame_index <= s.frame_index
+                      ORDER BY f.frame_index DESC LIMIT 1)
+             FROM status_changes s WHERE s.session_id = ?1 ORDER BY s.frame_index, s.id",
         )?;
         let rows = statement.query_map([session_id], |row| {
             Ok(StatusChange {
@@ -972,6 +984,7 @@ impl Store {
                 at: row.get(1)?,
                 device_state: row.get::<_, i64>(2)? as u8,
                 faults: row.get::<_, i64>(3)? as u16,
+                timestamp_us: row.get(4)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)

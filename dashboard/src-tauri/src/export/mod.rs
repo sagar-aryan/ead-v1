@@ -16,8 +16,7 @@ use std::path::{Path, PathBuf};
 
 use crate::store::{Store, StoredReference};
 
-/// Doc 06 §7, mirrored from `ead::kConfidenceForDisplay`.
-pub const CONFIDENCE_FOR_DISPLAY: f32 = 0.50;
+use crate::store::CONFIDENCE_FOR_DISPLAY;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExportError {

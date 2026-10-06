@@ -50,3 +50,6 @@ recrdings/
 *-backups/
 fp-info-cache
 hardware/erm-driver-pcb/invoice*
+
+# A browser GPU-status dump committed by mistake (audit F-23); kept locally, not tracked.
+about-gpu-*.txt

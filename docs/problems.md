@@ -1113,7 +1113,10 @@ read the 2.3 V it makes; a resistance measurement on the unpowered board can.
 
 **Status:** Closed by the user (2026-10-02): "the power wiring is correct, I have
 implemented a way". The provision was not described and has not been verified.
-The hazard analysis below stays as the record.
+The hazard analysis below stays as the record. On 2026-10-05 the user set the rule
+that the battery switch is never ON while USB is plugged in; on 2026-10-06 the user
+told the second external audit (`EAD_AUDIT_REPORT.md`, F-03) the hazard was fixed,
+again without the method. The never-ON-with-USB rule stands.
 
 ### Symptoms
 
@@ -1773,3 +1776,168 @@ here.
 `npm run build` (no warnings), `npm test` (28), the dev server answers on 1420 (HTTP
 200), `npx tauri build --no-bundle`, and the release app launched against an empty
 data directory renders the Device view (screenshot), creating its database.
+
+## PROB-037 — A finished calibration's record could be lost over Wi-Fi
+
+**Status:** Resolved in code (2026-10-07); not observed on the device
+
+### Symptoms
+Second external audit, F-27, from reading the code. Not seen in any stored session.
+
+### Environment
+Firmware `3a08651`, Wi-Fi link (`link_wifi.cpp`). USB unaffected: its frame stays
+buffered until written.
+
+### Expected Behavior
+Every completed calibration window reaches the dashboard as a SESSION_STOP record.
+
+### Actual Behavior
+`Link::peek()` took the completion flag (`calibration::takeCompletion()`) while
+building the message, and the Wi-Fi pump calls `peek()` before checking that the socket
+can be written. A full socket at that moment, normal while streaming, discarded the
+record for good. The dashboard gates sessions on that record, while the calibration
+screen shows the device's STATUS: either every session was blocked as "not
+calibrated" while the screen said ready, or an older usable record from the same boot
+passed the gate while the device ran on the new (possibly rejected) one.
+
+### Root Cause
+A side effect in `peek()`, which every other source keeps side-effect free (confirmed
+in code).
+
+### Resolution
+- `calibration::completionPending()` is read in `peek()`; the flag is taken in
+  `commit()` (`Source::Calibration`), once a transport has accepted the message.
+- The dashboard also requires STATUS `calibration_state` = ready
+  (`CALIBRATION_READY`) when the held record is usable, so the two accounts cannot
+  disagree silently.
+
+A host-side clear of the held record at each calibration start was tried and backed
+out before commit: a cancelled window leaves the device's old calibration in place
+(`calibration::cancel`), and the dashboard would then have blocked sessions while the
+device was calibrated.
+
+### Verification
+Firmware builds; the change is on the Arduino side, not host-testable. To confirm on
+the device over Wi-Fi with the next calibration.
+
+## PROB-038 — Wi-Fi link: a silent drop went unnoticed, backfill requests overwrote each other, replies could be dropped
+
+**Status:** Resolved in code (2026-10-07); not observed on the device
+
+### Symptoms
+Second external audit, F-29, F-28 and F-36, from the code. No stored session shows a
+gap these would have cost.
+
+### Actual Behavior
+- **F-29:** the WebSocket reader waited on the next message with no timeout. With the
+  laptop still associated but packets gone, reconnection waited for the OS TCP timeout
+  (minutes), longer than the device's 4.5 min backfill ring, and a send into the
+  stalled socket could block the link task.
+- **F-28:** the dashboard sent up to four BACKFILL_REQUESTs per 500 ms tick; the
+  device serves one backfill and each request replaces the previous, so only the newest
+  range was served and the oldest gap, the first to be evicted, waited longest.
+- **F-36:** the device's reply queue held four replies and dropped new ones when full;
+  a capture's reference profile cannot be asked for again.
+
+### Root Cause
+Confirmed in code: no read deadline in `link/ws.rs`; `take_backfill_requests` returned
+up to four ranges while `Link::startBackfill` keeps one; `kReplySlots` 4.
+
+### Resolution
+- `link/ws.rs`: no message for 5 s (STATUS alone comes at 5 Hz) ends the connection,
+  and a send is bounded by the same 5 s; the manager reconnects and the tracker
+  backfills (PROB-030).
+- `take_backfill_request`: one range per tick, the oldest.
+- `kReplySlots` 8 (RAM 79.5 kB of 327 kB after the change).
+
+### Verification
+`a_device_that_goes_quiet_is_disconnected` (a local WebSocket server that accepts and
+goes silent: disconnected within 6 s), `the_oldest_gap_is_requested_first_and_alone`.
+
+## PROB-039 — Data attributed to the wrong session, capture or command
+
+**Status:** Resolved (2026-10-07)
+
+### Symptoms
+Second external audit, F-30, F-33 and F-34, from the code.
+
+### Actual Behavior
+- **F-30:** a reference profile arriving after its capture's finish had timed out sat in
+  `state.reference`; the next capture's finish took it and stored it as its own.
+- **F-33:** data was attributed to whatever session was recording when it arrived, so
+  a backfill of a gap from before a start, or a cycle closed just before it, landed in
+  the new session. Stops had a boundary (PROB-033); starts did not.
+- **F-34:** any device ERROR set the one `last_error`; a sensor check or motor pulse
+  waiting at that moment reported "the device refused" for another command's error
+  (for example a backfill's "serving a..b").
+
+### Resolution
+- The held profile is cleared when a capture starts and on a new boot.
+- A start's ACK sequence raises the delivery floor (`raise_floor`), as a stop's
+  boundary does: nothing at or below it is handed on.
+- Service tests are sent with `send_command`; a refusal is matched by the command's
+  sequence (`take_refusal`). The unused `last_error()` accessor removed.
+
+### Verification
+`a_device_reboot_discards_a_held_reference_profile` and
+`a_start_hands_on_nothing_from_before_it` (each fails with its fix removed),
+`a_refusal_is_matched_to_its_own_command`.
+
+## PROB-040 — Status changes lost during sensor stalls; fault times in events.csv
+
+**Status:** Resolved (2026-10-07)
+
+### Symptoms
+Second external audit, F-35 and F-37.
+
+### Actual Behavior
+- `status_changes` was keyed (session_id, frame_index) with INSERT OR IGNORE. While
+  the sensors stall the frame index stops, so every change after the first at that
+  index was dropped, when faults change most.
+- FAULT rows in `events.csv` carried the start of the cycle around them, or 0 outside
+  any cycle.
+
+### Resolution
+- Store schema 12: `status_changes` keyed by an arrival `id`; migration 11→12 copies
+  every row. Read back ordered by frame index, then arrival.
+- `status_changes()` returns the device time of the last stored frame at or before the
+  change; FAULT rows use it. Clears are not a doc 10 event type and stay out of
+  `events.csv`; `session.mat` holds every change.
+
+### Verification
+`status_changes_at_one_frame_index_are_all_kept` (three changes at one index kept, and
+a schema 11 store upgraded with its row), the export test's FAULT time (10 000 µs, frame
+2), `check_mat.py` and `check_pdf.py` 0 failures.
+
+## PROB-041 — Values that are not numbers in scoring and in reference profiles
+
+**Status:** Resolved (2026-10-07)
+
+### Symptoms
+Second external audit, F-13 (fuzzing: a NaN feature gave a NaN score, which opened an
+episode and cast to an undefined duty) and F-39 (profile medians not checked).
+
+### Resolution
+- `scoreCycle`: a feature whose value or reference median is not finite is left out of
+  the score, like an unmeasured distance.
+- `decodeReferenceProfile`: refuses a non-finite median or spread.
+
+### Verification
+`test_a_feature_that_is_not_a_number_is_left_out` (fails without the guard),
+`test_a_reference_with_a_zero_spread_is_refused` extended with NaN and infinity.
+
+## PROB-042 — The calibration minimum became 1 s at 200 Hz
+
+**Status:** Resolved (2026-10-07)
+
+### Symptoms
+Second external audit, F-22: `kCalibMinSamples` 200, commented "2 s at 100 Hz", has
+been 1 s since frames went to 200 Hz (DEC-021).
+
+### Resolution
+400 samples, 2 s at 200 Hz. The dashboard's 5 s windows are unaffected; the
+calibration tests now feed 500 samples.
+
+### Verification
+`test_calibration` 7/7; the walk replays (`tools/replay/walks.py`) give the same
+results as before: 3 contact errors over 176 counted landings.
