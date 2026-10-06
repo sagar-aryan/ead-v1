@@ -62,7 +62,7 @@ and USB links → Rust backend with SQLite → React views and exports.
 | `docs/wiring_reference.md` | Every DEC-016 connection with its evidence; firmware rules the wiring depends on |
 | `docs/decisions.md` | DEC-001–DEC-029 |
 | `docs/problems.md` | PROB-001–PROB-042 (no PROB-008) |
-| `docs/testing.md` | TEST-001–TEST-069, with measured results |
+| `docs/testing.md` | TEST-001–TEST-070, with measured results |
 | `docs/protocol.md` | Wire protocol (schema 9): payloads, framing, backfill, ACK, SERVICE_TEST, haptics, enumerations |
 | `docs/clinical_requirements.md` | The researcher's four requirements vs what is built |
 | `firmware/include/config_v1.h` | Fixed V1 constants, the DEC-016 pins with compile-time pin checks, BNO086 scales, mount maps |

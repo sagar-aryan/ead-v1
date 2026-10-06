@@ -2427,3 +2427,21 @@ delivered (its flag now taken on commit); the hardware test passing.
 PASS for what USB can show. Not shown over USB: graded cue strength felt, the 5 s
 link-loss hold-back, the Wi-Fi silence reconnect and the Wi-Fi calibration path; for the
 user's walk on battery over Wi-Fi.
+
+## TEST-070 — DEC-029 motor order on the board (USB)
+
+### Objective
+Flash `6988798` and confirm the device reports the rewired motor pins.
+
+### Environment
+USB, battery switch off, 2026-10-07. No motor driven (motor tests run on battery over
+Wi-Fi only).
+
+### Actual
+`eadprobe hello`: schema 9, `0.1.0+6988798`. `eadprobe config` (SHA-256 verified,
+matches HELLO): m1 4, m2 6, m3 42, m4 5, m5 1, m6 2; `motor_deg` 0, 60, 120, 180, 240,
+300. `eadprobe stats --seconds 10`: 200.25 Hz, 0 dropped, no faults.
+
+### Result
+PASS for the pin map as reported. Not shown: that each motor is felt at its band
+position; the user's pulse test over Wi-Fi.
