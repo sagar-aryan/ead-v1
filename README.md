@@ -9,6 +9,13 @@ raw data, manages baselines and sessions, and exports CSV, MATLAB and PDF.
 > Research and engineering prototype. Not a medical device and not a validated clinical
 > tool.
 
+![Worn assembly: foot and shank IMUs, controller, and the six-motor calf band](docs/images/worn_assembly.png)
+
+*Generated illustration of the worn layout and motor positions. Known errors: in
+panel A the controller should be on the outer side of the leg (panel B is right) and
+the foot is drawn as a left foot; the motor cable has 8 wires (two separate positive
+rails), not 7. Details: [`docs/hardware.md`](docs/hardware.md), worn assembly.*
+
 ## How it works
 
 ```text
