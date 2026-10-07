@@ -2445,3 +2445,51 @@ matches HELLO): m1 4, m2 6, m3 42, m4 5, m5 1, m6 2; `motor_deg` 0, 60, 120, 180
 ### Result
 PASS for the pin map as reported. Not shown: that each motor is felt at its band
 position; the user's pulse test over Wi-Fi.
+
+## TEST-071 — Deliberate-error walks against reference v6 (worn, battery, Wi-Fi)
+
+### Objective
+Whether normal walking stays quiet and each deliberate error buzzes, with DEC-026's
+graded cues and DEC-029's motor order, against a fresh baseline in today's strapping.
+
+### Environment
+Firmware `0.1.0+6988798` (schema 9), dashboard store 12, patient 67 (healthy wearer),
+2026-10-07. Battery, Wi-Fi. 10 m straight lengths.
+
+### Procedure (user)
+Calibrate; reference capture `20261007-062216-3f88` (46 cycles, 40 valid → v6); check
+`062344-8dc5`; one evaluation per condition, about 2 lengths each: normal `062522-e154`,
+toes dragging `062648-5e8a`, landing flat `062747-e4ef`, rolling onto the outer edge
+`062832-cfdb`, rolling onto the inner edge `062919-ed99`, one length slow then one fast
+`063010-f99b`. The motor-position pulses and the Wi-Fi-off test were not reported.
+
+### Actual (from the store, read-only)
+Frames lost: 0 in all eight sessions (raw frame indices contiguous). v6: every spread at
+its DEC-025 floor; medians dorsiflexion 1.5°, contact −3.4°, inversion 18.8°, cycle
+1.348 s, stance 0.562, distance 1.258 m, shank 265 °/s.
+
+| Session | Valid cycles | Cued | Where the cues went |
+|---|---:|---:|---|
+| Normal | 16 | 2 | Timing: the first step from standing (score 0.55) and the 2.88 s turn cycle (0.55); every other step 0.08–0.33 |
+| Toes dragging | 18 | 18 | Excess plantarflexion M4 ×5, timing ×2, eversion M2+M3 ×1, OVERALL M3 or M4+M3 ×10 |
+| Landing flat | 19 | 18 | Excess plantarflexion M4 ×10, OVERALL M3 ×4, eversion M2+M3 ×3, timing M1 ×1 |
+| Outer edge (inversion) | 18 | 17 | Inversion M5+M6 ×9, OVERALL M5 ×3, timing ×5, excess plantarflexion M4 ×1 |
+| Inner edge (eversion) | 17 | 15 | Eversion M2+M3 ×8, timing ×5, OVERALL M3/M4 ×3, excess plantarflexion ×1 |
+| Slow, then fast | 17 | 10 | Slow length (cycles 1.35–1.44 s, 3–7 % over the median): mostly under 0.35, not cued. Fast length (1.04–1.13 s): timing M1/M4 alternating on every step |
+
+Duty 172–211 of 255 (67–83 %) across all cues. Observations:
+- Toe drag never named insufficient dorsiflexion as primary: swing dorsiflexion fell only
+  2–5° below its 1.5° median (deviation ≤ 0.6 at the 3° floor), while the contact angle
+  moved 7–18° (deviation 1.0), so excess plantarflexion led. Both point at M4.
+- OVERALL (several classes, none leading) sums the directions: excess plantarflexion
+  (180°) with eversion (90°) lands on M3 (back-outer).
+- Edge walking broke the stance ratio (0.12–0.35 on the outer edge), which scored as
+  timing.
+- Normal-walk cues came only at gait initiation and the turn.
+
+### Result
+PARTIAL. Normal walking quiet apart from the start and turn steps; every deliberate
+error cued on most steps; inversion and eversion on the correct sides; plantarflexion at
+the back. Toe drag and flat landing are not told apart (same motor); OVERALL and timing
+cues dilute the direction; a mild slowing is not detected. The user's felt report, the
+motor-position pulses and the Wi-Fi-off test are outstanding.
