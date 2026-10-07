@@ -1199,6 +1199,9 @@ The configuration section (pins) and its SHA-256 change; vectors regenerated
 and needs no change; `hardware/erm-driver-pcb/firmware/erm_channel_test.ino` predates
 DEC-016 and is not for this board.
 
+**Update (the user, 2026-10-07):** M5 and M6 swapped: M5 GPIO2 (D1), M6 GPIO1 (D0).
+The reason was not stated. Vectors regenerated; reflash required.
+
 ## DEC-030 — MIT licence for the repository
 
 **Date:** 2026-10-07

@@ -52,8 +52,8 @@ rewired on 2026-10-07 to a new order over the same six pins **[USER]** **[DEC-02
 
 | XIAO pin | GPIO | Dir | Connects to | Evidence |
 |---|---:|---|---|---|
-| D0 | 1 | Out | Motor 5 gate network (§6) | [DEC] no internal pull at reset [DS] |
-| D1 | 2 | Out | Motor 6 gate network | [DEC] no internal pull [DS] |
+| D0 | 1 | Out | Motor 6 gate network (§6) | [DEC] no internal pull at reset [DS] |
+| D1 | 2 | Out | Motor 5 gate network | [DEC] no internal pull [DS] |
 | D2 | 3 | Out | **WAKE** pad on both BNO086 boards | [DEC] strapping pin, see §14 |
 | D3 | 4 | Out | Motor 1 gate network | [DEC] no internal pull [DS] |
 | D4 | 5 | Out | Motor 4 gate network | [DEC] no internal pull [DS] |
@@ -211,11 +211,11 @@ Why it is safe:
 | M2 | Anterolateral, 60° | D5 | 6 | A | +A |
 | M3 | Posterolateral, 120° | back pad MTMS | 42 | A | +A |
 | M4 | Posterior, 180° | D4 | 5 | B | +B |
-| M5 | Posteromedial, 240° | D0 | 1 | B | +B |
-| M6 | Anteromedial, 300° | D1 | 2 | B | +B |
+| M5 | Posteromedial, 240° | D1 | 2 | B | +B |
+| M6 | Anteromedial, 300° | D0 | 1 | B | +B |
 
-XIAO pins as rewired by the user on 2026-10-07 (DEC-029); until then M1–M6 were on D0,
-D1, MTMS, D3, D4, D5. The Rail column is the design's (M1–M3 on rail A); whether the
+XIAO pins as rewired by the user on 2026-10-07 (DEC-029), with M5 and M6 then swapped
+at the user's request (M5 D1, M6 D0); until then M1–M6 were on D0, D1, MTMS, D3, D4, D5. The Rail column is the design's (M1–M3 on rail A); whether the
 rewiring moved any motor to the other rail is **not yet confirmed** **[USER]**. Each
 motor's position is to be confirmed by a service pulse felt on the band.
 
