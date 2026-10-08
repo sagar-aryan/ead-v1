@@ -61,7 +61,7 @@ All 15 usable XIAO GPIOs are in use.
 | `protocol/vectors/` | Golden wire-protocol messages and their generator |
 | `tools/` | `eadprobe.py` (independent device client), export checkers, walk replay |
 | `recordings/` | Walk recordings with counted steps, used to test gait detection |
-| `docs/` | Engineering record: decisions, problems, tests, progress, protocol, handoff |
+| `docs/` | Engineering docs: architecture, implementation, hardware, wiring, protocol, handoff |
 | `ead_agent_docs_v2/` | The original V1 specification (read-only) |
 
 ## Getting started

@@ -181,7 +181,7 @@ to accel and gyro. Both frames are right-handed, so `M` must be a proper rotatio
 - `eadMountApply()` writes `int32_t` so negating a raw −32768 cannot overflow.
 
 ### Verification
-TEST-009 (negative and positive compile tests). On-body check TEST-014 pending.
+TEST-009 (negative and positive compile tests); mount maps measured on the leg (TEST-051).
 
 ## IMU initialisation (bring-up firmware)
 
@@ -296,7 +296,7 @@ is not 1 g, when gravity is not upward, or when too few frames were collected.
   rejected" blocker says.
 
 ### Scope
-The record lives in RAM and is lost on reset (no flash storage until M7).
+The record is held in RAM for the current boot; calibration runs after each power-up.
 
 ### Verification
 Seven native unit tests, golden-vector tests in firmware and Rust, and TEST-028

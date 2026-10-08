@@ -7,8 +7,7 @@ harnesses and the power input. Pin assignment fixed by DEC-016.
 ## 1. How to trust this document
 
 Every connection carries the evidence behind it. Nothing here is an estimate.
-Where a fact depends on a part whose exact type is not yet known, the document
-says so and §16 lists the question.
+Where a fact depends on a part's exact type, §16 lists it.
 
 | Mark | Meaning |
 |---|---|
@@ -362,9 +361,8 @@ twisted against a ground in a round one:
 | 2 | Rail B + — to M4, M5, M6 |
 | 3–8 | M1 − … M6 −, one return per motor, to its MOSFET drain |
 
-The earlier revision of this document said 7 conductors with one shared
-positive. That was wrong: the contract keeps the two regulator outputs apart, so
-each half of the band needs its own positive wire.
+The contract keeps the two regulator outputs apart, so each half of the band has its
+own positive wire.
 
 **Battery — 2 conductors**, heavier gauge than signal wire.
 
@@ -399,7 +397,7 @@ each half of the band needs its own positive wire.
 
 ## 14. Why each awkward pin carries what it carries
 
-| Pin | The problem with it | Carries | Why that is safe |
+| Pin | Constraint | Carries | Why that is safe |
 |---|---|---|---|
 | GPIO39 | Weak pull-up after reset unless EFUSE_DIS_PAD_JTAG is burnt **[DS]** | Foot INT, an input | A pull-up suits an input that idles high |
 | GPIO3 | Strapping pin; 60 µs low glitch at power-up **[DS]** | WAKE | Only selects the JTAG source if an eFuse is burnt; the boards' own pull-ups set WAKE's boot level |
@@ -472,7 +470,7 @@ Each item blocks one specific connection. Everything else is final.
 | # | Question | Blocks | Fastest way to answer |
 |---:|---|---|---|
 | 1 | HT7833: which package, and from which seller? **Answered by the PCB project: Holtek, SOT-89 (§7)** | The regulator's three solder joints (§7) | The product page link, or a photo of the part's marking |
-| 2 | ERM motor: part number, or rated voltage and current? **Ratings from the PCB project: 3 V, 90 mA, 120 mA at start; part number still unknown** | The rail current budget and thermal check (§7) | Product page link |
+| 2 | ERM motor: part number, or rated voltage and current? **Ratings from the PCB project: 3 V, 90 mA, 120 mA at start; part number to be recorded** | The rail current budget and thermal check (§7) | Product page link |
 | 3 | MCP73833 module: which board? | Its four connections (§9) | Product page link or photo |
 | 4 | Does the cell have a protection circuit? | Whether one must be added (§9) | A small board under the tape at the wire end of the cell |
 | 5 | Is there a power switch? **The PCB design puts an external master switch between the charger's LOAD+ and the system** | The charge-with-switch-off arrangement (§9) | Yes or no |

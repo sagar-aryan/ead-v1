@@ -21,7 +21,7 @@ The user chooses which to fabricate. Everything below applies to both unless sta
   - `check.py` passes every handoff verification item.
   - 82.75 × 19.0 mm; 0 vias, 0 holes, 0 jumpers.
   - Gerbers, a 1:1 mirrored toner PDF, assembly drawings and the BOM are in `EAS_ERM_Driver/output/`.
-- **Not yet done:** paper fit check (TEST-007) and all hardware tests (TEST-008).
+- **Built:** the tight variant drives the six motors on the device.
 
 ## Architecture
 SWITCHED_SYSTEM+ feeds two HT7833 LDOs. Each makes its own 3.3 V rail for three low-side IRLML6344 channels (flyback diode, 10 nF across the motor, 100 nF local decoupling). Everything is wired off-board through 18 SMD pads. Details: `architecture.md`.

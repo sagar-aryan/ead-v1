@@ -303,8 +303,6 @@ Totals: ~125–190 mA streaming without cues, ~155–220 mA at worst-case feedba
 ~610 mA. With 1.6–1.8 Ah usable from a ~2 Ah cell: **about 8–14 h** without cues,
 **7–12 h** at worst-case feedback.
 
-To be confirmed by measurement: the usable capacity (the XIAO's 3.3 V regulator
-is fed from the 5V pin at cell voltage; where the rail drops out as the cell falls toward
-3.4 V, and whether TX bursts brown it out earlier, are unknown), the cell's real capacity,
-and the AP-mode average. A runtime test settles it: full charge, stream over Wi-Fi with
+To be confirmed by measurement: the usable capacity (the XIAO's 3.3 V regulator is fed
+from the 5V pin at cell voltage), the cell's real capacity, and the AP-mode average. A runtime test settles it: full charge, stream over Wi-Fi with
 the dashboard recording until the device stops; the session's last frame is the runtime.
