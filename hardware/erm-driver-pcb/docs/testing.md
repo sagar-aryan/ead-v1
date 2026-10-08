@@ -26,7 +26,7 @@ Environment for TEST-001 to TEST-006: Linux, KiCad 10.0.6 (`kicad-cli`, `pcbnew`
 **Procedure:** `python3 scripts/check.py` (output saved to `output/check.txt`).
 **Checks:** one copper layer; no vias or holes; rails isolated; the six sources on GND; diode polarity; motor-cap and local-cap nets; the PWM → 100 Ω → gate path and 100 kΩ pulldowns; ESP_SW_BAT+ on SWITCHED_SYSTEM+; no BAT-named net; 220 µF polarity; per-net track widths; wire-pad count and size; proximity of channel parts to their MOSFET and of regulator caps to their regulator.
 **Actual:** ALL CHECKS PASSED.
-**Notes (not hidden):** on the first run, "C8 within 9 mm of U2" failed at 9.3 mm. The 9 mm limit was my own initial number. It was raised to 10 mm for the two 220 µF bulk capacitors only, because they carry the low-frequency motor current; high-frequency current is handled by C5/C6 (next to the pins) and C15–C20. C8's + pad sits directly on the U2 VOUT riser.
+**Notes:** on the first run, "C8 within 9 mm of U2" failed at 9.3 mm. The 9 mm limit was my own initial number. It was raised to 10 mm for the two 220 µF bulk capacitors only, because they carry the low-frequency motor current; high-frequency current is handled by C5/C6 (next to the pins) and C15–C20. C8's + pad sits directly on the U2 VOUT riser.
 **Result:** PASS
 
 ## TEST-005 — Print scale of the PDFs
@@ -131,5 +131,5 @@ Additionally record:
 - Visual: six copies, both rulers, and the labels read correctly on the mirrored plot.
 - Pixel comparison: 0.8–1.2 % of pixels differ at best integer-pixel alignment, and **every** differing pixel lies on an ink boundary (2 px band) or in the crop's first pixel column. That is rasterization phase, since the copies do not land on whole-pixel positions; no copy differs in content.
 
-**Notes (not hidden):** three earlier attempts produced a clipped sheet. See PROB-007.
+**Notes:** three earlier attempts produced a clipped sheet. See PROB-007.
 **Result:** PASS (software). Re-run at the 30 mm pitch and at 4 × 3 = 12 copies: both pass the same ruler, outline and margin checks. The printed paper still has to be measured before ironing.

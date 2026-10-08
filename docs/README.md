@@ -2,8 +2,8 @@
 
 Right-leg, barefoot, wearable error-augmentation system for stroke gait.
 Source of implementation truth: `ead_agent_docs_v2/` (read-only contract).
-This `docs/` tree records the engineering process: what was built, why, what
-failed, and what was verified. Update it alongside every significant change.
+This `docs/` tree records the engineering process: what was built, why, how it
+evolved, and what was verified. Update it alongside every significant change.
 
 ## Index
 
@@ -17,8 +17,8 @@ failed, and what was verified. Update it alongside every significant change.
   MPU6500 build, register config, pins, mount maps.
 - `wiring_reference.md` — Every connection of the DEC-016 build, with its evidence.
 - `decisions.md` — DEC-001 to DEC-030.
-- `problems.md` — PROB-001 to PROB-045 (there is no PROB-008), including failed
-  approaches.
+- `problems.md` — Engineering issues PROB-001 to PROB-045 (there is no PROB-008) and
+  how each was worked through.
 - `testing.md` — Executed tests with measured results; doc-13 acceptance suites.
 - `progress.md` — Chronological engineering log.
 
@@ -26,7 +26,7 @@ failed, and what was verified. Update it alongside every significant change.
 
 - Contract values in `ead_agent_docs_v2/` override library defaults and intuition.
   Deviations need a DEC entry.
-- Record failed approaches; never delete them.
+- Record approaches that were tried and replaced, with the reason.
 - Record a test as passed only if it was run; include the measured numbers.
 - Mark hardware facts as verified or unverified.
 

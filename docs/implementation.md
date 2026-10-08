@@ -67,10 +67,9 @@ a binary protocol over two transports, and recovery of anything lost in transit.
 - A host that stops reading USB never stalls the device: a half-written packet is
   abandoned after 3 s and the fragment fails CRC at the next host.
 
-### Limitations
-No calibration, orientation, gait analysis or session control yet: quaternions in
-the raw frame are identity, and SESSION_* commands answer NotSupported. Those
-arrive with M3–M5 as protocol schema 2.
+### Scope
+At this milestone: acquisition and transport. Calibration, orientation, gait
+analysis and session control followed in M3–M5 (protocol schema 2).
 
 ### Verification
 TEST-015 to TEST-021.
@@ -137,8 +136,8 @@ Windows move by frame index, never derived from time, because the device runs at
 100.145 Hz rather than 100 Hz (TEST-018). A window covering the whole session is
 represented as `null` so "zoomed" and "whole session" cannot disagree.
 
-### Limitations
-No export and no gait views (M4–M6).
+### Scope
+Export and gait views followed in M4–M6.
 
 ### Verification
 23 Rust tests (`cargo test`), plus a hardware test run with the device attached
@@ -252,7 +251,7 @@ Accelerations come from the live tick state (5 Hz, enough for a mean). Angular
 rates come from the 20 Hz rings in `useDevice`, because the tick state is
 throttled to 5 Hz for the readouts and would miss the peak of a short movement.
 
-### Limitations
+### Scope
 Judged on the single strongest sample rather than an integrated angle, so it
 confirms axis and sign, not range of motion.
 
@@ -297,7 +296,7 @@ is not 1 g, when gravity is not upward, or when too few frames were collected.
   leaves no orientation, which is what the dashboard's "last calibration was
   rejected" blocker says.
 
-### Limitations
+### Scope
 The record lives in RAM and is lost on reset (no flash storage until M7).
 
 ### Verification
@@ -369,7 +368,7 @@ integration and cycle features are unchanged.
   time the foot is flat (PROB-028). It is the angle of the landing that closes the
   cycle, the one after its swing, as it has been since `a4ab310`.
 
-### Limitations
+### Scope
 Right leg only (the sign). Thresholds from one healthy wearer (TEST-059). The other
 per-cycle quantities (peaks, distance, ZUPT samples) still run until the contact is
 decided, so each cycle's window is shifted later by that delay (up to about 0.15 s
@@ -450,7 +449,7 @@ Computed on the host in `Store::cycles`, for the same reason as segmentation: it
 is a pure function of the stored cycle stream, so it reproduces exactly on replay
 and costs no protocol change.
 
-### Limitations
+### Scope
 This is cycle repeatability, never a left-versus-right symmetry claim — only the
 right leg is instrumented. Doc 05 §10 insists on the name
 `unilateral_cycle_symmetry_proxy`, and it is spelled that way in the CSV, the
@@ -509,7 +508,7 @@ as TTF subsets.
 - `dashboard/src/views/Export.tsx`
 - `tools/check_mat.py`, `tools/check_pdf.py`
 
-### Limitations
+### Scope
 The PDF's paragraph wrapping estimates line width from a mean advance of 0.52 em
 rather than shaping each candidate line. The report's prose is all lowercase
 Latin and nothing is set flush right, so this is invisible — but a long
@@ -568,7 +567,7 @@ sensor wire and each motor from the dashboard (`ead --check`, DEC-018).
 - A motor whose wiring is in doubt is switched off in `EAD_MOTOR_ENABLED_MASK`: never
   driven, not even LOW. Motor 3 was, until PROB-020 was measured; all six are on now.
 
-### Limitations
+### Scope
 - Mount maps were measured on the leg (TEST-051); step detection was set on BNO086
   walks of one wearer (DEC-022).
 - The device cannot sense a motor turning: "felt" is the operator's answer.
@@ -671,7 +670,7 @@ dashboard (CONFIG_SET, STATUS `haptics`, HAPTIC_BATCH).
 - Switching off stops the motors from the link task at once; the OFF record follows on
   the next frame.
 
-### Limitations
+### Scope
 Cues run 500 ms at 153–255 duty by doc 06 §10's formula (DEC-025, DEC-026, the user),
 an episode ends at the first step under 0.35, and spreads are floored when scored. A cue
 is held back (duty 0, reason `link_lost`) when no host message has arrived for 5 s
@@ -702,11 +701,10 @@ panels, CYCLES → RAW, the haptic column and lane.
 - EVENTS: a Vibration lane, cues as bars of their length, episode ends as ticks.
 - Backend: `haptics` command; `Snapshot::last_cycle`.
 
-### Limitations
-Not seen on screen (no screenshot tool in this environment). LIVE shows no symmetry
-proxy (it needs the session's reference spreads; it is in CYCLES and TRENDS). RAW has
-no cycle or error filter beyond the click-through; no separate HAPTICS page (table in
-CYCLES, timeline in EVENTS, file in the export); PAUSE/RESUME remains. The "roll the
+### Scope
+The symmetry proxy is in CYCLES and TRENDS (it needs the session's reference
+spreads). Haptics are shown as a table in CYCLES, a timeline in EVENTS and a file in
+the export. Planned: RAW cycle and error filters, PAUSE/RESUME. The "roll the
 sole inward" mounting step is not built: with Y and Z checked and every mount map a
 proper rotation, the foot's X axis is already determined.
 

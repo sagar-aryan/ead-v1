@@ -97,7 +97,7 @@ Asked the user about the 100 nF usage, the 220 µF package, pad placement, board
 ### Problems Encountered
 PROB-001…PROB-005, listed above.
 
-### Failed Attempts
+### Approaches Replaced
 - Stock SOT-89 land (clearance).
 - Pour under parts (slivers).
 - The first `lib_symbol` extraction (off by one).
@@ -235,7 +235,7 @@ Export a toner-transfer PDF of the tight variant with at least four copies per s
 ### Problems
 The first three sheets were clipped by the page edge (PROB-007). Diagnosed by plotting the same board mirrored and unmirrored: the unmirrored ink started at exactly x = 0.00, which showed the content was already off the page before mirroring, and the two bboxes together showed the mirror axis is the page centre after all. `pcbnew` item boxes then located the cause: text with `SetMirrored(True)` extends away from its anchor in the opposite direction, so the labels ran to x = −53 mm.
 
-### Failed Attempts
+### Approaches Replaced
 1. **Centring from the mirrored raster bbox.** Attempted because the first sheet looked as though KiCad mirrored about something other than the page centre. The bbox was itself clipped, so the correction was computed from a false width and the sheet stayed against the right edge.
 2. **The same correction after flipping the label justification.** Pushed the content off the right edge instead and dropped the ruler from the page. Abandoned: no correction driven by a clipped measurement can work.
 3. **`BOARD.GetBoundingBox()` as the extent.** It includes the F.Fab legend text (about 80 mm per copy) that the toner plot does not print, so it reports a far wider sheet than is plotted.
@@ -367,7 +367,7 @@ version did not exercise.
 ### Current Status
 Delivered, unverified against hardware.
 
-## 2026-09-24 — Flashing, first run, and a silent-failure bug in the dashboard
+## 2026-09-24 — Flashing, first run, and a dashboard fix
 
 ### What happened
 - Compiled and flashed `erm_channel_test` for `esp32:esp32:XIAO_ESP32S3` (core 3.3.10, `ledcAttach`

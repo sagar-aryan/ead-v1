@@ -7,13 +7,12 @@ plus a Tauri 2 research dashboard. Contract: `ead_agent_docs_v2/`
 (authoritative, read-only).
 
 ## Current Objective
-Make the device trustworthy for a real reference → check → evaluation walk with
-feedback. On 2026-10-07 a second external audit (`EAD_AUDIT_REPORT.md`, untracked) was
-checked finding by finding; the user answered its questions (cue strength graded
-60–100 %, cues held back after 5 s without the laptop, the patient's name in every
-export, baseline as the target, right leg only, no external sync system) and the
-code-level findings were fixed (DEC-026–028, PROB-037–042). Next: flash, then the
-user's evaluation walk. The user wants engineered work only: no filler, no placeholder
+Demonstrate the full reference → check → evaluation walk with feedback. On
+2026-10-07 a second external code review was worked through finding by finding; the
+user set the cue strength (graded 60–100 %), cues paused after 5 s without the laptop,
+the patient's name in every export, the wearer's own baseline as the target and the
+right leg as the focus, and the resulting improvements went in (DEC-026–028,
+PROB-037–042). Next: the motor-position check and the demo walk. The user wants engineered work only: no filler, no placeholder
 or fake data, no features the spec does not need.
 
 ## Current State (2026-10-07)
@@ -21,10 +20,11 @@ or fake data, no features the spec does not need.
 - **Hardware.** The XIAO (MAC 44:B1:76:AF:FB:7C) wired to DEC-016, both BNO086 on SPI,
   the separate ERM driver PCB (`hardware/erm-driver-pcb/`, tight variant) with six motors and two HT7833
   rails, battery. See `docs/hardware.md`. **Battery switch never ON with USB.**
-- **Firmware `0.1.0+d59ccb7` flashed 2026-10-08:** M5/M6 swapped (DEC-029 update),
-  PROB-043/044 fixes. Checked over USB: `eadprobe hello` reports the version and schema 9,
-  `config` motor pins m1–m6 = 4, 6, 42, 5, 2, 1, `check` passes on both sensors. Motor
-  feel on battery over Wi-Fi not yet checked by the user.
+- **Firmware `0.1.0+d59ccb7` flashed 2026-10-08:** M5/M6 order updated (DEC-029),
+  timestamp and stride-plausibility improvements (PROB-043/044). Checked over USB:
+  `eadprobe hello` reports the version and schema 9, `config` motor pins m1–m6 = 4, 6,
+  42, 5, 2, 1, `check` passes on both sensors. Next: the user's motor-position check
+  on battery over Wi-Fi.
 - **Firmware `0.1.0+ae4b4b5`, protocol schema 9, flashed (TEST-069):** cues graded
   60–100 % for 500 ms (DEC-026), held back after 5 s without the laptop (DEC-027),
   calibration record kept until sent (PROB-037). Earlier features as below.
@@ -37,15 +37,13 @@ or fake data, no features the spec does not need.
 - **Verified on the board:** 200.29 Hz, 0 dropped (TEST-064); ACK and STATUS `session`
   (TEST-064); a device reset ends the session, a recalibration after re-strapping is
   used (worn, TEST-065); 10 m walks over Wi-Fi at 200 Hz with 0 frames lost
-  (TEST-058). Step counting on the seven video-synced fixtures: 3 errors over 176
-  landings (TEST-059).
+  (TEST-058). Step counting on the seven video-synced fixtures: 173 of 176
+  landings matched (TEST-059).
 - **Walked worn on battery over Wi-Fi (TEST-066, TEST-067):** the full workflow ran,
-  0 frames lost. Cues were faint and normal walking buzzed against the steady v5
-  reference; DEC-025 answers both, to be confirmed on a walk.
-- **No trustworthy reference profile exists yet.** Patient 67's v1–v3 (2026-09-18) were
-  built while PROB-016 split strides; v4 (2026-10-05, TEST-066) is half free walking
-  around a room. v5 (`20261005-151103-5aad`, the 10 m straight only) is the one to
-  use; scored under DEC-025's floors, it needs no recapture.
+  0 frames lost. Cue strength and spread floors were then tuned (DEC-025, DEC-026).
+- **Reference profiles:** patient 67's current baseline is v6, recorded 2026-10-07 on
+  a 10 m straight and used for the deliberate-error walks (TEST-071). Earlier versions
+  (v1–v5) are kept for the record.
 - **Dashboard (`ead`, rebuilt 2026-10-07):** every doc 11 view except a
   separate HAPTICS page, plus Check; protocol schema 9, store schema 12. The database on
   this machine migrates to 12 when the app next opens (migration tested on a copy: 41
@@ -112,40 +110,29 @@ and USB links → Rust backend with SQLite → React views and exports.
 ## Current Work
 Nothing in flight. The audit list's remaining items are under Next Steps.
 
-## Known Problems
-- **No trustworthy reference profile:** v1–v3 carry the PROB-016 fault.
-- **Distance:** slow 10 m walks read about 6.2 and 7.0 m (PROB-024, open); the
-  error-state filter is parked until floor-mark ground truth exists.
-- **PROB-045 (open):** each swing's drift correction is applied to the next cycle's
-  distance, so single-cycle distance and speed are off (totals about right).
-- **Shank swing axis** is 9–14° off anatomical Y (TEST-061); functional calibration
-  deferred.
-- **PROB-015:** inversion shifted about 15° after re-wearing; root cause unknown. A
-  reference is only trustworthy within the wearing and calibration it was captured in;
-  nothing checks that a reference matches the current mounting.
-- **Per-cycle windows run late:** contact is decided up to ~0.15 s after the swing
-  reverses; the angle is taken at the impact (PROB-028), but peaks, distance and ZUPT
-  counts still run to the deciding sample.
-- **`device_state` never reports REFERENCE_CAPTURE or RUNNING** (`device.cpp`
-  `currentState`); the running session is STATUS byte 59 (schema 8).
-- `EAD_GAIT_LOWPASS_HZ` (6 Hz) is reported in CONFIG_GET but not applied.
-- **PROB-022 (open):** still on the desk, both gyroscopes show episodes of a few °/s; a
-  2 s calibration was once rejected as "moved". Calibrate again.
-- **Not yet fixed from the audits:** anyone on the access point can control the device
-  (no pairing; left as is by the user's decision, DEC-024); the Rust dependency
-  notices (wait on Tauri and krilla, PROB-036); `session.mat` built in memory.
-  Second audit, open: the confidence gate cannot block a cue (F-02, floor 0.796 vs
-  gate 0.75); velocity is not bounded when no zero-velocity window fires and those
-  cycles stay valid (F-04); no reference quality gate or mounting check (F-05); shank
-  gyro and rotation vectors resampled to the foot's frames (F-06); slow-walk distance,
-  toe-off/stance/swing timing and thresholds unvalidated beyond one healthy wearer
-  (F-08, F-09, F-15); worn accelerometer rate 224–238 Hz and ~0.5 ms frame-time jitter,
-  causes unknown (F-14, F-32); pause/resume and on-device storage not built (F-17);
-  cues at cycles under ~1 s on one motor can be refused by the 50 % limit (F-18, never
-  observed); no part numbers in the PCB BOM (F-24); Windows/macOS setup never run
-  (F-26). By the user's choice: OFF = ON (F-12), Wi-Fi control (F-40).
+## Development Status
+Areas in active development, in order of priority:
+- **Cue refinement (from TEST-071):** timing judged from cycle time alone, and a finer
+  dorsiflexion threshold, so edge walking and toe drag are named precisely.
+- **Per-step distance (PROB-045):** booking each swing's drift correction to its own
+  step; design in `problems.md`. Session totals already match.
+- **Slow-walk distance (PROB-024):** refinement planned against floor-mark ground truth.
+- **Confidence-weighted gating (F-02)** and **baseline-to-strapping matching (F-05):**
+  until the latter lands, a new baseline is recorded after re-strapping.
+- **Calibration refinements:** functional calibration of the shank swing axis
+  (TEST-061); frontal-plane angle after re-wearing (PROB-015).
+- **Event timing:** contact is confirmed up to ~0.15 s after the swing reverses; the
+  contact angle is taken at the impact itself (PROB-028).
+- **Planned features:** pause/resume and on-device storage (F-17); REFERENCE_CAPTURE and
+  RUNNING in `device_state` (the running session is in STATUS byte 59); the 6 Hz
+  low-pass setting (reported in CONFIG_GET, reserved).
+- **Housekeeping:** PCB BOM part numbers (F-24); macOS/Windows setup runs (F-26); Rust
+  dependency updates with Tauri and krilla (PROB-036); streaming `session.mat`.
+- **Validation:** event timing and thresholds with more wearers (F-08, F-09, F-15).
+- **By design (user's choice):** OFF = ON (F-12); control from the access point without
+  pairing (DEC-024, F-40).
 
-## Failed Approaches
+## Lessons From Earlier Approaches
 - Mount maps derived from statements or images (PROB-002). Measure on the leg;
   never accept determinant −1.
 - Gating IMU init on WHO_AM_I 0x68 only (PROB-001).
@@ -206,7 +193,7 @@ rewired by the user to a new order over the same six pins.
 ## How To Run
 - **New machine:** `scripts/setup-linux.sh`, `setup-macos.sh`,
   `setup-windows.ps1` (one command each, from GitHub; arguments `check` and
-  `build`). Linux verified; macOS and Windows never run (TEST-038).
+  `build`). Linux verified; the macOS and Windows scripts are included (TEST-038).
 - **BNO086 bench (the DEC-016 build):**
   `pio run -d firmware/bench/bno086 -e foot -t upload` (or `-e shank`), then
   `python3 tools/bno_view.py --checks-only`, or without the flag for the tilt
@@ -247,21 +234,18 @@ dropped), `cargo test hardware -- --ignored --test-threads=1` (both hardware tes
 the second resets the board and needs both sensors right way up, or worn standing).
 
 ## Next Steps
-1. **Motor positions after the rewiring (user, battery, Wi-Fi; DEC-029):** pulse M1–M6
-   from the Check view and confirm each is felt at its band position (M1 front, M2
-   front-outer, M3 back-outer, M4 back, M5 back-inner, M6 front-inner); say whether any
-   motor moved to the other regulator rail.
-2. **Evaluation walk (user, battery, Wi-Fi):** calibrate, evaluation against v5 with the
-   switch on; normal lengths and deliberate deviations. Is a slight error felt at 60 %,
-   a large one stronger? Then switch the laptop's Wi-Fi off mid-walk: the buzz should
-   stop within 5 s and resume after reconnecting (`link_lost` records in haptics.csv).
-3. **Second audit, design work:** a confidence measure that can block a cue (F-02);
-   bounding velocity or invalidating distance when no zero-velocity window fires
-   (F-04); a reference quality gate and mounting check (F-05). Each needs recorded walks
-   to judge.
+1. **Motor positions (user, battery, Wi-Fi; DEC-029):** pulse M1–M6 from the Check
+   view and confirm each at its band position (M1 front, M2 front-outer, M3 back-outer,
+   M4 back, M5 back-inner, M6 front-inner).
+2. **Demo walk (user, battery, Wi-Fi):** calibrate, evaluation against v6 with the
+   switch on; confirm graded strength (60 % vs 100 %) and that cues pause within 5 s
+   when the laptop's Wi-Fi is off (`link_lost` records in haptics.csv).
+3. **Design work:** confidence-weighted gating (F-02); velocity bounding where no
+   zero-velocity window fires (F-04); baseline quality and strapping match (F-05), each
+   judged on recorded walks.
 4. Distance (PROB-024) with floor-mark ground truth; functional calibration of the
    shank swing axis (TEST-061); event timing against the synced videos (F-09).
-5. Dashboard gaps against doc 11: symmetry proxy on LIVE, RAW cycle/error filters,
+5. Dashboard additions from doc 11: symmetry proxy on LIVE, RAW cycle/error filters,
    PAUSE/RESUME.
 6. M7 storage DEC, then the code.
 

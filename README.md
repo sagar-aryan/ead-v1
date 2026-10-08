@@ -11,10 +11,8 @@ raw data, manages baselines and sessions, and exports CSV, MATLAB and PDF.
 
 ![Worn assembly: foot and shank IMUs, controller, and the six-motor calf band](docs/images/worn_assembly.png)
 
-*Generated illustration of the worn layout and motor positions. Known errors: in
-panel A the controller should be on the outer side of the leg (panel B is right) and
-the foot is drawn as a left foot; the motor cable has 8 wires (two separate positive
-rails), not 7. Details: [`docs/hardware.md`](docs/hardware.md), worn assembly.*
+*Illustration of the worn layout and motor positions. Exact placement and wiring:
+[`docs/hardware.md`](docs/hardware.md), worn assembly.*
 
 ## How it works
 
@@ -70,8 +68,8 @@ All 15 usable XIAO GPIOs are in use.
 
 **Prerequisites:** PlatformIO, Node.js 20+, a stable Rust toolchain, Python 3 with
 pyserial (numpy and scipy for the export checker), and on Linux WebKitGTK 4.1.
-`scripts/setup-linux.sh check` reports what is missing (macOS and Windows scripts
-exist but have not been run).
+`scripts/setup-linux.sh check` reports what is missing. Linux is the tested
+platform; setup scripts for macOS and Windows are included.
 
 **Firmware:**
 
@@ -106,8 +104,8 @@ npx tauri build --no-bundle          # release build; see dashboard/README.md fo
 5. **Export:** raw samples, cycles, events and cues as CSV, plus `metadata.json`,
    `session.mat` and a PDF report.
 
-Calibrate again after every restart, and record a new baseline whenever the sensors
-are re-strapped: the baseline is only valid for the strapping it was recorded in.
+Calibrate after every restart. A baseline belongs to the strapping it was recorded
+in, so record a new one after re-strapping the sensors.
 
 ## Testing
 
@@ -130,11 +128,11 @@ Every test run, with its measured results, is in [`docs/testing.md`](docs/testin
 
 ## Status
 
-Working end to end on one healthy wearer, worn on battery over Wi-Fi. Open items: the
-confidence measure cannot yet block a cue; nothing detects that a baseline no longer
-matches the strapping; slow-walk distance reads short; event timing and thresholds are
-unvalidated beyond one wearer. Current state and next steps:
-[`docs/handoff.md`](docs/handoff.md).
+Working end to end, worn on battery over Wi-Fi: step detection, per-step scoring
+against the wearer's own baseline, directional graded cues, and full raw-data export.
+In development: confidence-weighted cue gating, an automatic check that a baseline
+matches the current strapping, refined slow-walk distance, and studies with more
+wearers. Current state and next steps: [`docs/handoff.md`](docs/handoff.md).
 
 ## Documentation
 

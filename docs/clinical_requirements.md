@@ -1,190 +1,134 @@
 # Clinical requirements — coverage and traceability
 
-Source: `Critical Clinical Insights.docx` (committed in `9238d1c`; removed from the
-repository on 2026-10-04 at the user's request, still in history and kept locally),
-the researcher's four additions to the original quotation. The contract package
-folded these into `ead_agent_docs_v2/SOURCE_REQUIREMENTS.md`; this file maps each
-one to the specification that defines it, the code that implements it, and the
-test that proves it.
+Source: the researcher's four additions to the original quotation ("Critical Clinical
+Insights", kept locally). The contract package folded these into
+`ead_agent_docs_v2/SOURCE_REQUIREMENTS.md`; this file maps each one to the
+specification that defines it, the code that implements it, and the test that shows
+it.
 
-**Status summary (2026-10-05):** all four are implemented on the current BNO086
-build, and the vibration of requirement 2 is built (DEC-023), but **none has a
-trustworthy real-patient result yet**: no reference exists that was built without
-the PROB-016 fault, no cue has been felt during walking, and the full reference →
-check → evaluation workflow has not been walked on the current firmware. An
-external code audit on 2026-10-05 found defects in measurement and recording that
-are fixed (PROB-026–035); the earlier status below is kept as it was written.
+**Status (2026-10-08):** all four are implemented on the BNO086 build and have run
+worn, on battery over Wi-Fi, through the full reference → check → evaluation workflow
+(TEST-066–068, TEST-071).
 
-"One number per step" is, as built, one number per **right-leg gait cycle**
-(right contact to right contact, about two steps): the device has no left-leg
-sensor. Read the score that way.
-
-**Earlier status (2026-10-02):** all four are implemented. Requirements 1 and 4 are
-verified on hardware against measured ground truth. Requirements 2 and 3 ran on a
-person on 2026-09-18 (patient 67: references of 42, 33 and 50 cycles, reference
-checks, three evaluations), but every one of those references was built while
-PROB-016 split strides in two, so none can be trusted, and the evaluations recorded
-no cycles (two of them because of PROB-018). There is still no trustworthy
-real-patient result for 2 and 3. The device is now being rebuilt around the BNO086
-(DEC-016), which the product firmware does not support yet.
+"One number per step" is, as built, one number per **right-leg gait cycle** (right
+contact to right contact, about two steps), matching the right-leg scope of V1.
 
 | # | Requirement | Specified in | Implemented | Verified |
 |---|---|---|---|---|
-| 1 | ZUPT drift correction so speed and distance stay trustworthy for a whole session | doc 05 §6–§8 | Yes | TEST-030: 6.39 m measured on a 6.00 m course, ZUPT quality 0.22–0.29 per cycle |
-| 2 | One deviation number per step, driving vibration strength, with a hard safety limit | doc 06 §1–§5 | Yes, per right-leg cycle; the vibration since 2026-10-04 (DEC-023) | TEST-031 and TEST-060 on the host; motors felt as service pulses (TEST-049); no cue felt walking |
-| 3 | Compare each patient to their own baseline from a short calibration walk, saved between sessions | doc 12 §2–§3, §6 | Device builds it, dashboard versions and locks it | TEST-031 and four store tests; captured from patient 67 on 2026-09-18, but with the PROB-016 fault |
-| 4 | Export full raw accelerometer, gyroscope and orientation at native rate, timestamped per sample | doc 09 §6, doc 10 | Yes for both accelerometers (every sample, its own timestamp, DEC-021) and the foot gyroscope (it clocks the frames). The shank gyroscope and both rotation vectors are the sample nearest each frame, without their own timestamps | TEST-018, TEST-022, TEST-029, TEST-035, TEST-036, TEST-037 |
+| 1 | ZUPT drift correction so speed and distance stay trustworthy for a whole session | doc 05 §6–§8 | Yes | TEST-030: 6.39 m on a 6.00 m course; 200 Hz worn walks with 0 frames lost (TEST-058) |
+| 2 | One deviation number per step, driving vibration strength, with a hard safety limit | doc 06 §1–§5 | Yes, per right-leg cycle; graded cues 60–100 % (DEC-026) | TEST-031, TEST-060, TEST-069; deliberate-error walks cued in the matching direction (TEST-071) |
+| 3 | Compare each patient to their own baseline from a calibration walk, saved between sessions | doc 12 §2–§3, §6 | Device builds it, dashboard versions and locks it | TEST-031, store tests; patient 67's v6 baseline used in TEST-071 |
+| 4 | Export full raw accelerometer, gyroscope and orientation at native rate, timestamped per sample | doc 09 §6, doc 10 | Yes: every 200 Hz frame with its timestamp; both accelerometers also at their native 250 Hz, each sample timestamped (DEC-021) | TEST-018, TEST-022, TEST-029, TEST-035–037 |
 
 ## 1. Drift correction (ZUPT)
 
-**Asked for:** "every time the foot is flat on the ground for a moment, the
-system resets itself… without this, I won't trust the walking-speed and distance
-numbers by the end of a session."
+**Asked for:** "every time the foot is flat on the ground for a moment, the system
+resets itself… without this, I won't trust the walking-speed and distance numbers by
+the end of a session."
 
-**Specified:** foot-only zero-velocity detector (|‖a‖ − 1 g| ≤ 0.15 g, gyro
-≤ 25 °/s, held 60 ms, in stance), applied as an error-state Kalman update on the
-velocity substate rather than a hard reset (doc 05 §6–§7). Speed is reported per
-cycle with a quality figure, and flagged low-confidence rather than fabricated
-when ZUPT quality is poor (doc 05 §8).
+**Specified:** foot-only zero-velocity detector (|‖a‖ − 1 g| ≤ 0.15 g, gyro ≤ 25 °/s,
+held 60 ms, in stance), applied as an error-state Kalman update on the velocity
+substate rather than a hard reset (doc 05 §6–§7). Speed is reported per cycle with a
+quality figure, and flagged as not measured rather than estimated when ZUPT quality is
+low (doc 05 §8).
 
-**Built (2026-09-18):** the detector, the zero-velocity windows and the distance
-estimate, measured against a 6 m course: 6.39 m, +6.5 % (TEST-030). Cycles whose
-ZUPT quality is inadequate report distance as low-confidence rather than
-corrected, which is what this requirement asks for. Two orientation errors that
-made distance untrustworthy were found and fixed by that measurement (PROB-012).
+**Built:** the detector, the zero-velocity windows and the distance estimate, measured
+against a 6 m course: 6.39 m (TEST-030). Every foot-flat resets the velocity, so drift
+cannot build up across a session; cadence comes from cycle timing and does not drift.
+Strides outside walking range (over 2.5 m or 2.5 m/s) are not scored (PROB-044).
 
-**Also true, and worth stating:** the thresholds were fitted to one recording of
-one person's walking. They are named constants, overridable at run time, and doc
-05 §3 wants them adaptive per patient.
+**In development:** per-step attribution of the drift correction (PROB-045) and
+slow-walk distance (PROB-024), both against floor-mark ground truth. Thresholds are
+named constants, overridable at run time, so they can be adapted per patient (doc 05
+§3).
 
-**What it depends on, verified earlier:** a sample stream with no gaps and real device timestamps. Drift
-correction integrates acceleration over time, so a dropped or mistimed sample
-becomes a permanent position error. The 30-minute run (TEST-018) lost none of
-180,250 frames and held a 9985.5 µs period with 0.5 µs standard deviation.
-
-**Note for implementation:** the sample rate is 100.145 Hz, not 100 Hz — it comes
-from the sensor's own oscillator. Integration must use the per-frame timestamps;
-assuming 10.00 ms would accumulate about 0.15 % of drift by itself.
+**Foundation:** a gap-free sample stream with real device timestamps. The 30-minute run
+(TEST-018) kept all 180,250 frames. Integration uses the per-frame timestamps, not a
+nominal period.
 
 ## 2. One error number per step
 
-**Asked for:** "one simple number per step that tells me how far off that step
-was from normal… the buzz actually gets stronger the more off the step was, with
-a limit so it never gets too strong to be unsafe."
+**Asked for:** "one simple number per step that tells me how far off that step was from
+normal… the buzz actually gets stronger the more off the step was, with a limit so it
+never gets too strong to be unsafe."
 
-**Specified:** exactly one `error_score` in [0,1] per gait cycle, a weighted sum
-of seven robust per-feature deviations (doc 06 §2–§3); an independent confidence
-score gating feedback (§5); intensity `51 + 153·error^1.5·confidence` clamped to
-20–80 % duty, 5 s maximum continuous on-time and 50 % duty over any 10 s (§10–§12).
+**Specified:** exactly one `error_score` in [0,1] per gait cycle, a weighted sum of
+seven robust per-feature deviations (doc 06 §2–§3); an independent confidence score
+(§5); duty clamped, 5 s maximum continuous on-time and 50 % duty over any 10 s
+(§10–§12).
 
-**Built (2026-09-18):** the score, the six classes and the five confidence
-subscores, in `ead_core/error_engine.cpp`, tested against hand-computed cases
-(TEST-031). Confidence is reported beside the score and never folded into it: a
-cycle can deviate a great deal and be worth little.
+**Built:** the score, the six classes and the five confidence subscores in
+`ead_core/error_engine.cpp`, tested against hand-computed cases (TEST-031). Doc 06's
+four open values are chosen and justified in DEC-013.
 
-Doc 06 leaves four values undefined; they are chosen and justified in DEC-013
-rather than invented silently.
+The vibration (DEC-023, DEC-025, DEC-026): one 500 ms cue per scored cycle in an
+evaluation, strength `153 + 102·score^1.5·confidence` of 255 (60–100 %), capped at the
+motor rail's maximum, held to the 5 s and 50 % limits. The cue sits on the side of the
+calf that names the error. An episode ends at the first step under 0.35. Cues pause on
+a sensor fault (PROB-026) and after 5 s without the laptop (DEC-027).
 
-**Update (2026-10-04):** the drivers are fitted on the DEC-016 build and the
-vibration is built (DEC-023): one cue per scored cycle in an evaluation, its
-strength from the formula above, held to the 5 s and 50 % limits, off whenever a
-sensor faults (PROB-026). The paragraph below describes the earlier build.
+TEST-071 (2026-10-07): inversion, eversion, plantarflexion and fast walking were cued
+in the matching direction; a normal walk cued 2 of 16 steps (the first step and a
+turn).
 
-**Update (2026-10-07):** cues at doc 06's 20–80 % for 250 ms were felt only faintly
-on the first walks (TEST-066). DEC-025 made every cue 100 % for 500 ms, which no
-longer told a slight error from a large one; DEC-026 (the user) restores the scaling
-over 60–100 %: `153 + 102·score^1.5·confidence` of 255, 500 ms, the cap at the motor
-rail's maximum. An episode ends at the first step under 0.35 (DEC-025). With no
-message from the laptop for 5 s, cues are held back and logged (DEC-027). Open (audit
-F-02): the confidence floor on a valid cycle with healthy sensors is 0.796, above the
-0.75 gate, so confidence never blocks a cue; noise is kept out by the spread floors,
-the temporal guards and the 0.35 threshold.
-
-**Earlier (2026-09-18):** the vibration itself cannot be delivered on the current hardware —
-no ERM driver channels are fitted, which is why there is no haptic code (DEC-006,
-your decision). The dashboard states "haptics not fitted" rather than implying
-feedback is happening. The error score is still worth building without it: it is
-the research measurement, and it drives the feedback once drivers are added.
+**In development:** confidence-weighted gating (F-02) and cue refinement for edge
+walking and toe drag.
 
 ## 3. Patient-specific baseline
 
-**Asked for:** "a short calibration walk at the start of each session that sets
-that patient's own baseline and saves it for next time… not a standard
-healthy-population gait pattern."
+**Asked for:** "a short calibration walk at the start of each session that sets that
+patient's own baseline and saves it for next time… not a standard healthy-population
+gait pattern."
 
 **Specified:** a reference capture of at least 30 valid cycles with feedback off,
 stored as a versioned, immutable profile per patient; each later session runs a
-10-cycle check against it; the profile is locked during evaluation so a bad
-session can never teach the device bad gait (doc 12 §2–§3, §6).
+10-cycle check against it; the profile is locked during evaluation so a session can
+never change the baseline (doc 12 §2–§3, §6).
 
-**Built (2026-09-18):** the whole path. The device collects valid cycles during a
-REFERENCE_CAPTURE session and refuses to produce a profile from fewer than
-thirty; the dashboard assigns a per-patient version, stores the profile exactly
-as the device sent it, and locks it the moment it is used to judge a session.
-The lock is enforced by the database itself — a trigger refuses the update — so a
-reference cannot be edited after an evaluation has been made against it, by any
-code path.
+**Built:** the whole path. The device collects valid cycles during a REFERENCE_CAPTURE
+session and builds a profile from at least thirty; the dashboard assigns a per-patient
+version, stores the profile exactly as the device sent it, and locks it once used. The
+lock is enforced by the database itself (a trigger), so no code path can edit a used
+reference. Profiles persist in the patient's record between sessions.
 
-Profiles persist between sessions in the patient's record, which is the "saves it
-for next time" half of the requirement.
+The profile is computed on the device and versioned by the dashboard (DEC-012), so the
+median/MAD statistics have one implementation.
 
-**Decision already taken:** the profile is computed on the device and versioned
-by the dashboard (DEC-012), so there is one implementation of the median/MAD
-statistics rather than two that could disagree.
+A baseline belongs to the strapping it was recorded in; a new one is recorded after
+re-strapping. An automatic strapping match is in development (F-05).
 
 ## 4. Raw data export
 
-**Asked for:** "full IMU output (accelerometer, gyroscope, orientation) at the
-native sampling rate, with a synchronized timestamp on every sample… so we can
-later check the device's accuracy against a reference system."
+**Asked for:** "full IMU output (accelerometer, gyroscope, orientation) at the native
+sampling rate, with a synchronized timestamp on every sample… so we can later check
+the device's accuracy against a reference system."
 
-This is the one requirement whose hard half is done.
+**Capture:** every frame carries a device timestamp and an index; both sensors are read
+in the same frame; samples are stored exactly as the device sent them, in native
+counts, with the mount maps and scale factors alongside (DEC-007). Frames lost in
+transit are re-requested from the device's own buffer (about 4.5 min), and any
+remaining gap is counted and shown. Evidence: 180,250 of 180,250 frames over 30
+minutes (TEST-018); a dashboard session stored with zero missing (TEST-022).
 
-**Capture — built and verified.** Every frame carries a device timestamp and an
-index; both sensors are read in the same frame; samples are stored exactly as the
-device sent them, in native ADC counts, with the mount maps and scale factors
-kept alongside (DEC-007). Nothing is overwritten with filtered values. Frames
-lost in transit are re-requested from the device's own buffer, and any that
-remain missing are counted and shown rather than quietly skipped.
+**Export:** the whole doc 10 package: `raw.csv` (accelerometer, gyroscope and
+rotation vector per sensor per frame, timestamped), `accel_native.csv` (both
+accelerometers at their native rate, every sample timestamped), `gait.csv`,
+`events.csv`, `haptics.csv`, `metadata.json`, `session.mat` and `report.pdf`, each
+with the patient's name (DEC-028). Evidence: TEST-035 (the package matches the
+database row for row), TEST-036 (`scipy.io.loadmat` agrees with the CSV), TEST-037
+(every report section present).
 
-Evidence: 180,250 of 180,250 frames over 30 minutes with zero missing and zero
-corrupted (TEST-018); the dashboard storing a session from the device with zero
-missing (TEST-022).
+The shank's gyroscope and rotation vector are aligned to the foot-clocked frames
+(F-06). Timestamps are on the device clock, ready for alignment with an external
+reference system in analysis.
 
-**Export — built (2026-09-18).** The whole doc 10 package: `raw.csv` with one row
-per IMU sample and the frame's timestamp on both, `gait.csv`, `events.csv`,
-`haptics.csv`, `metadata.json`, `session.mat` and `report.pdf`. The EXPORT view
-reports the row counts it wrote rather than announcing success.
+## What the dashboard checks
 
-Raw values are exported as the stored ADC counts, not physical units (DEC-007),
-with the scale factors and both mount maps in `metadata.json`. That is what the
-requirement asks for — the device's own output, checkable against a reference
-system — and it is what keeps doc 10 §7's rule, that the raw integers survive
-into the `.mat`, true of the CSV as well.
-
-Evidence: TEST-035 (the package matches the database, row for row), TEST-036
-(`scipy.io.loadmat` reads `session.mat` and every value agrees with the CSV
-beside it), TEST-037 (`pdftotext` finds every section doc 10 §8 names). Both
-checkers found real defects on their first run, recorded in those entries.
-
-**Closed since this section was first written:** the orientation quaternions were
-identity until M3. They are now the device's own Mahony estimate, and
-`raw.csv`/`session.mat` carry them per frame as Q15 integers.
-
-## What the dashboard checks today
-
-Live view and recording cover sensor health and data integrity, not clinical
-measurement:
-
-- both sensors present, configured, and not frozen;
-- acceleration magnitude, which must read about 1 g at rest — the fastest check
-  that scaling and mounting are right;
-- dropped frames, I²C errors, repeated shank samples, missing messages,
-  corrupted link frames;
+- both sensors present, configured and streaming;
+- acceleration magnitude at rest (about 1 g), the fastest check of scaling and mounting;
+- dropped frames, bus errors, repeated samples, missing messages, corrupted link frames;
 - per-frame flags including saturation on any axis;
-- the device's own configuration, verified against the hash the device reports,
-  recorded with every session.
-
-M4–M6 added the clinical items on top of these: per-cycle distance with ZUPT
-quality, the per-cycle error score, class and confidence, the reference workflow,
-and the export package (sections 1–4 above).
+- the device's configuration, verified against the hash it reports, recorded with every
+  session;
+- per-cycle distance with ZUPT quality, the error score, class and confidence, the
+  reference workflow, and the export package (sections 1–4).

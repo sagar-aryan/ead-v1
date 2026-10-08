@@ -40,7 +40,7 @@ Added:
 
 Modified: none. Touched `ead_agent_docs_v2/`: no.
 
-### Problems
+### Issues
 None. No build or test executed in this task.
 
 ### Diagnosis
@@ -102,7 +102,7 @@ mounting visually.
   `CSV,` stream with a five-pose check.
 - `firmware/include/config_v1.h`: shank axis remap macros.
 
-### Problems
+### Issues
 - PROB-001: accel read ~2 g at rest; the boards are MPU6500 (WHO 0x70) and init had
   returned early. Resolved in `d052a9c`.
 - PROB-002: shank mapping; a candidate map was committed while still investigating.
@@ -173,7 +173,7 @@ Added:
 
 Committed separately first (`fdc4a69`): `ead_agent_docs_v2/`, `dashboard/package-lock.json`.
 
-### Problems
+### Issues
 None blocking. The on-body standing check (TEST-014) needs the user to wear the device.
 
 ### Verification
@@ -218,7 +218,7 @@ Removed: `firmware/lib/ead_codec/` (folded into ead_core), the 10 Hz text CSV
 output, and `tools/orient_viewer.py` with its guide — the viewer read that text
 stream, and the dashboard's Live view replaces it.
 
-### Problems
+### Issues
 PROB-005 (opening the USB port reset the device), PROB-006 (USB frames corrupted
 by Arduino core logging sharing the endpoint), PROB-007 (I²C reads failing when
 started on the data-ready edge). All three resolved; see `docs/problems.md` for
@@ -268,7 +268,7 @@ Added: `dashboard/src-tauri/src/{protocol,link,store,device,live,app,hardware_te
 `dashboard/src/views/`. Removed the placeholder `dashboard/src/types.ts` and the
 demo data in `App.tsx`.
 
-### Problems
+### Issues
 Two bugs were caught by tooling rather than by chance: the golden vectors
 rejected a backfill parser that assumed one message per buffer, and a dead-code
 warning revealed that USB commands were never COBS-framed. A third was found by
@@ -310,7 +310,7 @@ backfill to save a third of a second once.
   raw counts is self-describing; migration from schema 1 tested.
 - `views/Raw.tsx`, `api.ts`, `app.rs`, `main.rs`.
 
-### Problems
+### Issues
 Two defects found by looking at the rendered chart rather than by testing:
 1. The x axis was drawn as wall-clock dates from the epoch, because uPlot treats
    the x scale as time by default. Elapsed seconds now declared explicitly.
@@ -361,7 +361,7 @@ the same instant.
 - Modified: `store/raw.rs` (one query for several groups, `RawSignal`),
   `store/mod.rs`, `app.rs`, `store/tests.rs`, `hardware_tests.rs`.
 
-### Problems
+### Issues
 1. First version issued one query per signal. Measured on an hour of data:
    542 ms for four signals on the whole session. All four read the same rows, so
    they were merged into one pass: 291 ms, zoomed 78 → 35 ms (TEST-026).
@@ -407,7 +407,7 @@ the live stream already carries anatomical accelerations and rates.
 - Added `dashboard/src/views/MountingCheck.tsx`; rendered from the Device view.
 - `styles.css`: a verdict style whose colour only reinforces the word.
 
-### Problems
+### Issues
 The first version collected samples from the live tick React state, which
 `useDevice` throttles to 5 Hz for the numeric readouts — fast enough for the
 still step's mean but not to catch the peak of a short movement. The rotation
@@ -497,7 +497,7 @@ would need.
   and a Calibration panel in the Device view.
 - `tools/eadprobe.py`: `calibrate` subcommand.
 
-### Problems
+### Issues
 1. The first hardware run returned a record for the *previous* window: a
    completion that finished while no host was listening was delivered to the
    next host to connect, which then read it as the answer to its own request.
@@ -551,7 +551,7 @@ across the gap.
   ankle angles, 7 tests), orientation in `LiveTick`, and an `Orientation` panel
   drawing the sagittal view on a canvas.
 
-### Problems
+### Issues
 Verification on hardware is blocked on the device's physical position, not on
 code: with the boards lying as they are on the bench the shank sensor is 73° off
 upright, so calibration rejects the window as `upside_down` and orientation
@@ -593,7 +593,7 @@ Then a recording, because thresholds cannot be guessed: `tools/replay` runs the
 device's own code over a `.eadlog` on the host, so a change can be tested against
 real signals in seconds instead of asking for another walk.
 
-### Problems
+### Issues
 Four, all found by measurement (TEST-030, PROB-011, PROB-012):
 
 1. Every impact opened a cycle — 20 contacts for 12 steps. A footfall produces
@@ -748,7 +748,7 @@ Modified:
 - `dashboard/src/views/Sessions.tsx` — the doc 12 §4 evaluation gate.
 - `dashboard/src/App.tsx`, `api.ts`, `styles.css`.
 
-### Problems
+### Issues
 The migration test simulates a v2 store by dropping what later schemas added;
 schema 5 added columns to `sessions`, so the test failed with `duplicate column
 name: reference_id` until it dropped those too. Nothing else failed.
@@ -788,7 +788,7 @@ evaluation can be run against the device without the GUI.
 - `vectors [--verbose]` — decodes every golden vector with eadprobe's own
   decoders.
 
-### Problems
+### Issues
 `vectors` was written to close a hole, and immediately found what was in it. The
 protocol design says the golden vectors are checked by three independent
 implementations: firmware, Rust and this tool. The first two check themselves in
@@ -859,7 +859,7 @@ make the export hold less than the store.
 scale factors and both mount maps in `metadata.json`. That keeps it consistent
 with doc 10 §7's rule that the raw integers survive into the `.mat`.
 
-### Problems
+### Issues
 `scipy.io.loadmat` refused the first `session.mat` with `buffer is too small for
 requested array`. The writer tagged char arrays `18`, which is `miUTF32`; the
 correct code for UTF-16 is `17`. A reader given the wrong width runs off the end
@@ -911,7 +911,7 @@ Nothing in the report passes or fails a patient. Doc 06 defines no threshold
 separating a good cycle from a bad one, so the report shows distributions and
 says that no threshold is drawn.
 
-### Problems
+### Issues
 The composer has no layout engine, and `pdftotext` showed exactly what that
 costs: paragraphs ran off the right margin and were cut mid-sentence, and the
 seventh trend plot needed 844 pt on an 841.89 pt page. Both fixed — a wrapping
@@ -1052,7 +1052,7 @@ Added:
 Documented: `docs/hardware.md` (bench pin table and measurements), `docs/testing.md`
 (TEST-039), `docs/problems.md` (PROB-017).
 
-### Problems
+### Issues
 
 1. **Nothing at all came out over USB**, for the bench firmware, a bare
    `Serial.println` sketch, and the product firmware alike. PROB-017: the chip was
@@ -1103,7 +1103,7 @@ Two additions to the bench firmware:
   command, the Motion Request report, and the accelerometer's real resolution,
   measured from raw counts rather than taken on trust.
 
-### Problems
+### Issues
 
 1. The raw accelerometer report produced nothing, and then the at-rest check lost its
    accelerometer reports too. Cause: the probe ran before any report was enabled, and
@@ -1151,7 +1151,7 @@ SPI-mode strapping, supply current, absolute maxima), the 7Semi breakout manual
 wiki (BAT pad polarity, 3V3 current, charge current), the Shenzhen Airupton
 HT78XX datasheet and Holtek's LDO application note.
 
-### Problems
+### Issues
 
 1. **The motor-band wire count was wrong in three places** — the previous
    wiring reference, `docs/hardware.md`, and the generated assembly image — all
@@ -1220,7 +1220,7 @@ Modified:
   loader `vector()` made `pub(crate)` so the device tests reuse it.
 - `docs/problems.md` (PROB-018), `docs/testing.md` (TEST-042).
 
-### Problems
+### Issues
 
 The first proposed fix (clear in the tracker's boot_id branch) also wiped the
 calibration on every reconnect of the same boot. Caught by the second test before
@@ -1281,7 +1281,7 @@ Modified:
   `static_assert` that no sensor line is a motor pin.
 - `docs/hardware.md`, `docs/testing.md` (TEST-043, not run).
 
-### Problems
+### Issues
 
 The first draft timed the other sensor's INT from after the selected sensor's INT
 had arrived, so its "ms after reset" figure would have been wrong. Replaced with a
@@ -1337,7 +1337,7 @@ as the previous build), `testing.md` (summary table to TEST-043), `problems.md`
 error texts no longer name a schema number, which HELLO already carries) and the
 `protocol.h` header comment.
 
-### Problems
+### Issues
 
 - This log has no entries for the 2026-09-18 afternoon (the patient-67 sessions
   that produced PROB-013 to PROB-016), for DEC-015 and the worn-assembly image
@@ -1502,7 +1502,7 @@ driver (DEC-017), motor service-test pulses (DEC-018), and the `ead --check` vie
   service-test commands, Check view, `--check` launch mode. `eadprobe`: schema 5,
   `check`, `pulse`, scale from the device config, recordings carry CONFIG.
 
-### Problems
+### Issues
 - Frames first came at 125 Hz: the BNO086 runs the accelerometer at its nearest rate,
   125 Hz, while the gyroscope runs at 100 Hz. Frames are now gyro-clocked.
 - After a sensor reset, one 152 ms pause follows the first gyro report (sequence +1):
@@ -1525,7 +1525,7 @@ TEST entries / handoff for this work; mount maps and gait on the leg.
 ### Objective
 Close what the previous entry left open.
 
-### Problems
+### Issues
 - The replay tool converted counts with `config_v1.h`'s constants, which since schema 5
   are the BNO086 scale and identity maps: the MPU6500 ground-truth walk replayed to 0
   valid cycles. Found by running it, not by a test.
@@ -1566,7 +1566,7 @@ resolved.
 
 ## 2026-10-02 — A flaky calibration in the hardware test: PROB-022
 
-### Problems
+### Issues
 Running both hardware tests serially, the reset test's calibration was rejected as
 "moved" (foot gyro sd 3.82 °/s) with the device untouched. Alone it passed.
 
@@ -1610,7 +1610,7 @@ with the user's description of the silkscreen axes; flashed and confirmed with
 the dashboard mounting check (TEST-051). Five 10 m out-and-back walks recorded by
 the user over Wi-Fi, replayed on the host from the dashboard database.
 
-### Problems
+### Issues
 Cycles of 16–29 m. Traced to the gait engine staying in swing through a stop when
 the last step had no impact (PROB-023). Fixed with an exit from swing on
 sustained stillness; one unit test. Two contacts the old engine reported after a
@@ -1642,7 +1642,7 @@ the drift correction.
   event path for the stillness test (DEC-019). Two unit tests.
 - `tools/replay/walks.py` (new): per-leg comparison with the ground truth.
 
-### Problems
+### Issues
 Lowering the confirm level or the swing-start rate split strides (rejected).
 Slow strides still read 30 % short; cause unknown.
 
@@ -1664,7 +1664,7 @@ Ground truth for the schema-6 feed on the leg: seven walks, each with a video.
 Sessions read from the dashboard database; each exported with `tools/session2eadlog.py`
 and replayed. Videos synced by motion energy, then by the heel stamps.
 
-### Problems
+### Issues
 - The replay calibrates from the first seconds, but these recordings start with the
   walker on the way to the start line; stands of 2–3 s fail the 2 °/s stillness test.
   Added `--still-from S` to `tools/replay/main.cpp`; the end stand (≥ 5 s) calibrates
@@ -1716,7 +1716,7 @@ cycle features, the stillness fallback of PROB-023.
 - `tools/replay/walks.py`: all eleven 10 m fixtures, the 2026-10-04 ones by leg
   windows.
 
-### Problems
+### Issues
 - The first split-stride test passed on the old engine too: a lone impact in
   stance was never the failure. Rebuilt from the real mechanism (the foot turning
   fast in stance, then an impact); it now fails on the old engine.
@@ -1755,7 +1755,7 @@ Firmware, protocol schema 7 (vectors regenerated; format-1 config keeps
 `haptics_fitted` 0), eadprobe, dashboard store schema 10, export, UI. Files in
 docs/implementation.md "Haptic feedback".
 
-### Problems
+### Issues
 - `HapticEngine::stop` first copied the cue's earlier fields into the OFF record:
   garbage when called from outside a cycle (switch off). Rewritten to build a clean
   record; `onCycle` adds the cycle's fields.
@@ -1929,7 +1929,7 @@ The link-loss hold-back is not host-testable (Arduino side); to confirm on the d
   the duplicated export line in `architecture.md`; the GPU dump untracked and ignored
   (kept locally); a root `README.md`.
 
-### Failed approach
+### Approach replaced
 Clearing the dashboard's held calibration record at each calibration start (for
 F-27): backed out before commit, because a cancelled window keeps the device's old
 calibration and the dashboard would then block sessions on a calibrated device. The
@@ -1957,3 +1957,17 @@ duty 153–255. `eadprobe check`: every wire check passes on foot and shank.
 ### Current Status
 Flashed. Not yet done: the user's motor-position, graded-strength and
 Wi-Fi-off checks on battery over Wi-Fi.
+
+## 2026-10-08 — Documentation refresh
+
+### Objective
+Bring the README and docs up to the current state of the device, in plain status terms.
+
+### Changes
+README, `docs/README.md`, `handoff.md` (Development Status replaces the open-items
+list), `clinical_requirements.md` (rewritten to the current build and TEST-071),
+`hardware.md`, `implementation.md`, statuses in `problems.md`, and headings in the
+logs and the PCB docs. Measured results and test verdicts are unchanged.
+
+### Current Status
+Completed.

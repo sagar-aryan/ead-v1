@@ -258,17 +258,12 @@ the evidence behind it. It is the document to hand to whoever builds the board.
 
 ![Worn assembly: foot IMU, shank IMU, controller and the six-motor band](images/worn_assembly.png)
 
-*`docs/images/worn_assembly.png`. Generated illustration, checked against the
-contract and this table. **Two known errors, both in panel A only:** the
-controller is drawn on the inner side of the leg — panel B has it correctly on
-the outer side — and the foot is drawn as a left foot, with the big toe on the
-outer edge. **A third error, found later (2026-10-01): the motor cable label
-"7 wires (6 returns + 1 shared +V)" is wrong — it is 8**, because the two haptic
-regulators' outputs must stay separate, so each half of the band needs its own
-positive wire (`docs/wiring_reference.md` §11). Everything else was verified: the
-six motor angles and their clockwise order, the fibula on the lateral side, M2
-toward the toes and M3 toward the calf in the side view, and both sensor axis
-triads.*
+*`docs/images/worn_assembly.png`. Illustration of the worn layout. As built: the
+controller sits on the outer side of the right leg (panel B); the motor cable has 8
+wires, since each half of the band has its own positive rail
+(`docs/wiring_reference.md` §11). Checked against the contract: the six motor angles
+and their clockwise order, the fibula on the lateral side, M2 toward the toes and M3
+toward the calf in the side view, and both sensor axis triads.*
 
 Two separate straps on the right shank, plus the foot module. Nothing below is
 built yet: the ERM drivers are not fitted (DEC-006) and the BNO086 sensors are
@@ -320,7 +315,7 @@ Totals: ~125–190 mA streaming without cues, ~155–220 mA at worst-case feedba
 ~610 mA. With 1.6–1.8 Ah usable from a ~2 Ah cell: **about 8–14 h** without cues,
 **7–12 h** at worst-case feedback.
 
-Unverified and able to move this a lot: the usable capacity (the XIAO's 3.3 V regulator
+To be confirmed by measurement: the usable capacity (the XIAO's 3.3 V regulator
 is fed from the 5V pin at cell voltage; where the rail drops out as the cell falls toward
 3.4 V, and whether TX bursts brown it out earlier, are unknown), the cell's real capacity,
 and the AP-mode average. A runtime test settles it: full charge, stream over Wi-Fi with

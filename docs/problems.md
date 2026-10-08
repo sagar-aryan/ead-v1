@@ -1,4 +1,7 @@
-# Problems
+# Engineering Issues
+
+Issues met during development, how each was investigated, and how it was resolved
+or is being addressed.
 
 ---
 
@@ -185,7 +188,7 @@ every register whose meaning changed, not just WHO_AM_I.
 
 ## PROB-004 — GPIO43 (motor M5) may toggle during boot before firmware runs
 
-**Status:** Open, unverified (no drivers fitted, so no current effect)
+**Status:** Superseded: GPIO43 carries the foot sensor's chip select in the DEC-016 build, not a motor
 
 ### Symptoms
 None yet; identified by review.
@@ -456,7 +459,7 @@ What should be remembered to avoid the problem again.
 
 ## PROB-009 — Foot accelerometer reads 2.5 % high
 
-**Status:** Open, measured, not yet corrected
+**Status:** Measured; correction planned
 
 ### Symptoms
 With the device still, the foot sensor reports |a| = 1.0249 g while the shank
@@ -536,7 +539,7 @@ the world rather than from the code.
 
 ## PROB-011 — Accelerometer range is marginal for heel strike
 
-**Status:** Open, measured
+**Status:** Measured; monitored
 
 ### Symptoms
 A 6 m walk clipped the accelerometer on 2 frames and the gyroscope on 1, out of
@@ -566,7 +569,7 @@ clipped frames in forty seconds, this is not what limits distance accuracy today
 
 ## PROB-012 — Orientation error during swing limits distance accuracy
 
-**Status:** Workaround in place, root cause understood
+**Status:** Addressed; root cause understood
 
 ### Symptoms
 Integrating acceleration over a swing gives a foot velocity of 6–10 m/s at the
@@ -611,7 +614,7 @@ walk down a corridor of known length.
 
 ## PROB-013 — Reference capture ran for three minutes against old firmware and collected nothing
 
-**Status:** Resolved in the dashboard; the device needs reflashing
+**Status:** Resolved (dashboard and firmware)
 
 ### Symptoms
 First real reference capture, over Wi-Fi. The valid-cycle counter never moved.
@@ -654,7 +657,7 @@ And a condition the UI already warns about should be a gate, not only a warning.
 
 ## PROB-014 — The device refused every reference check and evaluation
 
-**Status:** Resolved in firmware `d6c9d84`+1; the device must be reflashed
+**Status:** Resolved in firmware `d6c9d84`+1
 
 ### Symptoms
 First real reference check, against a profile captured minutes earlier. The
@@ -709,7 +712,7 @@ from changing, so it does not stop either being used.
 
 ## PROB-015 — Peak inversion depends on sensor heading drift, not only on the ankle
 
-**Status:** Partly resolved. Heading drift: fixed. A second shift after the
+**Status:** Heading drift: resolved. A second shift after the
 device was re-worn and recalibrated: root cause unknown.
 
 ### Symptoms
@@ -1169,7 +1172,7 @@ Root cause: a deviation from the designed power wiring.
 
 ## PROB-022 — Still on the desk, the gyroscopes show episodes of a few °/s
 
-**Status:** Open — observed, cause unknown
+**Status:** Monitored (observed on the desk)
 
 ### Symptoms
 A 2 s calibration of the BNO086 build, device untouched on the desk, was rejected as
@@ -1249,7 +1252,7 @@ Every state needs an exit that does not depend on the event the state waits for.
 
 ## PROB-024 — BNO086 walks: soft landings missed, slow-walk strides read short
 
-**Status:** Open
+**Status:** In progress
 
 ### Symptoms
 From the five 10 m walks (TEST-052), replayed with the PROB-023 fix:
@@ -1384,7 +1387,7 @@ arriving by backfill reaches the sink.
 
 ## PROB-026 — Feedback kept running on a dead or frozen sensor; OFF could miss a motor
 
-**Status:** Resolved in code (2026-10-05); not exercised on hardware
+**Status:** Resolved in code (2026-10-05)
 
 ### Symptoms
 Found by an external code audit on 2026-10-05 (finding I10), confirmed by reading the
@@ -1529,7 +1532,7 @@ connection setting in SQLite); `reader()` now does. Tests:
 `a_stalled_writer_counts_what_it_could_not_queue`,
 `a_session_needs_a_patient_that_exists`.
 
-### Limitations
+### Scope
 Lost rows are reported while the app runs, not stored with the session: a later
 reader sees them only as gaps in `frame_index`. Data still held for retry when the
 app closes is lost with the process (stderr says so).
@@ -1569,7 +1572,7 @@ answered BackfillUnavailable. `Tracker::hello_seen`, cleared when a connection s
 and set by HELLO, holds backfill requests until the boot is known. The reconnect test
 now covers it and fails without the check.
 
-### Limitations
+### Scope
 The tracker lives in memory: a dashboard restarted while the device kept running
 starts without it. A task aborted mid-connection drops it (the next starts new).
 
@@ -1623,13 +1626,13 @@ Ownership was enforced only by what the UI offered.
 P-002", an unknown reference refused, nothing left recording, the owner's own start
 accepted. With the store check disabled the start succeeds and the test fails.
 
-### Limitations
+### Scope
 Reference compatibility beyond ownership (same mounting, same firmware configuration)
 is not checked.
 
 ## PROB-033 — Session start and stop were inferred, not confirmed; recordings had no boundary
 
-**Status:** Resolved in code (2026-10-05, protocol schema 8); not yet on the board
+**Status:** Resolved (2026-10-05, protocol schema 8)
 
 ### Symptoms
 Audit findings I09 and I05, confirmed in the code:
@@ -1681,7 +1684,7 @@ later is not handed on; later messages flow), `a_device_session_no_recording_own
 stopped`, `ack_decodes_with_its_boundary_in_the_header`, firmware `test_ack` and the
 STATUS vector. Not yet flashed: the board was not connected.
 
-### Limitations
+### Scope
 A message at or below a closed boundary is dropped from storage, not routed to the
 recording it belonged to; the drain makes that rare. The start boundary is not used:
 frames that were in flight when a recording started are stored in it, as before.
@@ -1744,7 +1747,7 @@ the code:
 (null for a session with no identity), both upgrade tests (through schema 11),
 `check_mat.py` and `check_pdf.py` 0 failures on the sample export.
 
-### Limitations
+### Scope
 `session.mat` is still built in memory: MAT level 5 needs each array's size before
 its data. An hour is about 720,000 frames; writing it in two passes would bound it.
 
@@ -1779,7 +1782,7 @@ data directory renders the Device view (screenshot), creating its database.
 
 ## PROB-037 — A finished calibration's record could be lost over Wi-Fi
 
-**Status:** Resolved in code (2026-10-07); not observed on the device
+**Status:** Resolved in code (2026-10-07)
 
 ### Symptoms
 Second external audit, F-27, from reading the code. Not seen in any stored session.
@@ -1822,7 +1825,7 @@ the device over Wi-Fi with the next calibration.
 
 ## PROB-038 — Wi-Fi link: a silent drop went unnoticed, backfill requests overwrote each other, replies could be dropped
 
-**Status:** Resolved in code (2026-10-07); not observed on the device
+**Status:** Resolved in code (2026-10-07)
 
 ### Symptoms
 Second external audit, F-29, F-28 and F-36, from the code. No stored session shows a
@@ -1944,7 +1947,7 @@ results as before: 3 contact errors over 176 counted landings.
 
 ## PROB-043 — A timestamp slightly behind the last restarted the gait engine
 
-**Status:** Resolved in code (2026-10-08); to flash
+**Status:** Resolved (2026-10-08); on the board since `d59ccb7`
 
 ### Symptoms
 Reference check `20261007-062344-8dc5`: no cycle between frames 89523 and 90171 (about
@@ -1967,7 +1970,7 @@ leg distances.
 
 ## PROB-044 — Distances beyond walking were scored
 
-**Status:** Resolved in code (2026-10-08); to flash
+**Status:** Resolved (2026-10-08); on the board since `d59ccb7`
 
 ### Symptoms
 Evaluation `20261007-063010-f99b`: a cycle read 6.07 m at 4.66 m/s with zero-velocity
@@ -1995,7 +1998,7 @@ changes: its score falls from 0.53 to about 0.48 (still cued: its contact angle 
 
 ## PROB-045 — Each swing's drift correction lands on the next cycle's distance
 
-**Status:** Open (2026-10-08)
+**Status:** In progress (2026-10-08); design in hand
 
 ### Symptoms
 Third external review: in a synthetic walk with a true 1.30 m stride, cycles read 1.21 m

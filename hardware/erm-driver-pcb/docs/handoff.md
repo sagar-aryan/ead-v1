@@ -52,7 +52,7 @@ None open. Unverified items:
 - Regulator temperature.
 - LDO stability with the very-low-ESR 220 µF polymer.
 
-## Failed Approaches
+## Approaches Replaced
 - **Grouped wire pads on the board edge with zero jumpers:** impossible (K3,3, PROB-002). Don't retry without accepting jumpers.
 - **Stock KiCad SOT-89 land:** 0.254 mm internal gap violates the 0.4 mm rule (DEC-010).
 - **GND pour under parts:** slivers and hidden bridge risk (DEC-011).

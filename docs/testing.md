@@ -1883,7 +1883,7 @@ the soak test wiring rule 5 requires). The accelerometer and gyroscope never sha
 a rate: the hub offers the accelerometer 125/250/500 Hz and the gyroscope and
 fusion 100/200/400 Hz.
 
-### Notes — failed first attempt
+### Notes — first attempt
 The same survey through the SparkFun library in `firmware/bench/bno086` read
 0–415 Hz at random per report and interval, and the sensor reset itself after
 it. That library keeps only the last report of a packet carrying several, so it
