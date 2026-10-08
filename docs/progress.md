@@ -1943,3 +1943,17 @@ Full suite: pio 104/104, firmware and both bench builds, cargo 91 (4 ignored),
 clippy `-D warnings` clean, npm 28/28, build, vectors 0 failures; export checks 0
 failures; walk replays unchanged (3/176). New regression tests fail with their fixes
 removed (F-30, F-33, F-13 checked).
+
+## 2026-10-08 — Flash d59ccb7
+
+### Objective
+Put the M5/M6 swap (DEC-029 update) and PROB-043/044 on the board.
+
+### Verification
+`pio run -t upload` over USB (battery off): hash verified. `eadprobe hello`:
+`0.1.0+d59ccb7`, schema 9, both sensors 0x86. `eadprobe config`: m1–m6 = 4, 6, 42, 5, 2, 1;
+duty 153–255. `eadprobe check`: every wire check passes on foot and shank.
+
+### Current Status
+Flashed. Not yet done: the user's motor-position, graded-strength and
+Wi-Fi-off checks on battery over Wi-Fi.

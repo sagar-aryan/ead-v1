@@ -21,6 +21,10 @@ or fake data, no features the spec does not need.
 - **Hardware.** The XIAO (MAC 44:B1:76:AF:FB:7C) wired to DEC-016, both BNO086 on SPI,
   the separate ERM driver PCB (`hardware/erm-driver-pcb/`, tight variant) with six motors and two HT7833
   rails, battery. See `docs/hardware.md`. **Battery switch never ON with USB.**
+- **Firmware `0.1.0+d59ccb7` flashed 2026-10-08:** M5/M6 swapped (DEC-029 update),
+  PROB-043/044 fixes. Checked over USB: `eadprobe hello` reports the version and schema 9,
+  `config` motor pins m1–m6 = 4, 6, 42, 5, 2, 1, `check` passes on both sensors. Motor
+  feel on battery over Wi-Fi not yet checked by the user.
 - **Firmware `0.1.0+ae4b4b5`, protocol schema 9, flashed (TEST-069):** cues graded
   60–100 % for 500 ms (DEC-026), held back after 5 s without the laptop (DEC-027),
   calibration record kept until sent (PROB-037). Earlier features as below.
