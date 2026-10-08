@@ -42,7 +42,7 @@ frames, so the replay needs no flag. Worn by the developer (ID `DEV-1`), firmwar
 standing, and has a stand, a turn and a stand between the legs. Replay with
 `--still-seconds 5`, or all of them, with the 2026-10-04 walks, against their counts with
 `tools/replay/walks.py /path/to/eadreplay`. Results per engine version are in
-docs/testing.md (TEST-052 onward).
+TEST-052 onward.
 
 The `2026-10-04` files (TEST-058) start with the walker on the way from the laptop
 to the start line, so calibrate from a still window with `--still-from S` (the

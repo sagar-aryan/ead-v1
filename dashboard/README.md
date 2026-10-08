@@ -2,7 +2,7 @@
 
 Tauri 2 + React + TypeScript + Vite + Rust desktop app for the EAD V1 right-leg
 wearable. Contract: `../ead_agent_docs_v2/` docs 08, 10, 11 and 12. Stack
-decision: DEC-011 in `../docs/decisions.md`.
+decision: DEC-011.
 
 ## Current state
 

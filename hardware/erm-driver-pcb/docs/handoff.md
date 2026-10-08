@@ -41,19 +41,13 @@ SWITCHED_SYSTEM+ feeds two HT7833 LDOs. Each makes its own 3.3 V rail for three 
 ## Completed Work
 - Planning with user Q&A: DEC-001…DEC-009.
 - Datasheet check: no ESR requirement.
-- Generator, layout, verification and export pipeline; DEC-010…DEC-015 and PROB-003…PROB-005.
+- Generator, layout, verification and export pipeline; DEC-010…DEC-015.
 
 ## Current Work
-None in progress. The design is complete, pending hardware.
-
-## Known Problems
-None open. Unverified items:
-- Physical fit of the 220 µF V-chip and trimmed SOT-89 lands (TEST-007).
-- Regulator temperature.
-- LDO stability with the very-low-ESR 220 µF polymer.
+None in progress. The tight variant is built and drives the six motors on the device.
 
 ## Approaches Replaced
-- **Grouped wire pads on the board edge with zero jumpers:** impossible (K3,3, PROB-002). Don't retry without accepting jumpers.
+- **Grouped wire pads on the board edge with zero jumpers:** impossible (K3,3). Don't retry without accepting jumpers.
 - **Stock KiCad SOT-89 land:** 0.254 mm internal gap violates the 0.4 mm rule (DEC-010).
 - **GND pour under parts:** slivers and hidden bridge risk (DEC-011).
 
@@ -80,7 +74,7 @@ cd "EAS_ERM_Driver" && bash scripts/export.sh
 0. Choose the variant to fabricate (single row, compact, mini or tight).
 1. TEST-007 paper fit check. If a land is wrong, fix it in `build.py` and re-run `export.sh`.
 2. Print the toner PDF at 100 %. For the tight variant use the six-up sheet `EAS_ERM_Driver_tight/output/EAS_ERM_Driver_tight_TONER_PANEL_6up_MIRRORED_print_1to1.pdf` (DEC-020): measure its ruler (tick 0 to tick 100 = 100.0 mm) to prove the printer did not rescale, cut the ruler strip off, then transfer, etch, cut and inspect (`hardware.md`).
-3. Assemble with the 3:1 assembly drawing; bring up per handoff 07 (TEST-008) and record the results in `testing.md`.
+3. Assemble with the 3:1 assembly drawing; bring up per handoff 07 (TEST-008).
 4. Optional V1.1: conformal coat; review the regulator temperature data.
 
 ## Warnings

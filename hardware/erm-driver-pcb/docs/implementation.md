@@ -87,7 +87,7 @@ A copy of the compact script with standard footprints and the relaxed rules (DEC
 ## Tight variant (`EAS_ERM_Driver_tight/scripts/build.py`)
 A copy of the mini script with 0.3 mm clearances and `tight_fp()` (DEC-018).
 - **`tight_fp()`:** copies a KiCad footprint and replaces its F.CrtYd graphics with one rectangle equal to the body and pad extents + 0.1 mm.
-- **Geometry:** cell pitch 7.45 mm, row height 13.15 mm; the outline is rounded up (PROB-006).
+- **Geometry:** cell pitch 7.45 mm, row height 13.15 mm; the outline is rounded up.
 
 ## Edge cases and limitations
 - **Re-running `build.py` overwrites GUI edits** to the schematic and PCB. To take over by hand, stop using `build.py` and keep only `check.py` and `export.sh` minus the build step.
@@ -96,4 +96,4 @@ A copy of the mini script with 0.3 mm clearances and `tight_fp()` (DEC-018).
 - **pcbnew warning:** it prints a harmless `PROPERTY_ENUM ... No enum choices defined` assert on stderr; `export.sh` filters it out.
 
 ## Verification
-See `testing.md`: TEST-001 to TEST-006 were executed; TEST-007 and TEST-008 are pending hardware.
+TEST-001 to TEST-006 verify the design in software; the tight variant is built and in use.

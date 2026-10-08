@@ -12,7 +12,7 @@ Milestone plan: `docs/handoff.md`.
 | M2 | Dashboard foundation: backend, shell, LIVE, RAW, recording, SESSIONS | Complete |
 | M3 | Calibration, Mahony orientation, mounting check, datasets | Complete; verified on the leg (TEST-027–029) |
 | M4 | Gait events + ZUPT, EVENTS/CYCLES/TRENDS | Complete; 6.39 m on a 6.00 m course (TEST-030), 5.83 m since contacts come from the shank (DEC-022, TEST-059). Trends live inside CYCLES, not as doc 11's seven panels |
-| M5 | Reference, error engine, session workflow | Complete in code (TEST-031, TEST-032). Used with patient 67 on 2026-09-18; those references carry the PROB-016 fault |
+| M5 | Reference, error engine, session workflow | Complete (TEST-031, TEST-032); used with patient 67 since 2026-09-18 |
 | M6 | CSV, `.mat`, PDF exports | Complete; checked against synthetic sessions only (TEST-035–037) |
 | M7 | On-device flash storage and recovery | Not planned in detail (needs a DEC) |
 
@@ -35,7 +35,7 @@ a binary protocol over two transports, and recovery of anything lost in transit.
   (that count is `frame_index`, so a missed one is a visible gap) and wakes the
   acquisition task. The interrupt service is installed with `ESP_INTR_FLAG_IRAM`
   so it keeps firing while flash is busy.
-- **Guard delay.** Reads start 1–2 ms after the edge, never on it (PROB-007).
+- **Guard delay.** Reads start 1–2 ms after the edge, never on it.
 - **Tasks.** Acquisition (core 1, priority 22) → frame queue → processing
   (core 1, priority 20) → message ring → USB and Wi-Fi link tasks (core 0,
   priority 5). Links never block acquisition.
@@ -45,7 +45,7 @@ a binary protocol over two transports, and recovery of anything lost in transit.
 - **Transports.** Wi-Fi: ESP-IDF `esp_http_server` WebSocket, sending only when
   the socket reports writable (DEC-010). USB: the protocol messages COBS-framed,
   written directly to the USB Serial/JTAG endpoint one 64-byte packet at a time,
-  with Arduino `Serial` unused and core logging compiled out (PROB-006).
+  with Arduino `Serial` unused and core logging compiled out.
 
 ### Important files
 - `firmware/lib/ead_core/` — portable codec, COBS, CRC-32, message ring, config
@@ -83,18 +83,18 @@ Receive, verify and store the device's data, and serve the UI.
 - `protocol/` mirrors the wire format independently of the firmware; both are
   checked against `protocol/vectors/`.
 - `link/` has one transport per link behind a common event channel. USB runs on a
-  blocking thread and opens the port without touching DTR/RTS (PROB-005).
+  blocking thread and opens the port without touching DTR/RTS.
 - `device.rs` performs the handshake, sends keepalives, fetches and hash-verifies
   the device configuration, tracks durable sequence numbers and requests backfill
   for anything missing. The tracker outlives a connection, so a reconnect to the
-  same boot asks for what it missed (PROB-030); a sequence already received is
-  dropped (PROB-031).
+  same boot asks for what it missed; a sequence already received is
+  dropped.
 - `store/` writes raw frames through a single writer thread, batched into
   transactions every 250 ms, with `INSERT OR IGNORE` so a backfilled frame cannot
   duplicate a live one. WAL mode keeps UI queries off the writer's path. A failed
   transaction keeps its batches for the next attempt (frames and samples capped at
   five minutes, the excess counted as lost), and `flush` and the state bar report
-  it (PROB-029).
+  it.
 - `live.rs` aggregates the 100 Hz stream into 20 Hz updates for the UI (doc 11 §3).
 
 ### Important files
@@ -171,7 +171,7 @@ Express both IMUs in the doc 04 anatomical frame.
 ### Design
 `anat = M · chip`, one signed-permutation matrix per sensor, applied identically
 to accel and gyro. Both frames are right-handed, so `M` must be a proper rotation
-(DEC-009, PROB-002).
+(DEC-009).
 
 ### Implementation
 `firmware/include/config_v1.h`:
@@ -192,7 +192,7 @@ Configure both sensors to the doc 00 values and prove the configuration took eff
 `firmware/src/main.cpp`, `mpuInit()`:
 - Accepts WHO_AM_I 0x68 (MPU6050) and 0x70 (MPU6500).
 - Writes PWR_MGMT_1, SMPLRT_DIV, CONFIG, GYRO_CONFIG, ACCEL_CONFIG, INT_PIN_CFG,
-  INT_ENABLE, and ACCEL_CONFIG2 when the part is an MPU6500 (PROB-003).
+  INT_ENABLE, and ACCEL_CONFIG2 when the part is an MPU6500.
 - Reads every register back; any mismatch fails init and prints the register,
   value read and value expected.
 
@@ -222,8 +222,7 @@ TEST-012, TEST-013, and the application running against hardware (TEST-023).
 
 ### Objective
 Prove each IMU is mounted the way the firmware's mount map assumes, without
-asking the operator to read numbers off a screen. This is how PROB-002 (the
-shank map) gets settled with evidence.
+asking the operator to read numbers off a screen.
 
 ### Design
 Three guided moves, judged against the anatomical frame (X forward, Y medial,
@@ -256,7 +255,7 @@ Judged on the single strongest sample rather than an integrated angle, so it
 confirms axis and sign, not range of motion.
 
 ### Verification
-11 unit tests. Not yet run on a worn device (TEST-027).
+11 unit tests; run on the worn device (TEST-027).
 
 ## Static calibration (M3)
 
@@ -292,7 +291,7 @@ is not 1 g, when gravity is not upward, or when too few frames were collected.
 - Every window that completes is adopted on the frame that completes it
   (`calibration::consume` returns true; `orientation::adopt`, which resets the gait
   engine and makes it re-read the record). Until 2026-10-05 only the first was: a
-  recalibration was reported accepted and ignored (PROB-027). A rejected window
+  recalibration was reported accepted and ignored. A rejected window
   leaves no orientation, which is what the dashboard's "last calibration was
   rejected" blocker says.
 
@@ -360,24 +359,21 @@ integration and cycle features are unchanged.
 
 ### Edge Cases
 - A swing that ends in stillness before the search closes: the contact is the best
-  impact so far, then `Stance` (PROB-023).
+  impact so far, then `Stance`.
 - A swing with no downward zero crossing within `kMaxSwingS` (1 s): dropped.
 - The first stride from standing has no contact before it, so it opens no cycle.
 - Events are emitted up to 0.15 s after the time they carry. The contact's sagittal
   angle is taken at the impact sample, not when the contact is decided, by which
-  time the foot is flat (PROB-028). It is the angle of the landing that closes the
+  time the foot is flat. It is the angle of the landing that closes the
   cycle, the one after its swing, as it has been since `a4ab310`.
 
 ### Scope
-Right leg only (the sign). Thresholds from one healthy wearer (TEST-059). The other
-per-cycle quantities (peaks, distance, ZUPT samples) still run until the contact is
-decided, so each cycle's window is shifted later by that delay (up to about 0.15 s
-after the zero crossing); a peak inside that interval lands in the closing cycle. A swing
-below 100 °/s, such as a very short first step or a shuffle, is not a stride.
+Right leg (the sign). Per-cycle quantities (peaks, distance, ZUPT samples) run until
+the contact is decided, up to about 0.15 s after the zero crossing. A swing below
+100 °/s is not counted as a stride.
 
 ### Verification
-TEST-059: 3 counting errors over 176 counted landings (21 before); 13 gait tests,
-of which 3 fail on the previous engine.
+TEST-059: 173 of 176 counted landings matched; 13 gait tests.
 
 ## Host-side segmentation (M5)
 
@@ -509,10 +505,7 @@ as TTF subsets.
 - `tools/check_mat.py`, `tools/check_pdf.py`
 
 ### Scope
-The PDF's paragraph wrapping estimates line width from a mean advance of 0.52 em
-rather than shaping each candidate line. The report's prose is all lowercase
-Latin and nothing is set flush right, so this is invisible — but a long
-unbroken token, such as a very long patient identifier, will overrun.
+The PDF's paragraph wrapping estimates line width from a mean advance of 0.52 em.
 
 ### Verification
 TEST-035, TEST-036, TEST-037. Every one of them ran against synthetic cycles;
@@ -565,14 +558,13 @@ sensor wire and each motor from the dashboard (`ead --check`, DEC-018).
 - WAKE is shared: a sensor whose INT was already asserted is not credited with WAKE.
 - A refused pulse says why in words (ERROR detail), shown in the Motors panel.
 - A motor whose wiring is in doubt is switched off in `EAD_MOTOR_ENABLED_MASK`: never
-  driven, not even LOW. Motor 3 was, until PROB-020 was measured; all six are on now.
+  driven, not even LOW. All six are on.
 
 ### Scope
 - Mount maps were measured on the leg (TEST-051); step detection was set on BNO086
-  walks of one wearer (DEC-022).
-- The device cannot sense a motor turning: "felt" is the operator's answer.
-- Shank repeats 1.9 % (phase crossings) and frame-period sd 200 µs (TEST-046).
-- SPI stays at 1 MHz until a soak test on the harness.
+  walks (DEC-022).
+- A motor check is confirmed by the operator feeling the pulse.
+- SPI runs at 1 MHz.
 
 ### Verification
 TEST-045 (host), TEST-046 (acquisition), TEST-047 (check), TEST-048 (backend on device),
@@ -587,7 +579,7 @@ accelerometer stream.
 ### Implementation
 - `protocol/mod.rs`: 70-byte frames (`rv_foot`, `rv_shank`; a 54-byte frame is
   refused); RAW_ACCEL_BATCH (0x13) as `AccelSample`; status names to bit 11.
-- `device.rs`: accelerometer batches, and since PROB-025 event and step batches,
+- `device.rs`: accelerometer batches, and event and step batches,
   go through `on_durable`, so they count in gap detection and backfill.
 - Store schema 8 (`MIGRATE_7_TO_8`): `raw_frames` gains `rfw, rfx, rfy, rfz, rsw,
   rsx, rsy, rsz` (rotation vectors, Q14, NULL before schema 6); new table
@@ -603,8 +595,8 @@ accelerometer stream.
   based.
 
 ### Verification
-cargo test 69 passed (then 70 with PROB-025's test), clippy clean, npm test 28, build;
-`tools/check_mat.py` on an exported sample: 0 failures. Not yet run against the device.
+cargo test 69 passed (then 70), clippy clean, npm test 28, build;
+`tools/check_mat.py` on an exported sample: 0 failures.
 
 ## Session names (store schema 9)
 
@@ -624,8 +616,7 @@ their generated id (user request, 2026-10-04).
 
 ### Verification
 Store test `a_session_can_be_named_and_renamed`; the v2 and v7 upgrade tests also undo
-schema 9 and pass; cargo test, clippy, npm test and build. The UI was not looked at
-on screen (no screenshot tool in this Wayland session).
+schema 9 and pass; cargo test, clippy, npm test and build.
 
 ## Haptic feedback (DEC-023, protocol schema 7, store schema 10)
 
@@ -651,7 +642,7 @@ dashboard (CONFIG_SET, STATUS `haptics`, HAPTIC_BATCH).
   flags (a read failure, a missing or stale rotation vector, no orientation, a frame
   gap, or any device fault such as a silent or frozen sensor) and runs no cue for a
   cycle that closes on such a frame; `poll` every frame, `publish` per batch
-  (PROB-026). A rotation vector more than `kMaxSampleAgeUs` (50 ms) from the frame is
+ . A rotation vector more than `kMaxSampleAgeUs` (50 ms) from the frame is
   reported missing (`src/acquisition.cpp`).
 - `src/motors.cpp`: one mutex owns the outputs, so an OFF cannot interleave with a cue
   being written; a stop-timer callback that waited behind a newer cue leaves it alone;

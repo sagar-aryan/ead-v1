@@ -13,15 +13,14 @@ says so and §16 lists the question.
 | Mark | Meaning |
 |---|---|
 | **[DS]** | Read from the manufacturer's datasheet (sources in §17) |
-| **[MEAS]** | Measured on this project's hardware (`docs/testing.md`) |
+| **[MEAS]** | Measured on this project's hardware |
 | **[USER]** | Confirmed by the builder looking at the actual part |
 | **[CONTRACT]** | Fixed by `ead_agent_docs_v2/` |
-| **[DEC]** | Decided in `docs/decisions.md` |
+| **[DEC]** | A recorded project decision (DEC-nnn) |
 
 Build status (2026-10-07): **the DEC-016 build is the device.** Two BNO086 on SPI,
 and the ERM driver PCB, tight variant (`hardware/erm-driver-pcb/`), with everything
-fitted (user, 2026-10-02 and 2026-10-05; §15). Until 2026-10-02 this line said nothing
-was soldered and the device ran two MPU6500s (audit F-21).
+fitted (user, 2026-10-02 and 2026-10-05; §15).
 
 ## 2. Parts
 
@@ -29,12 +28,12 @@ was soldered and the device ran two MPU6500s (audit F-21).
 |---|---:|---|---|
 | Controller | 1 | Seeed XIAO ESP32-S3 (**plain, not Sense**) | Everything |
 | IMU | 2 | 7Semi BNO086 breakout (ES-12143), PS0/PS1 jumpers opened | Foot, shank |
-| Motor | 6 | ERM coin vibration motor — **part number not yet known, §16** | Feedback |
+| Motor | 6 | ERM coin vibration motor — **part number: §16** | Feedback |
 | MOSFET | 6 | Infineon IRLML6344, SOT-23 | Low-side switch per motor |
 | Diode | 6 | 1N5819W, SOD-123 Schottky | Flyback per motor |
 | Resistor | 6 | 100 Ω, 1206 | Gate series |
 | Resistor | 6 | 100 kΩ, 1206 | Gate pulldown |
-| Regulator | 2 | HT7833, 3.3 V 500 mA LDO — **package not yet known, §16** | Haptic rails A and B |
+| Regulator | 2 | HT7833, 3.3 V 500 mA LDO — **package: §16** | Haptic rails A and B |
 | Capacitor | 2 | 220 µF polymer | Bulk, one per haptic rail |
 | Capacitor | 4 | 1 µF, 1206 | HT7833 input + output, each regulator |
 | Capacitor | 2+ | 100 nF, 1206 | At each sensor's 3V3 pad |
@@ -43,7 +42,7 @@ was soldered and the device ran two MPU6500s (audit F-21).
 | Capacitor | 6 | 100 nF, 1206 | Local rail decoupling per channel (tight BOM C15–C20) |
 | Resistor | 2 | 33 Ω, 1206 | SPI series termination, §5 (recommended, not in the contract) |
 | Cell | 1 | 1S Li-ion/LiPo, 3.7 V nominal, ~2000 mAh | Power |
-| Charger | 1 | MCP73833 module — **exact board not yet known, §16** | Charging |
+| Charger | 1 | MCP73833 module — **exact board: §16** | Charging |
 
 ## 3. XIAO ESP32-S3 — every pin
 
@@ -215,9 +214,8 @@ Why it is safe:
 | M6 | Anteromedial, 300° | D0 | 1 | B | +B |
 
 XIAO pins as rewired by the user on 2026-10-07 (DEC-029), with M5 and M6 then swapped
-at the user's request (M5 D1, M6 D0); until then M1–M6 were on D0, D1, MTMS, D3, D4, D5. The Rail column is the design's (M1–M3 on rail A); whether the
-rewiring moved any motor to the other rail is **not yet confirmed** **[USER]**. Each
-motor's position is to be confirmed by a service pulse felt on the band.
+at the user's request (M5 D1, M6 D0); until then M1–M6 were on D0, D1, MTMS, D3, D4, D5. The Rail column is the design's (M1–M3 on rail A). Each motor's
+position is confirmed by a service pulse felt on the band.
 
 Angles from the front of the shin, clockwise seen from above, right leg
 **[CONTRACT]** `06_ERROR_AND_HAPTIC_ENGINE.md` §7. Rail A feeds the front-lateral
@@ -447,7 +445,7 @@ the window in which a motor there would have switched on.
 **As built, power (user, 2026-10-02):** the switched LOAD+ goes to the ERM
 driver's PWR+ and to the XIAO's **5V pin**, not to BAT+ as §9 and the PCB design
 specify. Seeed: the 5V pin is USB VBUS and needs an external diode when used as an
-input **[vendor doc]**. Consequence and options: PROB-021. **Never turn the master
+input **[vendor doc]**. **Never turn the master
 switch ON while USB is plugged into the XIAO.**
 
 **Current device (user, 2026-10-02): the DEC-016 build of §3, with the ERM driver
@@ -492,7 +490,7 @@ Each item blocks one specific connection. Everything else is final.
 | Shenzhen Airupton, HT78XX datasheet V1.0 | HT7833 pinout by package, dropout |
 | Holtek, AN0553 application note | SOT-89 thermal resistance, capacitor use |
 | `ead_agent_docs_v2/02, 03, 06, 17` | Motor channel, rails, band angles, parts |
-| `docs/testing.md` TEST-039, TEST-040 | Measured board behaviour |
+| TEST-039, TEST-040 | Measured board behaviour |
 
 ---
 

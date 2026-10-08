@@ -62,7 +62,7 @@ All 15 usable XIAO GPIOs are in use.
 | `tools/` | `eadprobe.py` (independent device client), export checkers, walk replay |
 | `recordings/` | Walk recordings with counted steps, used to test gait detection |
 | `docs/` | Engineering record: decisions, problems, tests, progress, protocol, handoff |
-| `ead_agent_docs_v2/` | The original V1 specification (read-only; deviations are recorded in `docs/decisions.md`) |
+| `ead_agent_docs_v2/` | The original V1 specification (read-only) |
 
 ## Getting started
 
@@ -117,7 +117,6 @@ python3 tools/eadprobe.py vectors                  # protocol, against the golde
 ```
 
 On hardware, `eadprobe stats` and `cargo test hardware -- --ignored --test-threads=1`.
-Every test run, with its measured results, is in [`docs/testing.md`](docs/testing.md).
 
 ## Safety
 
@@ -130,15 +129,12 @@ Every test run, with its measured results, is in [`docs/testing.md`](docs/testin
 
 Working end to end, worn on battery over Wi-Fi: step detection, per-step scoring
 against the wearer's own baseline, directional graded cues, and full raw-data export.
-In development: confidence-weighted cue gating, an automatic check that a baseline
-matches the current strapping, refined slow-walk distance, and studies with more
-wearers. Current state and next steps: [`docs/handoff.md`](docs/handoff.md).
+Current state and roadmap: [`docs/handoff.md`](docs/handoff.md).
 
 ## Documentation
 
 Start with [`docs/handoff.md`](docs/handoff.md); [`docs/README.md`](docs/README.md)
-indexes the rest, including the wire protocol ([`docs/protocol.md`](docs/protocol.md))
-and the decision log ([`docs/decisions.md`](docs/decisions.md)).
+indexes the rest, including the wire protocol ([`docs/protocol.md`](docs/protocol.md)).
 
 ## License
 

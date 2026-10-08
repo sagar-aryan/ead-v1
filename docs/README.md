@@ -16,11 +16,6 @@ evolved, and what was verified. Update it alongside every significant change.
 - `hardware.md` — As-built hardware: the current DEC-016 build, the previous
   MPU6500 build, register config, pins, mount maps.
 - `wiring_reference.md` — Every connection of the DEC-016 build, with its evidence.
-- `decisions.md` — DEC-001 to DEC-030.
-- `problems.md` — Engineering issues PROB-001 to PROB-045 (there is no PROB-008) and
-  how each was worked through.
-- `testing.md` — Executed tests with measured results; doc-13 acceptance suites.
-- `progress.md` — Chronological engineering log.
 
 ## Rules for contributors
 

@@ -35,12 +35,10 @@ low (doc 05 §8).
 **Built:** the detector, the zero-velocity windows and the distance estimate, measured
 against a 6 m course: 6.39 m (TEST-030). Every foot-flat resets the velocity, so drift
 cannot build up across a session; cadence comes from cycle timing and does not drift.
-Strides outside walking range (over 2.5 m or 2.5 m/s) are not scored (PROB-044).
+Strides outside walking range (over 2.5 m or 2.5 m/s) are not scored.
 
-**In development:** per-step attribution of the drift correction (PROB-045) and
-slow-walk distance (PROB-024), both against floor-mark ground truth. Thresholds are
-named constants, overridable at run time, so they can be adapted per patient (doc 05
-§3).
+Thresholds are named constants, overridable at run time, so they can be adapted per
+patient (doc 05 §3).
 
 **Foundation:** a gap-free sample stream with real device timestamps. The 30-minute run
 (TEST-018) kept all 180,250 frames. Integration uses the per-frame timestamps, not a
@@ -65,14 +63,10 @@ The vibration (DEC-023, DEC-025, DEC-026): one 500 ms cue per scored cycle in an
 evaluation, strength `153 + 102·score^1.5·confidence` of 255 (60–100 %), capped at the
 motor rail's maximum, held to the 5 s and 50 % limits. The cue sits on the side of the
 calf that names the error. An episode ends at the first step under 0.35. Cues pause on
-a sensor fault (PROB-026) and after 5 s without the laptop (DEC-027).
+a sensor fault and after 5 s without the laptop (DEC-027).
 
 TEST-071 (2026-10-07): inversion, eversion, plantarflexion and fast walking were cued
-in the matching direction; a normal walk cued 2 of 16 steps (the first step and a
-turn).
-
-**In development:** confidence-weighted gating (F-02) and cue refinement for edge
-walking and toe drag.
+in the matching direction.
 
 ## 3. Patient-specific baseline
 
@@ -95,7 +89,7 @@ The profile is computed on the device and versioned by the dashboard (DEC-012), 
 median/MAD statistics have one implementation.
 
 A baseline belongs to the strapping it was recorded in; a new one is recorded after
-re-strapping. An automatic strapping match is in development (F-05).
+re-strapping.
 
 ## 4. Raw data export
 
@@ -118,8 +112,8 @@ with the patient's name (DEC-028). Evidence: TEST-035 (the package matches the
 database row for row), TEST-036 (`scipy.io.loadmat` agrees with the CSV), TEST-037
 (every report section present).
 
-The shank's gyroscope and rotation vector are aligned to the foot-clocked frames
-(F-06). Timestamps are on the device clock, ready for alignment with an external
+The shank's gyroscope and rotation vector are aligned to the foot-clocked frames.
+Timestamps are on the device clock, ready for alignment with an external
 reference system in analysis.
 
 ## What the dashboard checks

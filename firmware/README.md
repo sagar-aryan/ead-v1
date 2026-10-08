@@ -1,36 +1,37 @@
 # EAD-V1 Firmware
 
-Seeed XIAO ESP32-S3 with two MPU6500 IMUs on I²C (foot `0x68`, shank `0x69`).
-**The physical device is now wired to DEC-016 (two BNO086 on SPI), which this
-firmware does not support. Do not flash it onto that build**: its motor and I²C
-pins are motor gates and chip selects there (`../docs/hardware.md`). Contract:
-`../ead_agent_docs_v2/` (`CONFIG_V1.json` holds the fixed values). As-built
-hardware and verification status: `../docs/hardware.md`. Wire protocol:
-`../docs/protocol.md`.
+Seeed XIAO ESP32-S3 with two BNO086 IMUs on SPI (foot and shank) and six ERM motors
+through the driver PCB, wired to DEC-016 (`../docs/wiring_reference.md`). Contract:
+`../ead_agent_docs_v2/` (`CONFIG_V1.json` holds the fixed values). As-built hardware:
+`../docs/hardware.md`. Wire protocol: `../docs/protocol.md`.
 
 ## Current state
 
-Acquires both IMUs at 100 Hz, clocked by the foot sensor's data-ready interrupt,
-and streams the binary protocol over Wi-Fi and USB. Roughly 12 minutes of
-telemetry is held in PSRAM so a host can recover anything it missed.
+Acquires both IMUs at 200 Hz, clocked by the foot gyroscope, with each sensor's own
+orientation and a native 250 Hz accelerometer stream, and streams the binary
+protocol over Wi-Fi and USB. About 4.5 minutes of telemetry is held in PSRAM so a host
+can recover anything it missed.
 
-On the device: static calibration, Mahony orientation per sensor, gait events
-and ZUPT, cycle features, the reference builder and the error engine (portable
-C++ in `lib/ead_core`, also built on the host for tests and replay). Session kinds
-CALIBRATION, REFERENCE_CAPTURE, REFERENCE_CHECK and EVALUATION are handled;
-CONFIG_SET, PAUSE, RESUME and SERVICE_TEST answer NotSupported. The motor GPIOs
-are held LOW and there is no haptic code (DEC-006).
+On the device: static calibration, orientation per sensor, gait events from the
+shank's swing, ZUPT and stride distance, cycle features, the reference builder, the
+error engine and graded directional haptic cues (portable C++ in `lib/ead_core`, also
+built on the host for tests and replay). Session kinds CALIBRATION,
+REFERENCE_CAPTURE, REFERENCE_CHECK and EVALUATION; SERVICE_TEST pulses single motors
+for the Check view.
 
 ## Layout
 
 ```text
 firmware/
   platformio.ini        seeed_xiao_esp32s3 + native test env; gnu++17, no external libs
-  include/config_v1.h   fixed V1 values; mount maps with compile-time checks
+  include/config_v1.h   fixed V1 values, DEC-016 pins with compile-time checks, mount maps
   lib/ead_core/         portable: codec, COBS, CRC-32, message ring, config section,
-                        calibration, Mahony, gait, reference builder, error engine
-  src/imu.*             register driver, readback verification, bus recovery
-  src/acquisition.*     data-ready interrupt, self-test, frame assembly
+                        SH-2 codec, calibration, Mahony, gait, reference builder,
+                        error engine, haptics, motor guard
+  src/bno086.*          SH-2 over SPI driver for both sensors
+  src/acquisition.*     sensor reports, frame assembly
+  src/motors.*          motor gates (LOW from boot), service-test pulses
+  src/feedback.*        haptic cues during evaluations, on-time limits
   src/telemetry.*       durable message ring (PSRAM) and the processing task
   src/link.*            protocol endpoint: replies, status, streaming, backfill
   src/link_usb.*        USB Serial/JTAG transport (COBS framing)
@@ -56,7 +57,7 @@ pio run -t upload       # flash over USB-C
 ## Talking to it
 
 The USB port carries binary protocol frames, not text. Nothing in the firmware
-may print to USB: a stray byte corrupts a frame (`../docs/problems.md` PROB-006),
+may print to USB: a stray byte would corrupt a frame,
 which is why `CORE_DEBUG_LEVEL=0` is a build flag and Arduino `Serial` is unused.
 
 ```bash
@@ -75,21 +76,13 @@ WebSocket at `ws://192.168.4.1:8080/ws`. The passphrase is generated at first
 build into `include/ead_secrets.h`, which git does not track; delete that file to
 roll a new one.
 
-## Wiring of the previous build (doc 03)
+## Wiring
 
-The current build is DEC-016: `../docs/wiring_reference.md`.
-
-
-- I²C bus: XIAO GPIO5 (D4, SDA) + GPIO6 (D5, SCL), 400 kHz, shared by both IMUs.
-  XIAO 3V3/GND to both MPU VCC/GND; on-board breakout pull-ups used.
-- Foot MPU AD0→GND = `0x68`; shank MPU AD0→3V3 = `0x69`.
-- Data-ready interrupts: foot→GPIO7 (D8), shank→GPIO8 (D9). Both verified
-  (TEST-015).
-- Motors M1–M6 → GPIO 1, 2, 4, 9, 43, 44. Held LOW as the first action at boot;
-  no drivers fitted. See PROB-004 before fitting any.
+DEC-016, every pin with its evidence: `../docs/wiring_reference.md`. Motors M1–M6 on
+GPIO 4, 6, 42, 5, 2, 1 (DEC-029), held LOW as the first action at boot.
 
 ## Mount maps
 
-`anat = M · chip`, applied to accel and gyro. Foot: identity. Shank:
-`X = −chipZ, Y = +chipY, Z = +chipX` (measured, TEST-027). A map that is not a proper rotation fails
-to compile. See DEC-009 and PROB-002.
+`anat = M · chip`, applied to accel and gyro. Per-sensor maps are
+measured on the leg (TEST-051) and kept in `include/config_v1.h`. A map that is not a
+proper rotation fails to compile (DEC-009).

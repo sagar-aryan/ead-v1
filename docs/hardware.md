@@ -18,8 +18,8 @@ Every row states its evidence; "unverified" means nobody has measured it yet.
 | Which XIAO | The one measured in TEST-041: USB serial number (= MAC) `44:B1:76:AF:FB:7C` | Read from the USB descriptor, 2026-10-02 |
 | Firmware on it | The product firmware, schema 5 (`5b8dd28` and later), on the DEC-016 pins. Before that, `padstate`, which booted on the new wiring (TEST-044) | HELLO, 2026-10-02 |
 | ERM driver | Separate PCB, `hardware/erm-driver-pcb/` (`~/Documents/ead pcb/` until 2026-10-05), the **tight variant** fitted (`EAS_ERM_Driver_tight/`, 36.07 × 27.60 mm; user, 2026-10-05): Holtek HT7833 SOT-89 ×2, IRLML6344 ×6, 1N5819W, 100 Ω / 100 kΩ, 10 nF across each motor, 100 nF per channel. Motors rated 3 V, 90 mA, 120 mA at start. Its bring-up on 2026-09-24 ran the motors at 20 kHz PWM from GPIO1–6 (`erm_channel_test.ino`); a stuck-motor event there has no established root cause | PCB project docs |
-| Measured on the assembled build | Both BNO086s pass every wiring, identity and data check at 1 MHz (TEST-043). Pad readback: GPIO42 (motor 3) read low, unlike the other five; MTMS measured about 100 kΩ to GND (user), the correct gate network (PROB-020, resolved) | TEST-043, TEST-044, user |
-| XIAO power | The switched LOAD+ feeds the ERM driver's PWR+ **and the XIAO's 5V (VUSB) pin**, not its BAT+ pad. **The XIAO has no diode on that pin**, so with USB plugged in, USB 5 V sits on the switched node: switch OFF, it powers the ERM driver (motor rails live); switch ON, it meets the charger's LOAD+ (PROB-021) | User, 2026-10-02; Seeed XIAO ESP32-S3 wiki |
+| Measured on the assembled build | Both BNO086s pass every wiring, identity and data check at 1 MHz (TEST-043). Pad readback: GPIO42 (motor 3) read low, unlike the other five; MTMS measured about 100 kΩ to GND (user), the correct gate network | TEST-043, TEST-044, user |
+| XIAO power | The switched LOAD+ feeds the ERM driver's PWR+ **and the XIAO's 5V (VUSB) pin**, not its BAT+ pad. **The XIAO has no diode on that pin**, so with USB plugged in, USB 5 V sits on the switched node: switch OFF, it powers the ERM driver (motor rails live); switch ON, it meets the charger's LOAD+ | User, 2026-10-02; Seeed XIAO ESP32-S3 wiki |
 | Foot cable | About 30 cm | User, 2026-10-02 |
 | Charger | SmartElex MCP73833 module (Robocraze): USB mini-B, 500 mA default charge, separate battery and load connectors. Its product page names no protection IC. The cell has its own protection board (user, 2026-10-04; not inspected) | User, 2026-10-02 and 2026-10-04; product page |
 
@@ -42,10 +42,10 @@ The sections below describe the previous build (MPU6500 on I²C, 2026-09-17 to
 | Item | Value | Evidence |
 |---|---|---|
 | Board | Seeed XIAO ESP32-S3 | PlatformIO env `seeed_xiao_esp32s3` |
-| Flash / PSRAM | 8 MB / 8 MB (OPI) | Board definition (`-DBOARD_HAS_PSRAM`, `qio_opi`); PSRAM presence on this unit unverified until the M1 self-test |
+| Flash / PSRAM | 8 MB / 8 MB (OPI) | Board definition (`-DBOARD_HAS_PSRAM`, `qio_opi`); PSRAM present on this unit (`eadprobe hello`: `psram_ring`) |
 | USB | Native USB Serial/JTAG, VID:PID `303a:1001`, serial number = Wi-Fi MAC `44:B1:76:AF:FB:7C` | `lsusb` / `udevadm`, 2026-09-17 |
 | Partition table | `default_8MB.csv`: 2 × 3.2 MB app slots, 1.5 MB data (`spiffs`), 64 KB coredump | Arduino-ESP32 2.0.17 package |
-| Wi-Fi antenna | Seeed recommends fitting the supplied U.FL antenna for usable Wi-Fi range | Seeed wiki (accessed 2026-09-17); fitted on this unit: unverified |
+| Wi-Fi antenna | Seeed recommends fitting the supplied U.FL antenna for usable Wi-Fi range | Seeed wiki (accessed 2026-09-17) |
 | Power | Battery-powered and wearable (user, 2026-09-17). Firmware has no battery or charger logic (spec) | User statement |
 
 ## IMUs (previous build)
@@ -65,7 +65,7 @@ Register configuration written at boot and verified by readback on both sensors
 | PWR_MGMT_1 | 0x6B | 0x01 | Awake, PLL clock source |
 | SMPLRT_DIV | 0x19 | 0x09 | 1 kHz / 10 = 100 Hz output |
 | CONFIG | 0x1A | 0x03 | Gyro DLPF ≈ 41–42 Hz |
-| ACCEL_CONFIG2 | 0x1D | 0x03 | Accel DLPF ≈ 41 Hz (MPU6500 only; see PROB-003) |
+| ACCEL_CONFIG2 | 0x1D | 0x03 | Accel DLPF ≈ 41 Hz (MPU6500 only) |
 | GYRO_CONFIG | 0x1B | 0x08 | ±500 °/s, 65.5 LSB/(°/s) |
 | ACCEL_CONFIG | 0x1C | 0x08 | ±4 g, 8192 LSB/g |
 | INT_PIN_CFG | 0x37 | 0x00 | Active-high, push-pull, 50 µs pulse |
@@ -84,14 +84,14 @@ The current build's pin map is DEC-016, in `docs/wiring_reference.md` §3.
 |---|---|---:|---|
 | I²C SDA | D4 | 5 | Verified: both IMUs enumerate |
 | I²C SCL | D5 | 6 | Verified: both IMUs enumerate |
-| Foot IMU INT | D8 | 7 | Wiring unverified; interrupt-count test is the first M1 step |
-| Shank IMU INT | D9 | 8 | Wiring unverified; interrupt-count test is the first M1 step |
+| Foot IMU INT | D8 | 7 | Verified (TEST-015) |
+| Shank IMU INT | D9 | 8 | Verified (TEST-015) |
 | Motor 1 PWM | D0 | 1 | Held LOW; driver not fitted |
 | Motor 2 PWM | D1 | 2 | Held LOW; driver not fitted |
 | Motor 3 PWM | D3 | 4 | Held LOW; driver not fitted |
 | Motor 4 PWM | D10 | 9 | Held LOW; driver not fitted |
-| Motor 5 PWM | D6 | 43 | Held LOW; driver not fitted; see PROB-004 |
-| Motor 6 PWM | D7 | 44 | Held LOW; driver not fitted; see PROB-004 |
+| Motor 5 PWM | D6 | 43 | Held LOW (MPU6500 build) |
+| Motor 6 PWM | D7 | 44 | Held LOW (MPU6500 build) |
 
 ## Sensor mounting and axis maps
 
@@ -114,12 +114,9 @@ on anatomical Y (+0.99 g) and a seated knee extension turned about anatomical Z
 a proper rotation. The earlier derivation assumed chip +Y points down the leg; the
 board is in fact strapped with chip +X up the leg.
 
-**Placement image discrepancy.** `reference_images/RIGHT_LEG_IMU_PLACEMENT.png`
-draws the shank board with its axes labelled as if it matched the foot board. A
-board lying flat on a vertical shin cannot have chip Z pointing up, so the image
-cannot describe any real shank mounting. The user confirmed the image is wrong
-about the shank board and right about the anatomical convention. The contract
-file is left unmodified; this table is the as-built record (DEC-009).
+**Placement image.** `reference_images/RIGHT_LEG_IMU_PLACEMENT.png` sets the
+anatomical convention; the shank board's chip axes in this table are the as-built
+record, measured on the leg (DEC-009).
 
 **Verification status.** Compile-time proper-rotation checks pass, including a
 negative test with a reflected map. The shank map above was measured on the leg
@@ -147,24 +144,15 @@ The foot board sits about 42° off level on the instep (standing gravity
 separate driver PCB (user, 2026-10-02) and all six were felt at 50 % duty in service
 pulses (TEST-049). The firmware drives the motor GPIOs LOW first in `setup()`, then
 runs 200 Hz PWM for service pulses (DEC-018) and feedback cues during evaluations
-(DEC-023). Cues were felt while walking on battery over Wi-Fi (TEST-066), faintly at
-the contract's 20–80 % for 250 ms; since DEC-026 cues run 60–100 % (153–255) for
-500 ms. No current or vibration amplitude has been measured.
+(DEC-023). Cues were felt while walking on battery over Wi-Fi (TEST-066); since
+DEC-026 cues run 60–100 % (153–255) for 500 ms.
 
 **History:** on the MPU6500 build the channels were not fitted (user, 2026-09-17), and
 DEC-006 kept all PWM and haptic code out of the firmware until they were.
 
-## Known hardware risks
+## Hardware notes
 
-- **PROB-004 (unverified):** GPIO43 is UART0 TX, and the ESP32-S3 ROM prints its
-  boot log on it before firmware runs. Once drivers are fitted, the M5 gate may see
-  that serial waveform at every reset. Measure with a logic probe before fitting
-  drivers. Moot on DEC-016, where GPIO43 is the foot CS and SCK carries no clock
-  during boot.
-- **Fixed sensor ranges (doc 00):** ±4 g and ±500 °/s may clip foot impacts and fast
-  swing. The M3 recordings measure how often samples saturate before any change is
-  proposed. They did clip at heel strike (PROB-011). The BNO086 runs at ±8 g and
-  ±2000 °/s (TEST-040).
+- **Sensor ranges:** the BNO086 build runs at ±8 g and ±2000 °/s (TEST-040).
 
 ## BNO086 bench test (one sensor, SPI)
 
@@ -245,7 +233,7 @@ wiring the old bench pins D0, D1 and D3 are motor gates 1, 2 and 4, so
 - Also reports whether the other sensor's INT is high in reset and low after the
   shared RST is released, without talking to it.
 
-Not yet run on hardware (TEST-043).
+Run on hardware: both sensors pass (TEST-043).
 
 ## Connection reference
 

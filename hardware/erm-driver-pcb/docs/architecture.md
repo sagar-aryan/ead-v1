@@ -33,7 +33,7 @@ LiPo ── MCP73833 BAT (permanent)        MCP73833 LOAD+ ── external maste
 
 ## Physical topology
 One copper layer forces a planar layout. Two constraints drive the floorplan:
-1. **Planarity (PROB-002):** each channel connects to the outside world (its PWM and M- pads), to GND and to its rail. With three channels sharing a rail that forms K3,3, so the PWM and M- pads must be enclosed by copper rather than sit on the board edge.
+1. **Planarity:** each channel connects to the outside world (its PWM and M- pads), to GND and to its rail. With three channels sharing a rail that forms K3,3, so the PWM and M- pads must be enclosed by copper rather than sit on the board edge.
 2. **Chirality:** parts can only be rotated, not mirrored, on a top-only board. The fixed clockwise pin order is VIN → VOUT → GND for the SOT-89, and PWM → M- → rail → GND for the channel cell. Both regulators must therefore sit at the left end of their channel group.
 
 The result (DEC-013):

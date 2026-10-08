@@ -45,7 +45,7 @@ unknown schema.
   validation. This also skips ROM and bootloader text printed after a reset.
 - **Host rule:** open the port without clearing DTR/RTS. Linux asserts both on open, and
   clearing them one at a time passes through DTR=0/RTS=1, which the ESP32-S3 treats as a
-  reset request (PROB-005). pyserial: set `dtr = rts = True` before `open()`.
+  reset request. pyserial: set `dtr = rts = True` before `open()`.
 
 ## 3. Header (doc 08 §2, 20 bytes)
 
@@ -550,7 +550,7 @@ Each record:
 
 Sent for every SESSION_START and SESSION_STOP the device accepts; a refused one gets
 ERROR, as before. Until schema 8 an accepted command got no answer and the dashboard
-took 800 ms without an error as acceptance (PROB-033).
+took 800 ms without an error as acceptance.
 
 | Offset | Type | Field |
 |---:|---|---|

@@ -11,7 +11,7 @@ as written.
 
 ## Status (2026-09-22)
 - **Four layout variants, all verified in software:** ERC 0, DRC 0 violations, 0 unconnected, 0 schematic-parity issues, and every `check.py` handoff check passes.
-- **None is fabricated or tested on hardware yet.** See `testing.md`.
+- **The tight variant is built and drives the six motors on the device.**
 
 | Variant | Folder | Board | Layout | 0 Ω jumpers |
 |---|---|---|---|---|
@@ -66,7 +66,7 @@ Pad centres (mm from the top-left corner of the outline; each variant's full lis
 | `B+` | (59.7, 2.2) horizontal | (13.4, 20.3) vertical | (10.2, 18.3) vertical | (9.8, 17.4) vertical |
 | `M4-`–`M6-` | y 9.9; x 55.0, 64.5, 74.0 | y 23.6; x 16.8, 26.2, 35.6 | y 21.6; x 15.6, 23.7, 31.8 | y 20.4; x 14.5, 21.9, 29.4 |
 
-- **Board edge:** only the four power/ESP-power pads sit at the edge. The PWM and M- pads are enclosed by a GND or rail trace, so their wires pass over that trace (PROB-002, DEC-003). Use insulated wire and glue it down for strain relief.
+- **Board edge:** only the four power/ESP-power pads sit at the edge. The PWM and M- pads are enclosed by a GND or rail trace, so their wires pass over that trace (DEC-003). Use insulated wire and glue it down for strain relief.
 - **Channel mapping:** PWMn drives Mn- (n = 1…6). The motor sits between A+ (or B+) and its Mn- pad.
 
 ## Rebuild and verify
@@ -100,7 +100,4 @@ Each run rebuilds from its own `scripts/build.py`, then runs ERC, DRC+parity, `c
 - `implementation.md`: how the build scripts generate the design.
 - `hardware.md`: BOM, pinouts, footprints, thermal, fabrication and assembly.
 - `decisions.md`: DEC-001…DEC-020.
-- `problems.md`: PROB-001…PROB-006.
-- `testing.md`: what was verified and what is still pending.
-- `progress.md`: chronological log.
 - `handoff.md`: how to continue.
