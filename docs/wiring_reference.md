@@ -7,11 +7,10 @@ harnesses and the power input. Pin assignment fixed by DEC-016.
 ## 1. How to trust this document
 
 Every connection carries the evidence behind it. Nothing here is an estimate.
-Where a fact depends on a part's exact type, §16 lists it.
 
 | Mark | Meaning |
 |---|---|
-| **[DS]** | Read from the manufacturer's datasheet (sources in §17) |
+| **[DS]** | Read from the manufacturer's datasheet (sources in §16) |
 | **[MEAS]** | Measured on this project's hardware |
 | **[USER]** | Confirmed by the builder looking at the actual part |
 | **[CONTRACT]** | Fixed by `ead_agent_docs_v2/` |
@@ -27,12 +26,12 @@ fitted (user, 2026-10-02 and 2026-10-05; §15).
 |---|---:|---|---|
 | Controller | 1 | Seeed XIAO ESP32-S3 (**plain, not Sense**) | Everything |
 | IMU | 2 | 7Semi BNO086 breakout (ES-12143), PS0/PS1 jumpers opened | Foot, shank |
-| Motor | 6 | ERM coin vibration motor — **part number: §16** | Feedback |
+| Motor | 6 | ERM coin vibration motor — rated 3 V, 90 mA (120 mA at start) | Feedback |
 | MOSFET | 6 | Infineon IRLML6344, SOT-23 | Low-side switch per motor |
 | Diode | 6 | 1N5819W, SOD-123 Schottky | Flyback per motor |
 | Resistor | 6 | 100 Ω, 1206 | Gate series |
 | Resistor | 6 | 100 kΩ, 1206 | Gate pulldown |
-| Regulator | 2 | HT7833, 3.3 V 500 mA LDO — **package: §16** | Haptic rails A and B |
+| Regulator | 2 | HT7833, 3.3 V 500 mA LDO — Holtek, SOT-89 | Haptic rails A and B |
 | Capacitor | 2 | 220 µF polymer | Bulk, one per haptic rail |
 | Capacitor | 4 | 1 µF, 1206 | HT7833 input + output, each regulator |
 | Capacitor | 2+ | 100 nF, 1206 | At each sensor's 3V3 pad |
@@ -41,7 +40,7 @@ fitted (user, 2026-10-02 and 2026-10-05; §15).
 | Capacitor | 6 | 100 nF, 1206 | Local rail decoupling per channel (tight BOM C15–C20) |
 | Resistor | 2 | 33 Ω, 1206 | SPI series termination, §5 (recommended, not in the contract) |
 | Cell | 1 | 1S Li-ion/LiPo, 3.7 V nominal, ~2000 mAh | Power |
-| Charger | 1 | MCP73833 module — **exact board: §16** | Charging |
+| Charger | 1 | MCP73833 module — SmartElex module (`docs/hardware.md`) | Charging |
 
 ## 3. XIAO ESP32-S3 — every pin
 
@@ -245,19 +244,17 @@ half of the band, rail B the back-medial half.
   | SOT-23-5 | 2 | 1 | 5 | 3, tie to VIN |
 
   Holtek's own HT78xx datasheet link is dead at the time of writing, so its
-  table could not be read. **Do not solder by this table** until the package
-  and seller are known (§16); a regulator fitted backwards puts battery voltage
-  on the motor rail.
+  table could not be read. The fitted part's pin order is in the update below;
+  a regulator fitted backwards would put battery voltage on the motor rail.
 - **Update 2026-10-02:** the ERM driver PCB uses the Holtek HT7833, SOT-89, with
   pad 1 GND, pad 2 VIN (and the tab), pad 3 VOUT, read by that project from
   Holtek HT78xx Rev 1.51 (`holtek.com/webapi/116711/HT78xxv151.pdf`) **[DS, PCB
-  project]**: the same order as the Airupton SOT-89 row above. The fitted parts'
-  marking has not been checked against it.
+  project]**: the same order as the Airupton SOT-89 row above.
 
 Thermal check, worst case: full cell 4.2 V, three motors running. Dissipation
 is (4.2 − 3.3) V × I. At 300 mA that is 0.27 W; a SOT-89 at 200 °C/W **[DS]**
-Holtek AN0553 runs 54 °C above ambient. Acceptable for a pulsed load; the real
-current needs the motor part number (§16).
+Holtek AN0553 runs 54 °C above ambient. Acceptable for a pulsed load (motors rated
+90 mA, 120 mA at start).
 
 Low-battery behaviour: dropout is 220 mV at 200 mA **[DS]** Airupton. Below a
 cell voltage of about 3.5 V the rails fall below 3.3 V and the motors weaken.
@@ -313,8 +310,8 @@ Recommended wiring, which gives one charger and a clean full-charge cut-off:
   without one is not acceptable.
 - Battery wires: heavier gauge than signal wire **[CONTRACT]**.
 
-Three things here are not known yet and are in §16: whether a switch is
-planned, which MCP73833 board it is, and whether the cell is protected.
+As built: an external master switch, the SmartElex MCP73833 module, and a cell with
+its own protection board (user).
 
 ## 10. Firmware rules the wiring depends on
 
@@ -463,19 +460,7 @@ PCB of §6, everything fitted.** Motors rewired to a new pin order on 2026-10-07
 **Bench — one BNO086** (edge pins only; not the product layout):
 3V3→3V3, GND→GND, SCK→D8, MISO→D9, MOSI→D10, CS→D3, INT→D2, RST→D1, WAKE→D0.
 
-## 16. Still needed from the builder
-
-Each item blocks one specific connection. Everything else is final.
-
-| # | Question | Blocks | Fastest way to answer |
-|---:|---|---|---|
-| 1 | HT7833: which package, and from which seller? **Answered by the PCB project: Holtek, SOT-89 (§7)** | The regulator's three solder joints (§7) | The product page link, or a photo of the part's marking |
-| 2 | ERM motor: part number, or rated voltage and current? **Ratings from the PCB project: 3 V, 90 mA, 120 mA at start; part number to be recorded** | The rail current budget and thermal check (§7) | Product page link |
-| 3 | MCP73833 module: which board? | Its four connections (§9) | Product page link or photo |
-| 4 | Does the cell have a protection circuit? | Whether one must be added (§9) | A small board under the tape at the wire end of the cell |
-| 5 | Is there a power switch? **The PCB design puts an external master switch between the charger's LOAD+ and the system** | The charge-with-switch-off arrangement (§9) | Yes or no |
-
-## 17. Sources
+## 16. Sources
 
 | Source | Used for |
 |---|---|
