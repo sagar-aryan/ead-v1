@@ -197,10 +197,12 @@ pub struct Vocabulary {
     pub feature_names: [&'static str; 7],
     pub error_classes: [&'static str; 7],
     pub default_wifi_url: &'static str,
-    /// Doc 06 §3 weights in feature order, and the zero-velocity quality below
-    /// which distance is not a measurement: the store's copies of the firmware's.
+    /// Doc 06 §3 weights in feature order, and the limits within which a
+    /// cycle's distance is a measurement: the store's copies of the firmware's.
     pub feature_weights: [f32; 7],
     pub distance_min_zupt_quality: f32,
+    pub distance_max_stride_m: f32,
+    pub distance_max_speed_mps: f32,
 }
 
 #[tauri::command]
@@ -215,6 +217,8 @@ pub fn vocabulary() -> Vocabulary {
         default_wifi_url: crate::link::ws::DEFAULT_URL,
         feature_weights: crate::store::FEATURE_WEIGHTS,
         distance_min_zupt_quality: crate::store::DISTANCE_MIN_ZUPT_QUALITY,
+        distance_max_stride_m: crate::store::MAX_STRIDE_M,
+        distance_max_speed_mps: crate::store::MAX_WALKING_SPEED_MPS,
     }
 }
 

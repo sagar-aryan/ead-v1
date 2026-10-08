@@ -7,8 +7,8 @@
  * step time and is never called one.
  *
  * Distance and speed depend on the zero-velocity windows the detector found, so
- * a cycle with poor ZUPT quality shows them as low-confidence rather than as a
- * measurement (doc 05 §8). Invalid cycles — outside the 0.45–3.00 s guards — are
+ * a cycle with poor ZUPT quality, or a stride or speed beyond walking, shows them
+ * as not measured rather than as a measurement (doc 05 §8, `distanceMeasured`). Invalid cycles — outside the 0.45–3.00 s guards — are
  * shown, greyed, rather than hidden: a detector that silently drops what it
  * cannot explain is a detector you cannot debug.
  */
@@ -17,6 +17,7 @@ import uPlot from "uplot";
 
 import {
   api,
+  distanceMeasured,
   sessionTitle,
   type Cycle,
   type HapticRecord,
@@ -26,9 +27,6 @@ import {
 import { className } from "./References";
 import type { DeviceApi } from "../useDevice";
 import type { RawFocus } from "./Raw";
-
-/** Below this, doc 05 §8 says to report distance and speed as low-confidence. */
-const ZUPT_ADEQUATE = 0.15;
 
 /**
  * Doc 11 TRENDS: exactly seven primary panels, in its order. Each is a value per
@@ -215,8 +213,8 @@ export function Cycles({
 
   const valid = useMemo(() => cycles.filter((c) => c.valid), [cycles]);
   const measured = useMemo(
-    () => valid.filter((c) => c.zupt_quality >= ZUPT_ADEQUATE),
-    [valid],
+    () => valid.filter((c) => distanceMeasured(c, vocabulary)),
+    [valid, vocabulary],
   );
   const scored = useMemo(
     () => (isScored ? valid.filter((c) => c.confidence > 0) : []),
@@ -310,8 +308,10 @@ export function Cycles({
             </div>
             <p className="hint" style={{ marginTop: 10 }}>
               Distance and speed sum only the {measured.length} of {valid.length} cycles
-              whose zero-velocity quality reaches {ZUPT_ADEQUATE.toFixed(2)}; the rest are
-              shown per cycle but not counted, rather than corrected (doc 05 §8).
+              whose zero-velocity quality reaches{" "}
+              {vocabulary?.distance_min_zupt_quality.toFixed(2) ?? "the threshold"} and whose
+              stride and speed are within walking; the rest are shown per cycle but not
+              counted, rather than corrected (doc 05 §8).
             </p>
           </div>
 
@@ -463,11 +463,11 @@ export function Cycles({
                       <td className="num">{c.stance_ratio.toFixed(2)}</td>
                       <td className="num">{c.cadence_steps_per_min.toFixed(0)}</td>
                       <td className="num">
-                        {c.zupt_quality >= ZUPT_ADEQUATE ? (
+                        {distanceMeasured(c, vocabulary) ? (
                           c.distance_m.toFixed(2)
                         ) : (
                           <span className="absent" style={{ fontSize: 13 }}>
-                            {c.distance_m.toFixed(2)} low
+                            {c.distance_m.toFixed(2)} not measured
                           </span>
                         )}
                       </td>

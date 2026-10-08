@@ -60,6 +60,15 @@ constexpr float kConfidenceForDisplay = 0.50f;
 /// distance below it for the same reason — on 2026-09-18 cycles at quality
 /// 0.02–0.04 reported 15–48 m strides and scored full deviation (PROB-015).
 constexpr float kDistanceMinZuptQuality = 0.15f;
+/// Above either limit a cycle's distance is integration drift, not walking,
+/// whatever its zero-velocity quality: on 2026-10-07 a cycle at quality 0.17
+/// read 6.07 m at 4.66 m/s and scored full deviation. This wearer's strides were
+/// 1.0–1.6 m; 2.5 m and 2.5 m/s are beyond walking for anyone.
+constexpr float kMaxStrideM = 2.5f;
+constexpr float kMaxWalkingSpeedMps = 2.5f;
+
+/// Whether a cycle's distance is a measurement the score may use.
+bool distanceMeasured(const GaitCycle& cycle);
 
 struct ErrorResult {
   /// [0,1]; the weighted mean of the active features' deviations.

@@ -185,6 +185,13 @@ void GaitEngine::applyZeroVelocity() {
 }
 
 void GaitEngine::update(const GaitSample& sample) {
+  // A sample slightly behind the last is skipped, not taken as a gap: on
+  // 2026-10-07 one frame ran 114 us backwards, the engine restarted and about
+  // 3 s of cycles were lost. A real gap runs forward, or back across a reboot.
+  if (lastTimeUs_ != 0 && sample.timeUs <= lastTimeUs_ &&
+      lastTimeUs_ - sample.timeUs < kMaxBackstepUs) {
+    return;
+  }
   const float dt = lastTimeUs_ == 0 ? 0.0f : float(sample.timeUs - lastTimeUs_) / 1e6f;
   lastTimeUs_ = sample.timeUs;
   if (dt <= 0.0f || dt > 0.1f) {

@@ -1374,7 +1374,7 @@ fn firmware_constant(header: &str, name: &str) -> Vec<f32> {
 fn constants_mirrored_from_the_firmware_match_it() {
     use crate::store::{
         CONFIDENCE_FOR_DISPLAY, DEVIATION_SCALE, DISTANCE_MIN_ZUPT_QUALITY, FEATURE_WEIGHTS,
-        SPREAD_FLOORS,
+        MAX_STRIDE_M, MAX_WALKING_SPEED_MPS, SPREAD_FLOORS,
     };
     assert_eq!(firmware_constant("reference.h", "kFeatureWeights"), FEATURE_WEIGHTS);
     assert_eq!(firmware_constant("reference.h", "kFeatureSpreadFloor"), SPREAD_FLOORS);
@@ -1383,5 +1383,10 @@ fn constants_mirrored_from_the_firmware_match_it() {
     assert_eq!(
         firmware_constant("error_engine.h", "kDistanceMinZuptQuality"),
         [DISTANCE_MIN_ZUPT_QUALITY]
+    );
+    assert_eq!(firmware_constant("error_engine.h", "kMaxStrideM"), [MAX_STRIDE_M]);
+    assert_eq!(
+        firmware_constant("error_engine.h", "kMaxWalkingSpeedMps"),
+        [MAX_WALKING_SPEED_MPS]
     );
 }

@@ -2,7 +2,7 @@
  * LIVE: what the two sensors are reading right now, and the latest cycle the
  * device measured and scored.
  */
-import type { Snapshot } from "../api";
+import { distanceMeasured, type Snapshot, type Vocabulary } from "../api";
 import { Strip } from "../components/Strip";
 import type { DeviceApi } from "../useDevice";
 import { Orientation } from "./Orientation";
@@ -54,13 +54,20 @@ function Axis({ label, value, unit }: { label: string; value: number | null; uni
  * velocity to trust them (doc 05 §8); the error fields only mean something when
  * the cycle was scored (confidence above zero).
  */
-function LastCycle({ snapshot, classes }: { snapshot: Snapshot | null; classes: string[] }) {
+function LastCycle({
+  snapshot,
+  vocabulary,
+}: {
+  snapshot: Snapshot | null;
+  vocabulary: Vocabulary | null;
+}) {
+  const classes = vocabulary?.error_classes ?? [];
   const c = snapshot?.last_cycle;
   if (!c) {
     return <p className="hint">No cycle yet on this link: walk a few steps.</p>;
   }
   const scored = c.confidence > 0;
-  const lowZupt = c.zupt_quality < 0.15;
+  const unmeasured = !distanceMeasured(c, vocabulary);
   const vibration = !snapshot?.haptic_switch_on
     ? "off"
     : snapshot.haptic_episode
@@ -74,8 +81,8 @@ function LastCycle({ snapshot, classes }: { snapshot: Snapshot | null; classes: 
       <div className="readouts">
         <Axis label="cycle time" value={c.cycle_time_s} unit="s" />
         <Axis label="cadence" value={c.cadence_steps_per_min} unit="steps/min" />
-        <Axis label={lowZupt ? "speed (low ZUPT)" : "speed"} value={c.speed_mps} unit="m/s" />
-        <Axis label={lowZupt ? "stride (low ZUPT)" : "stride"} value={c.distance_m} unit="m" />
+        <Axis label={unmeasured ? "speed (not measured)" : "speed"} value={c.speed_mps} unit="m/s" />
+        <Axis label={unmeasured ? "stride (not measured)" : "stride"} value={c.distance_m} unit="m" />
         <Axis label="stance" value={c.stance_ratio * 100} unit="%" />
         <Axis label="swing" value={c.swing_ratio * 100} unit="%" />
         <Axis label="ZUPT quality" value={c.zupt_quality} unit="" />
@@ -250,7 +257,7 @@ export function Live({ device }: { device: DeviceApi }) {
             </span>
           </div>
         </div>
-        <LastCycle snapshot={snapshot} classes={vocabulary?.error_classes ?? []} />
+        <LastCycle snapshot={snapshot} vocabulary={vocabulary} />
       </div>
 
       <Orientation device={device} />

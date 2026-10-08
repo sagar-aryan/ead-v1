@@ -249,10 +249,28 @@ static void test_a_feature_that_is_not_a_number_is_left_out() {
   TEST_ASSERT_TRUE(result.score < 0.35f);
 }
 
+static void test_a_stride_beyond_walking_is_not_scored() {
+  // 2026-10-07: 6.07 m at 4.66 m/s, zero-velocity quality 0.17, scored full deviation.
+  ead::ReferenceProfile profile = buildTypicalReference();
+  ead::GaitCycle c = cycleWith(profile.features[0].median, profile.features[1].median,
+                               profile.features[2].median, profile.features[3].median,
+                               profile.features[4].median, 6.07f, profile.features[6].median);
+  c.zuptQuality = 0.17f;
+  c.speedMps = 4.66f;
+  ead::ErrorResult result = ead::scoreCycle(c, profile, kGoodInputs);
+  TEST_ASSERT_FALSE(result.active[size_t(ead::GaitFeature::CycleDistance)]);
+  // The same stride at a walking speed is still a measurement, and deviates.
+  c.distanceM = profile.features[5].median + 0.6f;
+  c.speedMps = 1.2f;
+  result = ead::scoreCycle(c, profile, kGoodInputs);
+  TEST_ASSERT_TRUE(result.active[size_t(ead::GaitFeature::CycleDistance)]);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_a_reference_needs_thirty_valid_cycles);
   RUN_TEST(test_a_feature_that_is_not_a_number_is_left_out);
+  RUN_TEST(test_a_stride_beyond_walking_is_not_scored);
   RUN_TEST(test_invalid_cycles_never_reach_the_reference);
   RUN_TEST(test_the_median_is_robust_to_a_stumble);
   RUN_TEST(test_a_flat_feature_gets_the_spread_floor);

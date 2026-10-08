@@ -380,6 +380,20 @@ static void test_a_timing_gap_restarts_the_engine() {
   TEST_ASSERT_EQUAL_UINT8(uint8_t(ead::GaitState::Init), uint8_t(run.engine.state()));
 }
 
+static void test_a_timestamp_slightly_behind_does_not_restart_the_engine() {
+  // 2026-10-07: one frame arrived 114 us behind the one before it; the engine
+  // took it as a gap and lost the cycles around it.
+  Run clean;
+  clean.still(1.0f);
+  walk(&clean, 6);
+  Run run;
+  run.still(1.0f);
+  walk(&run, 3);
+  run.timeUs -= kDtUs + 114;  // the next sample is 114 us behind the last
+  walk(&run, 3);
+  TEST_ASSERT_EQUAL_size_t(clean.cycles.size(), run.cycles.size());
+}
+
 static void test_the_contact_angle_is_the_one_at_the_impact() {
   // The foot lands 20 degrees plantarflexed and is flat by the time the contact
   // is decided. The angle reported was the flat one, 0 (audit I04).
@@ -413,6 +427,7 @@ int main() {
   RUN_TEST(test_distance_matches_a_known_motion);
   RUN_TEST(test_a_foot_that_turns_without_translating_travels_nowhere);
   RUN_TEST(test_a_timing_gap_restarts_the_engine);
+  RUN_TEST(test_a_timestamp_slightly_behind_does_not_restart_the_engine);
   RUN_TEST(test_the_contact_angle_is_the_one_at_the_impact);
   return UNITY_END();
 }

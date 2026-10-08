@@ -111,6 +111,9 @@ constexpr float kContactSearchS = 0.15f;
 constexpr float kContactSettleS = 0.15f;
 /// A swing with no downward zero crossing for this long is abandoned.
 constexpr float kMaxSwingS = 1.0f;
+/// A sample at most this far behind the last one is timestamp jitter, not a gap
+/// (frame intervals run 0–10 ms around the 5 ms period, audit F-32).
+constexpr uint64_t kMaxBackstepUs = 10000;
 
 /// Doc 04 §7's event path: a 2nd-order Butterworth low-pass at 20 Hz
 /// (CONFIG_V1.json event_path_lowpass_hz) for the stillness test (PROB-024).

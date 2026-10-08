@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   api,
+  distanceMeasured,
   type Cycle,
   type Patient,
   type StoredReference,
@@ -406,16 +407,13 @@ export function References({ device }: { device: DeviceApi }) {
                   </thead>
                   <tbody>
                     {(vocabulary?.feature_names ?? []).map((name, i) => {
-                      // The device drops cycle distance where zero-velocity
-                      // quality is under 0.15 and reports its deviation as 0,
-                      // which is "not measured", not agreement (PROB-015).
-                      // Those cycles are left out; if none remain, say so.
+                      // The device drops a cycle distance that is not a
+                      // measurement (low zero-velocity quality, or beyond
+                      // walking) and reports its deviation as 0, which is "not
+                      // measured", not agreement (PROB-015). Those cycles are
+                      // left out; if none remain, say so.
                       const values = scored
-                        .filter(
-                          (c) =>
-                            i !== DISTANCE_FEATURE ||
-                            c.zupt_quality >= (vocabulary?.distance_min_zupt_quality ?? 1),
-                        )
+                        .filter((c) => i !== DISTANCE_FEATURE || distanceMeasured(c, vocabulary))
                         .map((c) => c.deviations[i])
                         .filter((v) => v !== undefined);
                       const d = median(values);

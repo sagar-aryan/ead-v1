@@ -61,7 +61,7 @@ and USB links → Rust backend with SQLite → React views and exports.
 | `docs/hardware.md` | Current DEC-016 build, previous MPU6500 build, mount maps, what is verified |
 | `docs/wiring_reference.md` | Every DEC-016 connection with its evidence; firmware rules the wiring depends on |
 | `docs/decisions.md` | DEC-001–DEC-030 |
-| `docs/problems.md` | PROB-001–PROB-042 (no PROB-008) |
+| `docs/problems.md` | PROB-001–PROB-045 (no PROB-008) |
 | `docs/testing.md` | TEST-001–TEST-071, with measured results |
 | `docs/protocol.md` | Wire protocol (schema 9): payloads, framing, backfill, ACK, SERVICE_TEST, haptics, enumerations |
 | `docs/clinical_requirements.md` | The researcher's four requirements vs what is built |
@@ -112,6 +112,8 @@ Nothing in flight. The audit list's remaining items are under Next Steps.
 - **No trustworthy reference profile:** v1–v3 carry the PROB-016 fault.
 - **Distance:** slow 10 m walks read about 6.2 and 7.0 m (PROB-024, open); the
   error-state filter is parked until floor-mark ground truth exists.
+- **PROB-045 (open):** each swing's drift correction is applied to the next cycle's
+  distance, so single-cycle distance and speed are off (totals about right).
 - **Shank swing axis** is 9–14° off anatomical Y (TEST-061); functional calibration
   deferred.
 - **PROB-015:** inversion shifted about 15° after re-wearing; root cause unknown. A

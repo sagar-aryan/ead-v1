@@ -1941,3 +1941,80 @@ calibration tests now feed 500 samples.
 ### Verification
 `test_calibration` 7/7; the walk replays (`tools/replay/walks.py`) give the same
 results as before: 3 contact errors over 176 counted landings.
+
+## PROB-043 — A timestamp slightly behind the last restarted the gait engine
+
+**Status:** Resolved in code (2026-10-08); to flash
+
+### Symptoms
+Reference check `20261007-062344-8dc5`: no cycle between frames 89523 and 90171 (about
+3 s). Frame 89711's timestamp was 114 µs earlier than frame 89710's. Reported by a third
+external review; confirmed in the store: the only backward step across 17 sessions.
+
+### Root Cause
+`GaitEngine::update` treated any `dt <= 0` as a gap and restarted (state, velocity,
+windows), losing the cycles around it. Why a frame time runs backwards is unknown; frame
+intervals range 0.007–10.3 ms around the 5 ms period (audit F-32, open).
+
+### Resolution
+A sample at most `kMaxBackstepUs` (10 ms) behind the last is skipped, not taken as a gap.
+A forward gap over 0.1 s, or a large backward jump (a reboot), still restarts.
+
+### Verification
+`test_a_timestamp_slightly_behind_does_not_restart_the_engine` (fails without the fix:
+2 cycles instead of 4). Walk replays unchanged: 3 contact errors over 176 landings, same
+leg distances.
+
+## PROB-044 — Distances beyond walking were scored
+
+**Status:** Resolved in code (2026-10-08); to flash
+
+### Symptoms
+Evaluation `20261007-063010-f99b`: a cycle read 6.07 m at 4.66 m/s with zero-velocity
+quality 0.17, above the 0.15 at which distance is used, and scored full distance
+deviation. Across the store, valid cycles reached 123.87 m (older firmware); on the
+current firmware 7 of 159 valid cycles exceed 2 m, 2 of them scored.
+
+### Root Cause
+Distance was trusted on zero-velocity quality alone. Integration drift that the windows
+do not remove (see PROB-045, and velocity carried across cycles with no window, audit
+F-04) produces strides no walker makes, and they counted in the score.
+
+### Resolution
+`ead::distanceMeasured`: quality ≥ 0.15 **and** stride ≤ 2.5 m **and** speed ≤ 2.5 m/s
+(`kMaxStrideM`, `kMaxWalkingSpeedMps`). The score leaves distance out otherwise. The
+dashboard mirrors it (`store::distance_measured`, the symmetry proxy; the vocabulary
+carries the limits for `distanceMeasured` in `api.ts`, used by LIVE, CYCLES and
+REFERENCES, which until now hard-coded 0.15 in two views). Raw distance and speed are
+still stored and exported as measured; the views mark them "not measured".
+
+### Verification
+`test_a_stride_beyond_walking_is_not_scored` (fails without the fix); the mirrored-
+constants test covers both limits. On the 2026-10-07 data only the 6.07 m cycle
+changes: its score falls from 0.53 to about 0.48 (still cued: its contact angle was off).
+
+## PROB-045 — Each swing's drift correction lands on the next cycle's distance
+
+**Status:** Open (2026-10-08)
+
+### Symptoms
+Third external review: in a synthetic walk with a true 1.30 m stride, cycles read 1.21 m
+and 1.41 m alternately. Confirmed by reading `gait.cpp`; not yet reproduced here.
+
+### Root Cause
+Confirmed in code. A cycle's distance is taken at the claimed contact
+(`closeCycle`), and `startCycle` resets the displacement. The swing's linear de-drift
+(`removeSegmentDrift`) runs later, when the next zero-velocity window begins after the
+contact, so it is subtracted from the new cycle. Each cycle carries its own swing
+uncorrected plus the previous swing's correction; totals over a walk stay about right,
+single cycles do not, most where consecutive swings differ (starts, turns, pace changes).
+
+### Options
+1. Delay closing a cycle's distance until the next window: exact, but every cue would
+   wait for foot-flat as well.
+2. Split the correction at the contact by the ramp's share before and after it, using
+   the velocity at contact as the estimate: no added latency, approximate.
+
+Either changes measured distance and needs the walk replays (`tools/replay/walks.py`,
+leg ground truth) before and after. Distance weighs 0.10 of the score; PROB-044 keeps
+the worst cases out of it.

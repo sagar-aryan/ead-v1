@@ -161,8 +161,27 @@ export interface Vocabulary {
   default_wifi_url: string;
   /** Doc 06 §3 weights, in `feature_names` order (the firmware's, via the store). */
   feature_weights: number[];
-  /** Below this zero-velocity quality, cycle distance is not a measurement. */
+  /** A cycle's distance is a measurement only within these (`distanceMeasured`). */
   distance_min_zupt_quality: number;
+  distance_max_stride_m: number;
+  distance_max_speed_mps: number;
+}
+
+/**
+ * Whether a cycle's distance and speed are measurements: enough zero-velocity
+ * correction, and a stride and speed within walking (the device's own rule,
+ * `ead::distanceMeasured`). Not known without the vocabulary.
+ */
+export function distanceMeasured(
+  c: Pick<Cycle, "zupt_quality" | "distance_m" | "speed_mps">,
+  v: Vocabulary | null,
+): boolean {
+  return (
+    v !== null &&
+    c.zupt_quality >= v.distance_min_zupt_quality &&
+    c.distance_m <= v.distance_max_stride_m &&
+    c.speed_mps <= v.distance_max_speed_mps
+  );
 }
 
 export interface LiveTick {

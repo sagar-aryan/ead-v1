@@ -120,6 +120,17 @@ pub const CONFIDENCE_FOR_DISPLAY: f32 = 0.50;
 /// Mirrored from `ead::kDistanceMinZuptQuality` (doc 05 §8): below this, a
 /// cycle's distance is not a measurement and is left out of any comparison.
 pub const DISTANCE_MIN_ZUPT_QUALITY: f32 = 0.15;
+/// Mirrored from `ead::kMaxStrideM` and `ead::kMaxWalkingSpeedMps`: beyond either,
+/// a cycle's distance is integration drift, not walking.
+pub const MAX_STRIDE_M: f32 = 2.5;
+pub const MAX_WALKING_SPEED_MPS: f32 = 2.5;
+
+/// Mirrors `ead::distanceMeasured`: whether a cycle's distance is a measurement.
+pub fn distance_measured(cycle: &StoredCycle) -> bool {
+    cycle.zupt_quality >= DISTANCE_MIN_ZUPT_QUALITY
+        && cycle.distance_m <= MAX_STRIDE_M
+        && cycle.speed_mps <= MAX_WALKING_SPEED_MPS
+}
 
 /// Doc 06 §3 weights, in feature order, mirrored from `ead::kFeatureWeights`.
 pub const FEATURE_WEIGHTS: [f32; 7] = [0.25, 0.15, 0.15, 0.15, 0.10, 0.10, 0.10];
@@ -149,10 +160,7 @@ fn symmetry_proxy(current: &StoredCycle, previous: &StoredCycle, spreads: &[f32;
         if spreads[feature] <= 0.0 {
             continue;
         }
-        if feature == 5
-            && (current.zupt_quality < DISTANCE_MIN_ZUPT_QUALITY
-                || previous.zupt_quality < DISTANCE_MIN_ZUPT_QUALITY)
-        {
+        if feature == 5 && !(distance_measured(current) && distance_measured(previous)) {
             continue;
         }
         let difference = (feature_value(current, feature)

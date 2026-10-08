@@ -59,6 +59,11 @@ const char* errorClassName(ErrorClass c) {
   return "unknown";
 }
 
+bool distanceMeasured(const GaitCycle& cycle) {
+  return cycle.zuptQuality >= kDistanceMinZuptQuality && cycle.distanceM <= kMaxStrideM &&
+         cycle.speedMps <= kMaxWalkingSpeedMps;
+}
+
 ErrorResult scoreCycle(const GaitCycle& cycle, const ReferenceProfile& reference,
                        const ConfidenceInputs& inputs) {
   ErrorResult result{};
@@ -83,7 +88,7 @@ ErrorResult scoreCycle(const GaitCycle& cycle, const ReferenceProfile& reference
     // the score NaN, and a NaN score drove an episode and an undefined duty
     // (audit F-13).
     const bool measured =
-        !(feature == GaitFeature::CycleDistance && cycle.zuptQuality < kDistanceMinZuptQuality) &&
+        !(feature == GaitFeature::CycleDistance && !distanceMeasured(cycle)) &&
         ref.spread > 0.0f && std::isfinite(value) && std::isfinite(ref.median);
     result.active[f] = measured;
     if (!measured) continue;
