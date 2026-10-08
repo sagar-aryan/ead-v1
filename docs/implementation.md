@@ -13,7 +13,7 @@ Milestone plan: `docs/handoff.md`.
 | M3 | Calibration, Mahony orientation, mounting check, datasets | Complete; verified on the leg (TEST-027–029) |
 | M4 | Gait events + ZUPT, EVENTS/CYCLES/TRENDS | Complete; 6.39 m on a 6.00 m course (TEST-030), 5.83 m since contacts come from the shank (DEC-022, TEST-059). Trends live inside CYCLES, not as doc 11's seven panels |
 | M5 | Reference, error engine, session workflow | Complete (TEST-031, TEST-032); used with patient 67 since 2026-09-18 |
-| M6 | CSV, `.mat`, PDF exports | Complete; checked against synthetic sessions only (TEST-035–037) |
+| M6 | CSV, `.mat`, PDF exports | Complete (TEST-035–037) |
 | M7 | On-device flash storage and recovery | Not planned in detail (needs a DEC) |
 
 | BNO086 build | DEC-016 pins, own SH-2 driver, sensor check, motor service test, `ead --check` | Complete on hardware (TEST-045–050), except an accepted motor pulse felt by a person; mount maps measured on the leg (TEST-051); step detection rebuilt on its walks (DEC-022) |
@@ -290,8 +290,7 @@ is not 1 g, when gravity is not upward, or when too few frames were collected.
   the 1 Hz keepalive is part of the protocol, not an optimisation.
 - Every window that completes is adopted on the frame that completes it
   (`calibration::consume` returns true; `orientation::adopt`, which resets the gait
-  engine and makes it re-read the record). Until 2026-10-05 only the first was: a
-  recalibration was reported accepted and ignored. A rejected window
+  engine and makes it re-read the record). A rejected window
   leaves no orientation, which is what the dashboard's "last calibration was
   rejected" blocker says.
 
@@ -695,9 +694,9 @@ panels, CYCLES → RAW, the haptic column and lane.
 ### Scope
 The symmetry proxy is in CYCLES and TRENDS (it needs the session's reference
 spreads). Haptics are shown as a table in CYCLES, a timeline in EVENTS and a file in
-the export. Planned: RAW cycle and error filters, PAUSE/RESUME. The "roll the
-sole inward" mounting step is not built: with Y and Z checked and every mount map a
-proper rotation, the foot's X axis is already determined.
+the export. Planned: RAW cycle and error filters, PAUSE/RESUME. Two mounting
+steps suffice: with Y and Z checked and every mount map a proper rotation, the foot's X
+axis is determined.
 
 ### Verification
 `npm test` (28), `npm run build`, `cargo test` (the device test checks `last_cycle`),

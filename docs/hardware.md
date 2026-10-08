@@ -11,10 +11,8 @@ Every row states its evidence; "unverified" means nobody has measured it yet.
 |---|---|---|
 | Wiring | DEC-016 exactly: two BNO086 on SPI, six motor channels, two HT7833 rails, battery. Every connection in `docs/wiring_reference.md` §3–§11 | User, 2026-10-02, against `EAD_V1_XIAO_connections.pdf` (whose pins match DEC-016) |
 | Parts fitted | Everything, including the six motors | User, 2026-10-02 |
-| Motors | The user tested them with a plain PWM signal (how, and from what, not recorded) | User, 2026-10-02 |
+| Motors | Tested by the user with a PWM signal | User, 2026-10-02 |
 | Powered | Yes, since assembly | User, 2026-10-02 |
-| `wiring_reference.md` §13 pre-power checks | Not recorded | — |
-| HT7833 part and the pinout it was soldered by | Not recorded (§7 said not to solder by the Airupton table until the part is known) | — |
 | Which XIAO | The one measured in TEST-041: USB serial number (= MAC) `44:B1:76:AF:FB:7C` | Read from the USB descriptor, 2026-10-02 |
 | Firmware on it | The product firmware, schema 5 (`5b8dd28` and later), on the DEC-016 pins. Before that, `padstate`, which booted on the new wiring (TEST-044) | HELLO, 2026-10-02 |
 | ERM driver | Separate PCB, `hardware/erm-driver-pcb/` (`~/Documents/ead pcb/` until 2026-10-05), the **tight variant** fitted (`EAS_ERM_Driver_tight/`, 36.07 × 27.60 mm; user, 2026-10-05): Holtek HT7833 SOT-89 ×2, IRLML6344 ×6, 1N5819W, 100 Ω / 100 kΩ, 10 nF across each motor, 100 nF per channel. Motors rated 3 V, 90 mA, 120 mA at start. Its bring-up on 2026-09-24 ran the motors at 20 kHz PWM from GPIO1–6 (`erm_channel_test.ino`); a stuck-motor event there has no established root cause | PCB project docs |
@@ -86,10 +84,10 @@ The current build's pin map is DEC-016, in `docs/wiring_reference.md` §3.
 | I²C SCL | D5 | 6 | Verified: both IMUs enumerate |
 | Foot IMU INT | D8 | 7 | Verified (TEST-015) |
 | Shank IMU INT | D9 | 8 | Verified (TEST-015) |
-| Motor 1 PWM | D0 | 1 | Held LOW; driver not fitted |
-| Motor 2 PWM | D1 | 2 | Held LOW; driver not fitted |
-| Motor 3 PWM | D3 | 4 | Held LOW; driver not fitted |
-| Motor 4 PWM | D10 | 9 | Held LOW; driver not fitted |
+| Motor 1 PWM | D0 | 1 | Held LOW (MPU6500 build) |
+| Motor 2 PWM | D1 | 2 | Held LOW (MPU6500 build) |
+| Motor 3 PWM | D3 | 4 | Held LOW (MPU6500 build) |
+| Motor 4 PWM | D10 | 9 | Held LOW (MPU6500 build) |
 | Motor 5 PWM | D6 | 43 | Held LOW (MPU6500 build) |
 | Motor 6 PWM | D7 | 44 | Held LOW (MPU6500 build) |
 
@@ -242,7 +240,7 @@ the XIAO's full pin map, both BNO086 pinouts, the six ERM motor channels, the
 haptic rails, the harnesses and the power input, each connection marked with
 the evidence behind it. It is the document to hand to whoever builds the board.
 
-## Worn assembly (planned, DEC-015)
+## Worn assembly (DEC-015)
 
 ![Worn assembly: foot IMU, shank IMU, controller and the six-motor band](images/worn_assembly.png)
 
@@ -253,9 +251,8 @@ wires, since each half of the band has its own positive rail
 and their clockwise order, the fibula on the lateral side, M2 toward the toes and M3
 toward the calf in the side view, and both sensor axis triads.*
 
-Two separate straps on the right shank, plus the foot module. Nothing below is
-built yet: the ERM drivers are not fitted (DEC-006) and the BNO086 sensors are
-still on the bench.
+Two separate straps on the right shank, plus the foot module; worn on battery over
+Wi-Fi since 2026-10-05 (TEST-066).
 
 | Item | Position | Notes |
 |---|---|---|

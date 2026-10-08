@@ -16,8 +16,7 @@ A recording made by `eadprobe stats --record` since schema 5 carries the device'
 configuration, and the replay converts its counts with it. Older recordings carry
 none: `--mpu6500` supplies the MPU6500 build's scales and measured mount maps,
 and without it the replay refuses rather than guess. Expected for the walk below:
-5 valid cycles, 5.83 m (DEC-022; it read 6 and 6.39 m when the first step's
-push-off was taken for a contact).
+5 valid cycles, 5.83 m (DEC-022).
 
 | File | Ground truth | Notes |
 |---|---|---|
