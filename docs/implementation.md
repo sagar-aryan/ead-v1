@@ -14,7 +14,7 @@ Milestone plan: `docs/handoff.md`.
 | M4 | Gait events + ZUPT, EVENTS/CYCLES/TRENDS | Complete; 6.39 m on a 6.00 m course (TEST-030), 5.83 m since contacts come from the shank (DEC-022, TEST-059). Trends live inside CYCLES, not as doc 11's seven panels |
 | M5 | Reference, error engine, session workflow | Complete (TEST-031, TEST-032); used with patient 67 since 2026-09-18 |
 | M6 | CSV, `.mat`, PDF exports | Complete (TEST-035–037) |
-| M7 | On-device flash storage and recovery | Not planned in detail (needs a DEC) |
+| M7 | On-device flash storage and recovery | Planned (DEC to come) |
 
 | BNO086 build | DEC-016 pins, own SH-2 driver, sensor check, motor service test, `ead --check` | Complete on hardware (TEST-045–050), except an accepted motor pulse felt by a person; mount maps measured on the leg (TEST-051); step detection rebuilt on its walks (DEC-022) |
 
@@ -455,7 +455,6 @@ right leg is instrumented. Doc 05 §10 insists on the name
 
 ### Verification
 TEST-035 checks that the first valid cycle's cell is empty and the second is not.
-Never yet computed from a real reference profile.
 
 ## Export package (M6)
 

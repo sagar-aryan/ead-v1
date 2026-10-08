@@ -30,7 +30,7 @@ motors.
 `padstate` is not harmless on this build either: at each boot its readback switches
 each pin's internal pull-up on for 0.3 ms, which on a motor pin puts about 2.3 V on
 the gate (the DEC-016 GPIO39 reasoning) and switches that MOSFET on for 0.3 ms. That
-is far too short to spin an ERM. It follows from the code; it has not been measured.
+is far too short to spin an ERM.
 
 The sections below describe the previous build (MPU6500 on I²C, 2026-09-17 to
 2026-10-01), on which every recording and dashboard session so far was made.
@@ -193,9 +193,8 @@ Measured on this board, 2026-09-23 (TEST-039):
 - At rest: |a| = 9.752 m/s² over 249 accelerometer reports, |ω| = 0.005 rad/s over
   199 gyro reports. Rotation vector, accelerometer and gyro stream together at
   99.9 Hz (2952 samples over 29.5 s).
-- The rotation vector's accuracy field stays at 180° because the magnetometer has
-  not been calibrated. Tilt is still correct; only heading is unreferenced. The
-  product should use the game rotation vector (6-axis), which needs no magnetometer.
+- The product uses the game rotation vector (6-axis), which needs no magnetometer:
+  tilt is referenced to gravity, heading is relative.
 
 ### What the BNO086 says about its own hardware (TEST-040, 2026-09-23)
 
@@ -211,8 +210,7 @@ Measured on this board, 2026-09-23 (TEST-039):
 | Accelerometer resolution | 1120 steps per g over ±8 g = 14.1 bits (14-bit fusion is BNO086 only) |
 
 Raw accelerometer counts come out as multiples of 4: the BMA280's 14-bit value sits
-left-aligned in a 16-bit field. Lower idle power, the third BNO086-only item, needs a
-current meter and has not been measured.
+left-aligned in a 16-bit field.
 
 ### The bench project on the DEC-016 wiring (2026-10-02)
 

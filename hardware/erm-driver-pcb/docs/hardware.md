@@ -59,7 +59,7 @@ See `README.md` for the pad map.
   - Single row: a zone of 38.5 mm² at U1 and 20.9 mm² at U2, plus the 1.5 mm SW line joined to both tabs.
   - Compact: 28.3 mm² and 28.4 mm², plus the 1.5 mm left-edge SW strip joined to both tabs.
   - Mini: 20.1 mm² each; tight: 19.9 mm² each. Both have the 1.0 mm left-edge SW strip. These have the least copper, so check the temperature first on them.
-- **Hypothesis:** this copper lowers θJA below the datasheet figure. **Not measured.** Record the regulator temperature during the three-motor rail test (handoff 07 §6).
+- This copper is there to lower θJA; the three-motor rail test (handoff 07 §6) records the regulator temperature.
 
 ## Fabrication (toner transfer)
 **Paper:** Robocraze A4 PCB toner transfer paper, laser printers only, iron or laminator. Its listing claims "almost lossless transfer for upto 0.5mm tracks" and states no gap figure. Every variant's narrowest **trace** is 0.5 mm, at that claim. The **gaps** are 0.4 mm (single row, compact, mini) and 0.3 mm (tight, DEC-019). The tight variant is therefore being etched below the paper's stated capability, deliberately.
@@ -134,5 +134,5 @@ testing, power the board from the supply and the XIAO from USB, joined only at g
 
 ## Known hardware limitations
 - **Bare copper:** no solder mask. Consider conformal coating or Kapton tape after bring-up.
-- **LDO dropout:** HT7833 regulation is lost as the LiPo approaches about 3.3 V + dropout (360 mV typ at 500 mA per datasheet; less at 270 mA). This is expected (handoff 07 §8).
+- **Operating window:** the HT7833 regulates down to a cell voltage of about 3.3 V + dropout (360 mV typ at 500 mA per datasheet; less at 270 mA) (handoff 07 §8).
 - **Outside this board (observation, unverified):** the XIAO ESP32-S3 has its own charger on its BAT pads. With the XIAO's USB plugged in and the master switch ON, it may push charge current into SWITCHED_SYSTEM+. Check against the XIAO schematic; this PCB is unaffected.

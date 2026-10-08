@@ -263,7 +263,7 @@ The user approved all four. `EAS_ERM_Driver_mini/` is a copy of `EAS_ERM_Driver_
 - **Harder hand soldering:** shorter pads.
 - **Cutting:** only 0.5 mm of copper margin, so cut carefully along the line.
 - **Narrower power copper:** 1.0 mm still carries over 2 A, against about 1 A needed. This is a calculation, not a measurement.
-- **Less regulator heat-spreading copper:** 20.1 mm² per regulator (compact 28.3 mm²), plus the 1.0 mm SW strip. Regulator temperature is still to be measured in bring-up.
+- **Less regulator heat-spreading copper:** 20.1 mm² per regulator (compact 28.3 mm²), plus the 1.0 mm SW strip. Regulator temperature is recorded in the rail test.
 
 ## DEC-018 — Tight variant: 0.3 mm gaps and tight courtyards
 

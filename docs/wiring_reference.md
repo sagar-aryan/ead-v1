@@ -256,9 +256,8 @@ is (4.2 − 3.3) V × I. At 300 mA that is 0.27 W; a SOT-89 at 200 °C/W **[DS]*
 Holtek AN0553 runs 54 °C above ambient. Acceptable for a pulsed load (motors rated
 90 mA, 120 mA at start).
 
-Low-battery behaviour: dropout is 220 mV at 200 mA **[DS]** Airupton. Below a
-cell voltage of about 3.5 V the rails fall below 3.3 V and the motors weaken.
-Expected, not a fault.
+Operating window: dropout is 220 mV at 200 mA **[DS]** Airupton, so the rails hold
+3.3 V down to a cell voltage of about 3.5 V.
 
 ## 8. Logic power
 

@@ -378,7 +378,7 @@ Each sensor record is 60 bytes: thirteen little-endian float32 values and 8 rese
 | 52 | 8 B | reserved, 0 |
 
 A record with any `reject` bit set must not be used. The device keeps the last record in
-RAM and reports it in STATUS; it is not stored in flash (no storage until M7).
+RAM and reports it in STATUS for the current boot.
 
 ### 5.13 Reference profile (64 bytes)
 
